@@ -45,7 +45,7 @@ PEAK = re.compile(r"gpu_peak_memory_allocated_gib[^0-9]+([0-9.]+)"
 TRACE = re.compile(r"FULL_META_MEMORY (\{.*\})")
 
 
-def diag_config(micro_b: int, micro_m: int, variant: str = "ALT-main-s42") -> dict:
+def diag_config(micro_b: int, micro_m: int, variant: str = "ALT-main-s43") -> dict:
     """The campaign run recipe with only the microbatch pair replaced."""
     config = dict(next(r for r in F.configurations() if r["id"] == variant))
     config["micro_B"] = int(micro_b)

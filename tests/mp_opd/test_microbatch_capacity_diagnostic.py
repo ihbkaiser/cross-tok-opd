@@ -21,7 +21,7 @@ SPEC.loader.exec_module(D)
 def test_diag_config_changes_only_the_microbatch_pair():
     import queue_full_alternating as F
 
-    baseline = next(r for r in F.configurations() if r["id"] == "ALT-main-s42")
+    baseline = next(r for r in F.configurations() if r["id"] == f"ALT-main-s{F.TRAIN_SEEDS[0]}")
     config = D.diag_config(2, 4)
     assert (config["micro_B"], config["micro_M"]) == (2, 4)
     trimmed = lambda value: {k: v for k, v in value.items() if k not in ("micro_B", "micro_M")}

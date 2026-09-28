@@ -11,7 +11,7 @@ q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)
 def test_campaign_runs_exact_order_and_budget():
     configs=q.configurations()
     assert all(x['micro_B']==1 and x['micro_M']==4 for x in configs)
-    assert q.TRAIN_SEEDS==(42,) and q.OWNER_SEEDS==(42,) and q.EXTRA_SEEDS==()
+    assert q.TRAIN_SEEDS==(43,) and q.OWNER_SEEDS==(43,) and q.EXTRA_SEEDS==()
     assert [x['id'] for x in configs]==[f'ALT-{name}-s{seed}' for seed in q.TRAIN_SEEDS
         for name,_,_ in q.VARIANTS]
     assert [x['train_seed'] for x in configs]==[seed for seed in q.TRAIN_SEEDS
@@ -19,8 +19,8 @@ def test_campaign_runs_exact_order_and_budget():
     assert len(configs)==len(q.TRAIN_SEEDS)*len(q.VARIANTS)
     assert all(x['student_updates']==312 and x['B']==64 and x['M']==16 and x['student']=='full' for x in configs)
     assert [(x['energy_lr'],x['energy_every']) for x in configs[:3]]==[(.001,4),(.0001,1),(.001,1)]
-    assert [x['id'] for x in configs[:3]]==['ALT-every4-s42','ALT-lowLR-s42','ALT-main-s42']
-    assert [x['id'] for x in configs]==['ALT-every4-s42','ALT-lowLR-s42','ALT-main-s42']
+    assert [x['id'] for x in configs[:3]]==['ALT-every4-s43','ALT-lowLR-s43','ALT-main-s43']
+    assert [x['id'] for x in configs]==['ALT-every4-s43','ALT-lowLR-s43','ALT-main-s43']
 
 
 def test_run_command_forwards_pinned_microbatch_not_shell(tmp_path,monkeypatch):

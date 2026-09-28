@@ -29,7 +29,7 @@ VARIANTS=(('every4',1e-3,4),('lowLR',1e-4,1),('main',1e-3,1))
 # single-GPU full queue. The two-host split queue would place the first seed on the
 # one-GPU owner and the rest on the many-GPU extras, so a single-seed campaign has no
 # extras plan at all and must not be submitted there.
-TRAIN_SEEDS=(42,)
+TRAIN_SEEDS=(43,)
 OWNER_SEEDS=TRAIN_SEEDS[:1]
 EXTRA_SEEDS=TRAIN_SEEDS[1:]
 WRAPPER=Path('/workspace/storage-shared/nlp/tungks/SimCT/python-b200.sh')
@@ -308,7 +308,7 @@ def qualify(case, destination=None):
             'tests/test_trajectory.py','tests/test_exact_trajectory_integration.py',
             '-q','-p','no:cacheprovider'],cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,check=True)
     for variant in ('main','every4'):
-        config=next(r for r in c['runs'] if r['id']==f'ALT-{variant}-s42')
+        config=next(r for r in c['runs'] if r['id']==f'ALT-{variant}-s{TRAIN_SEEDS[0]}')
         uninterrupted=dest/(variant+'-continuous');resumed=dest/(variant+'-resumed')
         # Unique qualification source/output; never delete a failed canary.
         if not uninterrupted.exists():run_command(case,config,uninterrupted,limit=4)
