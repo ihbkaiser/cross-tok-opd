@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fixed-span ladder: span 3 and 4 at the company-v2-fixed recipe, one variant per GPU slot.
 
-Reuses the alternating queue for shared machinery (config gate, eval plan, generation, scoring).
-Only the training command differs: mode 'fixed' with both MP_FIXED_SPAN_LENGTH and
-MP_MAX_SPAN_LENGTH set to the same value, because experiments/runai/run_single_gpu.py refuses a
-fixed span longer than the max span (run_single_gpu.py:176).
+Training launches the repo host wrapper with an explicit output directory, so a killed run
+can be resumed into the same directory instead of silently creating a second one. Placement
+(which GPU) is runtime state, not part of the campaign contract: override it with
+MP_LADDER_SLOTS="2,3" without invalidating an existing case.
 """
 import argparse
 import os
@@ -21,14 +21,14 @@ import borrowed_campaign as B  # noqa: E402
 
 READ = F.read
 WRITE = F.write
+HOST_WRAPPER = ROOT / "experiments/runai/python-b200-host.sh"
+RUNNER = ROOT / "experiments/runai/run_single_gpu.py"
 
-# The ladder. The recipe is the historical company-v2-fixed one, which is what
-# 'run_single_gpu.sh <slot> fixed 312' produces from the launcher defaults.
 VARIANTS = (("fixed3", 3), ("fixed4", 4))
 TRAIN_SEEDS = (42, 43, 44)
-# One variant per slot so the two variants of one seed train at the same time. The wrapper
-# derives its port bases from the slot, so two concurrent jobs never collide.
-SLOTS = {"fixed3": 6, "fixed4": 7}
+# Default placement only. The wrapper derives its port bases from the slot, so the two
+# concurrent jobs never collide; MP_LADDER_SLOTS overrides the placement per host.
+DEFAULT_SLOTS = (6, 7)
 STEPS = (40, 80, 120, 156, 200, 240, 280, 312)
 UPDATES = 312
 PARTITION_SEED = 43
@@ -36,11 +36,33 @@ RECIPE = dict(mode="fixed", learning_rate=1e-6, micro_train_batch_size=4, train_
               num_epochs=2, optimizer_updates=UPDATES, alternating=False,
               partition_seed=PARTITION_SEED, temperature=0.6, top_p=0.95,
               generate_max_len=4096, max_len=4096, source_group="company-v2-fixed")
+# Recipe flags a stale interactive shell must never inject into an immutable run.
+# Infrastructure flags (MP_RUNTIME_DIR, MP_RAY_TMP, MP_SHARED_ROOT) stay inherited.
+RECIPE_FLAGS = ("MP_ALTERNATING", "MP_ENERGY_CHECKPOINT", "MP_ENERGY_EVERY", "MP_ENERGY_LR",
+                 "MP_META_PATH", "MP_META_MICRO_BATCH_SIZE", "MP_MAX_LEN", "MP_PAUSE_AFTER_UPDATES",
+                 "MP_CHECKPOINT_STEPS", "MP_SEED", "MP_PARTITION_SEED", "MP_FIXED_SPAN_LENGTH",
+                 "MP_MAX_SPAN_LENGTH", "MP_MICRO_TRAIN_BATCH_SIZE", "MP_ALGORITHM",
+                 "MP_ATTN_IMPLEMENTATION", "MP_PREFLIGHT_ONLY", "MP_RESUME", "MP_RUN_ROOT",
+                 "MP_STUDENT_PATH", "MP_TEACHER_PATH", "MP_DATASET_PATH", "MP_SOURCE_COMMIT",
+                 "MP_SOURCE_DIRTY")
+
+
+def slots():
+    """GPU slot per variant; placement only, so it stays out of the campaign contract."""
+    raw = os.environ.get("MP_LADDER_SLOTS", "")
+    if not raw:
+        return dict(zip([name for name, _ in VARIANTS], DEFAULT_SLOTS))
+    values = [int(x) for x in raw.split(",") if x.strip()]
+    if len(values) != len(VARIANTS) or len(set(values)) != len(values):
+        raise ValueError("MP_LADDER_SLOTS needs one distinct slot per variant")
+    if any(not 0 <= v <= 7 for v in values):
+        raise ValueError("MP_LADDER_SLOTS entries must be numeric slots 0..7")
+    return dict(zip([name for name, _ in VARIANTS], values))
 
 
 def configurations():
     return [dict(id="FIX-" + name + "-s" + str(seed), variant=name, span=span, mode="fixed",
-                 train_seed=seed, slot=SLOTS[name], student_updates=UPDATES,
+                 train_seed=seed, student_updates=UPDATES,
                  micro_B=RECIPE["micro_train_batch_size"], train_B=RECIPE["train_batch_size"],
                  student_lr=RECIPE["learning_rate"])
             for seed in TRAIN_SEEDS for name, span in VARIANTS]
@@ -87,59 +109,81 @@ def initialize(case, student, teacher, dataset, template_case):
     return case
 
 
+def run_dir(case, config):
+    return Path(case) / "train" / config["id"]
+
+
+def receipt_path(case, config):
+    return Path(case) / "train" / (config["id"] + ".last-exit.json")
+
+
+def resumable(case, config):
+    return (run_dir(case, config) / "checkpoints" / "latest.json").is_file()
+
+
 def train_env(case, config):
     c = checked_config(case)
-    # A stray MP_* value in the interactive shell must never reach an immutable run.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("MP_")}
-    root = Path(case) / "train" / config["id"]
-    root.mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in RECIPE_FLAGS}
+    slot = slots()[config["variant"]]
     env.update(
+        CUDA_VISIBLE_DEVICES=str(slot),
+        KDFLOW_ROLLOUT_PORT_BASE=str(15000 + 1000 * slot),
+        KDFLOW_ROUTER_PORT_BASE=str(23000 + 1000 * slot),
+        KDFLOW_ROUTER_PROMETHEUS_PORT=str(20000 + 1000 * slot),
         MP_STUDENT_PATH=c["student"], MP_TEACHER_PATH=c["teacher"], MP_DATASET_PATH=c["dataset"],
         MP_SEED=str(config["train_seed"]), MP_PARTITION_SEED=str(PARTITION_SEED),
         MP_FIXED_SPAN_LENGTH=str(config["span"]), MP_MAX_SPAN_LENGTH=str(config["span"]),
         MP_ALGORITHM="mp_opd", MP_ATTN_IMPLEMENTATION="eager",
         MP_MICRO_TRAIN_BATCH_SIZE=str(config["micro_B"]),
-        MP_PREFLIGHT_ONLY="0", MP_RESUME="0", MP_RUN_ROOT=str(root),
+        MP_PREFLIGHT_ONLY="0",
+        MP_RESUME="1" if resumable(case, config) else "0",
+        MP_CHECKPOINT_STEPS=",".join(str(s) for s in STEPS),
+        # Ray appends a session and socket names below this path; keep it short for AF_UNIX.
+        MP_RAY_TMP="/tmp/ar" + str(os.getpid()) + "-" + str(time.time_ns() % 1000000),
     )
-    return env, root
+    return env, slot
 
 
 def train_one(case, config):
-    """Launch one run; the wrapper names its own directory under MP_RUN_ROOT."""
+    """Launch one run into its own directory, resuming when a checkpoint exists."""
     case = Path(case)
-    env, root = train_env(case, config)
-    started = [p for p in root.glob("qwen-gemma-*") if p.is_dir()]
-    if len(started) > 1:
-        raise ValueError("ambiguous run directory under " + str(root))
-    log = root / (config["id"] + ".attempt-" + str(time.time_ns()) + ".log")
-    argv = ["bash", str(ROOT / "experiments/runai/run_single_gpu.sh"), str(config["slot"]),
-            "fixed", str(UPDATES)]
-    print("RUN_LOG", log, flush=True)
+    env, slot = train_env(case, config)
+    target = run_dir(case, config)
+    record = receipt_path(case, config)
+    if record.exists() and READ(record)["returncode"] == 0:
+        return target
+    if target.exists() and not resumable(case, config):
+        # No checkpoint means nothing to resume; move the husk aside instead of colliding.
+        husk = target.with_name(target.name + ".abandoned-" + str(time.time_ns()))
+        target.rename(husk)
+        print("ABANDONED", husk, flush=True)
+    log = target.parent / (config["id"] + ".attempt-" + str(time.time_ns()) + ".log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    argv = ["bash", str(HOST_WRAPPER), str(RUNNER), "fixed", str(UPDATES), str(target)]
+    print("RUN_LOG", log, "slot", slot, "resume", env["MP_RESUME"], flush=True)
     with log.open("xb") as handle:
         result = subprocess.run(argv, env=env, stdout=handle, stderr=subprocess.STDOUT)
-    runs = [p for p in root.glob("qwen-gemma-*") if p.is_dir()]
-    if len(runs) != 1:
-        raise ValueError("expected exactly one run directory under " + str(root))
-    run_dir = runs[0]
-    WRITE(root / "last-exit.json", dict(returncode=result.returncode, log=str(log), argv=argv,
-        slot=config["slot"], run_dir=str(run_dir), finished=time.time()))
+    WRITE(record, dict(returncode=result.returncode, log=str(log), argv=argv, slot=slot,
+        resume=env["MP_RESUME"], run_dir=str(target), finished=time.time()))
     if result.returncode:
         raise subprocess.CalledProcessError(result.returncode, argv)
-    return run_dir
-
-
-def run_dir_of(case, config):
-    return Path(READ(Path(case) / "train" / config["id"] / "last-exit.json")["run_dir"])
+    return target
 
 
 def finished(case, config):
-    marker = Path(case) / "train" / config["id"] / "last-exit.json"
-    return marker.exists() and READ(marker)["returncode"] == 0
+    record = receipt_path(case, config)
+    return record.exists() and READ(record)["returncode"] == 0
+
+
+def run_dir_of(case, config):
+    return Path(READ(receipt_path(case, config))["run_dir"])
 
 
 def train(case, only=None):
     case = Path(case)
     checked_config(case)
+    placement = slots()
+    print("PLACEMENT", placement, flush=True)
     for seed in TRAIN_SEEDS:
         wanted = [c for c in configurations() if c["train_seed"] == seed]
         if only is not None:
@@ -166,13 +210,13 @@ def eval_plan(case, config, step):
     path = case / "eval" / (config["id"] + "-step" + str(step)) / "plan.json"
     if path.exists():
         return F.eval_plan(case, config["id"], step)
-    run_dir = run_dir_of(case, config)
-    summary = READ(run_dir / "checkpoint" / "run-summary.json")
+    source_dir = run_dir_of(case, config)
+    summary = READ(source_dir / "checkpoint" / "run-summary.json")
     if summary.get("status") != "completed" or summary.get("optimizer_updates") != UPDATES:
         raise ValueError("training not complete for " + config["id"])
     E, D, Q = B.eval_modules()
     plan = READ(case / "eval-template.json")
-    identity = B.checkpoint_stable(run_dir / "checkpoint" / ("step" + str(step)))
+    identity = B.checkpoint_stable(source_dir / "checkpoint" / ("step" + str(step)))
     plan.update(jobs=[dict(id=config["id"] + "-step" + str(step),
                          mode="fixed-span" + str(config["span"]), step=step, tier=0,
                          checkpoint=identity)],
@@ -236,21 +280,21 @@ def main():
     elif args.action == "plan":
         for config in configurations():
             print(config["id"], "span", config["span"], "seed", config["train_seed"],
-                  "slot", config["slot"])
+                  "slot", slots()[config["variant"]])
         print("trains", expected_trains(), "eval cells", len(eval_cells()))
     elif args.action == "train-one":
         config = next(c for c in configurations() if c["id"] == args.id)
-        print("TRAIN_START", config["id"], "slot", config["slot"], flush=True)
+        print("TRAIN_START", config["id"], "slot", slots()[config["variant"]], flush=True)
         print("TRAIN_DONE", train_one(args.case, config))
     elif args.action == "train":
         train(args.case, args.id)
     elif args.action == "status":
+        print("placement", slots())
         for config in configurations():
-            marker = Path(args.case) / "train" / config["id"] / "last-exit.json"
-            if marker.exists():
-                print(config["id"], "rc=" + str(READ(marker)["returncode"]))
-            else:
-                print(config["id"], "not started")
+            record = receipt_path(args.case, config)
+            state = READ(record) if record.exists() else None
+            print(config["id"], "rc=" + str(state["returncode"]) if state else "not started",
+                  "resumable=" + str(resumable(args.case, config)))
     elif args.action == "plan-eval":
         for config in configurations():
             for step in STEPS:
