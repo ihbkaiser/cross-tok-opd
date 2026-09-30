@@ -348,6 +348,19 @@ def run_checkpoint(root,plan,plan_hash,job,args,deadline):
             watchdog.cancel(); stop_group(process)
 
 
+DEFAULT_TOLERATE_USED_MIB=1024
+
+
+def gpu_occupancy_ok(used_mib,tolerate_used_mib):
+    """Refuse a GPU another process already occupies unless that is tolerated explicitly.
+
+    The historical gate refused anything at or above one GiB. A caller that knowingly
+    shares an otherwise idle GPU raises --tolerate-used-mib; the default stays 1024 so no
+    existing invocation starts sharing by accident.
+    """
+    return int(used_mib)<int(tolerate_used_mib)
+
+
 def worker(args):
     root=args.plan.resolve().parent;plan=E.read_json(args.plan);plan_hash=E.file_hash(args.plan)
     if plan["profile"]!=D.PROFILE or plan["source"]!=D.script_hashes(): raise ValueError("queue source/profile changed")
@@ -362,6 +375,7 @@ def worker(args):
     gpu_lock=Path(tempfile.gettempdir())/f"simct-eval-gpu{args.gpu}.lock"
     with locked(gpu_lock,blocking=False) as own:
         if own is None: raise RuntimeError("another eval worker owns this GPU")
+        shared_announced=False
         while True:
             with locked(root/"state.lock"):
                 state=read_state(root,plan_hash,plan)
@@ -369,8 +383,17 @@ def worker(args):
                 if not candidates:
                     print("QUEUE_STOP admission/deadline/complete",flush=True);return
             usage=subprocess.check_output(["nvidia-smi","-i",str(args.gpu),"--query-gpu=memory.used","--format=csv,noheader,nounits"],text=True).strip()
-            if int(usage)>=1024:
+            if not gpu_occupancy_ok(usage,args.tolerate_used_mib):
                 print("WAIT_GPU",args.gpu,usage,flush=True);time.sleep(15);continue
+            if int(usage)>=DEFAULT_TOLERATE_USED_MIB and not shared_announced:
+                with locked(root/"state.lock"):
+                    state=read_state(root,plan_hash,plan)
+                    state["shared_gpu"]={"gpu":args.gpu,"used_mib":int(usage),
+                        "tolerate_used_mib":int(args.tolerate_used_mib),
+                        "note":"GPU shared with another process; wall-clock timings are not comparable"}
+                    atomic_json(state_path(root),state)
+                print("SHARED_GPU",args.gpu,usage,"tolerate<=",args.tolerate_used_mib,flush=True)
+                shared_announced=True
             claimed=False
             for job in candidates:
                 with locked(root/(job["id"]+".lock"),blocking=False) as lock:
@@ -540,6 +563,9 @@ def main():
     q=sub.add_parser("worker")
     q.add_argument("--plan",type=Path,required=True);q.add_argument("--gpu",type=int,choices=range(8),required=True)
     q.add_argument("--phase",choices=("combined","generate"),default="generate")
+    q.add_argument("--tolerate-used-mib",type=int,default=DEFAULT_TOLERATE_USED_MIB,
+                   help="Refuse a GPU another process already occupies at or above this many MiB; "
+                        "raise it to share a deliberately idle GPU. Default 1024 keeps the historical gate")
     q.add_argument("--min-free-gib",type=float,default=20)
     q.add_argument("--score-python",default="/usr/bin/python3.12")
     q.add_argument("--concurrency",type=int,default=256);q.add_argument("--score-workers",type=int,default=2)

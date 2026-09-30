@@ -203,4 +203,39 @@ class QueueTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 Q.run_cell(root,plan,"plan",job,"gsm8k",42,"",{},args,time.time()+30)
 
+
+class GpuSharingGateTests(unittest.TestCase):
+    """Tolerating an occupied GPU must be opt-in; the default keeps the historical gate."""
+
+    def test_default_constant_is_the_historical_gate(self):
+        self.assertEqual(Q.DEFAULT_TOLERATE_USED_MIB,1024)
+
+    def test_gate_semantics_keep_the_one_gib_boundary(self):
+        self.assertTrue(Q.gpu_occupancy_ok(0,1024))
+        self.assertTrue(Q.gpu_occupancy_ok(1023,1024))
+        self.assertFalse(Q.gpu_occupancy_ok(1024,1024))
+        self.assertFalse(Q.gpu_occupancy_ok(8698,1024))
+        self.assertTrue(Q.gpu_occupancy_ok("8698",16384))
+        self.assertFalse(Q.gpu_occupancy_ok(16384,16384))
+
+    def test_worker_cli_defaults_to_refusing_an_occupied_gpu(self):
+        argv=['eval_queue.py','worker','--plan','x','--gpu','3','--internal-code-execution']
+        with patch.object(Q,'worker') as worker, patch.object(sys,'argv',argv):
+            Q.main()
+        try:
+            self.assertEqual(worker.call_args.args[0].tolerate_used_mib,1024)
+        finally:
+            Q.GENERATION_ONLY=False
+
+    def test_worker_cli_accepts_an_explicit_tolerance(self):
+        argv=['eval_queue.py','worker','--plan','x','--gpu','3',
+              '--tolerate-used-mib','16384','--internal-code-execution']
+        with patch.object(Q,'worker') as worker, patch.object(sys,'argv',argv):
+            Q.main()
+        try:
+            self.assertEqual(worker.call_args.args[0].tolerate_used_mib,16384)
+        finally:
+            Q.GENERATION_ONLY=False
+
+
 if __name__=="__main__": unittest.main()
