@@ -1,0 +1,18 @@
+{
+  "name": "evidence",
+  "command": [
+    "uv",
+    "run",
+    "--no-sync",
+    "python",
+    "/workspace/xtoken-native/capture_environment.py"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "started_at": "20260903T043350Z",
+  "timeout_seconds": 120,
+  "attempt": 1,
+  "exit_code": 0,
+  "timed_out": false,
+  "elapsed_seconds": 3.6665223790332675,
+  "finished_at": "2026-09-03T04:33:53.782047+00:00"
+}

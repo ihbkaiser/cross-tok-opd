@@ -1,0 +1,14 @@
+# Runtime state belongs outside this worktree; these are defense-in-depth only.
+.env
+*.env
+.secrets/
+.venv/
+uv-cache/
+hf-cache/
+NeMo-RL/
+artifacts/
+outputs/
+wandb/
+*.pt
+*.safetensors
+*.tar.gz

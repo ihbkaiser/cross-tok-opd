@@ -1,0 +1,107 @@
+{
+  "config": {
+    "adapter_dim": 4,
+    "atom_count": 6,
+    "dataset_revision": "deterministic-analytic-fixture-v0",
+    "finite_difference_epsilon": 0.0001,
+    "max_span_length": 4,
+    "model_revision": "toy-linear-adapter-v0",
+    "partition_temperature": 0.7,
+    "schema_version": "mp-opd-toy-v0",
+    "seed": 43,
+    "split": {
+      "meta_train_ids": [
+        "toy-M-train-000"
+      ],
+      "rollout_batch_ids": [
+        "toy-B-000",
+        "toy-B-001"
+      ],
+      "test_ids": [
+        "toy-M-test-000"
+      ],
+      "validation_ids": [
+        "toy-M-valid-000"
+      ]
+    },
+    "teacher_revision": "toy-fixed-path-scores-v0",
+    "virtual_learning_rate": 0.05
+  },
+  "config_sha256": "a78a1e694021fd84d8feb3da232dfdb2c71faf9defdd315f328cbd9d30554b93",
+  "epistemic_label": "oracle_diagnostic",
+  "oracle": {
+    "atomic_gradient_norm": 1.2339814147483925,
+    "atomic_partition": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        5,
+        6
+      ]
+    ],
+    "delta_actual": 0.0018193320736111067,
+    "delta_pred": 0.001562621258199215,
+    "oracle_gradient_norm": 0.759701417881437,
+    "oracle_partition": [
+      [
+        0,
+        4
+      ],
+      [
+        4,
+        6
+      ]
+    ],
+    "outer_nll_after_atomic": 0.03162990353194444,
+    "outer_nll_after_oracle": 0.029810571458333334,
+    "outer_nll_before": 0.03052083333333332,
+    "partition_count": 29,
+    "real_parameter_unchanged": true,
+    "sign_agreement": true,
+    "spearman_predicted_actual": 0.961576354679803
+  },
+  "schema_version": "mp-opd-result-v0",
+  "semi_markov": {
+    "coverage_max_error": 1.1920928955078125e-07,
+    "entropy": 3.329092502593994,
+    "expected_span_count": 3.7365949153900146,
+    "expected_span_length": 1.6057400703430176,
+    "finite_difference_directional_error": 6.121517072951775e-07,
+    "log_z": 3.3283157348632812
+  },
+  "source": {
+    "git_head": "6dfb9dd2accd8e37e9e35134c6a9d60f6afbbe07",
+    "working_tree_sha256": "49bba487d4c10154a559dc530beebcc5e53c908dfae4cfb27cb31dd30f85aae6"
+  },
+  "split_disjoint": true,
+  "test_gate": {
+    "dp_coverage_lt_1e_6": true,
+    "finite": true,
+    "finite_difference_lt_1e_6": true,
+    "oracle_actual_headroom_positive": true,
+    "passed": true,
+    "real_parameter_unchanged": true,
+    "split_disjoint": true
+  },
+  "timing_seconds": {
+    "total": 0.18076579000012316
+  }
+}

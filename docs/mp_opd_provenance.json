@@ -1,0 +1,68 @@
+{
+  "schema_version": "mp-opd-provenance-v0",
+  "created_at": "2026-09-04",
+  "source_repository": "/home/tung/simct-xtoken",
+  "source_branch": "vdt/experiments/xtoken",
+  "requested_stale_head": "9d5c801ebbaed8c1b7acf7a235876da32a2afb65",
+  "actual_base_head": "6dfb9dd2accd8e37e9e35134c6a9d60f6afbbe07",
+  "origin_head": "6dfb9dd2accd8e37e9e35134c6a9d60f6afbbe07",
+  "requested_head_is_ancestor_of_actual_base": true,
+  "base_selection_reason": "The live source checkout was clean and had four committed baseline/runtime/documentation commits after the pasted plan's stale head. Basing on the current exact origin preserved the completed SimCT/X-Token implementation without copying a stale dirty patch.",
+  "development_checkout": "/home/tung/simct-mp-opd",
+  "development_branch_isolation_only": "vdt/experiments/mp-opd",
+  "runtime_interface": {
+    "kd_algorithm": "mp_opd",
+    "mode_argument": "mp_opd_mode",
+    "requires_server_branch_switch": false
+  },
+  "copied_untracked_files_from_source_checkout": [],
+  "excluded_artifacts": [
+    "logs",
+    "model weights",
+    "Modal outputs",
+    "credentials",
+    "operational scratch files"
+  ],
+  "baseline_sha256_before_edit": {
+    "kdflow/algorithms/span_ctkd.py": "ca5b52bdf96fd690853e92eb674afffdfb883e669c0a7a07cd18189e67f63cfe",
+    "kdflow/algorithms/xtoken.py": "a2b487c9fe6bd397043ceec6ef41358c9fa33c7097bf2de1201ad17765b1ef6f",
+    "kdflow/arguments/distillation_args.py": "2ee7f4991e1ed7ca9ed7a73aae0ee172d03f70253316d8a595d783488d22c850",
+    "kdflow/ray/train/student_actor.py": "f7c6375fb6925f0d14e370e6b2034b8ae2456849af0c8d939444576cd5e33ec2",
+    "kdflow/ray/train/teacher_actor.py": "b0352585aed1eedc52e47c3fdea9379cff6fce102df9f30f6ee0c94c51fd281e",
+    "kdflow/trainer/on_policy_kd_trainer.py": "4ec26aae755f4f35ab8fc67c177a08ac48881eb738ee453938d169edccaaf66a",
+    "kdflow/cli/train_kd_on_policy.py": "a218fc218af4ad7b0019c7e8666d584ed70566800b2c6c98a19a306da6461bff",
+    "tests/test_span_ctkd_metrics.py": "9411ce5225a04d3a24e97b7ba5567f943f5b74620835b837359588f829d17388",
+    "tests/test_xtoken_algorithm.py": "a89d0c7c432c1fc8edb99c6c03c9d83681dd2449a1e7aea19cf478e4afbb24d2"
+  },
+  "implementation_content_sha256": "ce0da60e2f6eed0c0ea9a3a5f6d079d54dec76e44619750a0a7c1d8413efa92f",
+  "implementation_hash_excludes": [
+    "docs/mp_opd_provenance.json",
+    "experiments/mp_opd/results/toy_oracle_v0.json"
+  ],
+  "toy_result_sha256": "7da4c22d8d5fda34f3a8b84cd1a403390e14fba889dd8f16d2ae24f1cbd3d97c",
+  "modal_b200_runner_sha256": "2b99cd04a2cd52fa2988d47a17acdd60e4fac89747e39403eec6d5167f589f4f",
+  "prepare_opd_prompts_sha256": "baace3b4c0aa2b3192c4931c5df9dcb78dd80391892a63ca7e7ed9d7e6888e8e",
+  "modal_b200_submission_performed": true,
+  "modal_b200_attempts": [
+    {
+      "run_id": "mp-opd-b200-atomic-100update-20260904-r1",
+      "status": "stopped_pre_training",
+      "optimizer_updates": 0,
+      "reason": "source integrity hash predated final whitespace cleanup"
+    },
+    {
+      "run_id": "mp-opd-b200-atomic-100update-20260904-r2",
+      "status": "stopped_pre_training",
+      "optimizer_updates": 0,
+      "reason": "Transformers 5.6 AutoTokenizer entered AutoConfig and failed in the kernels integration"
+    },
+    {
+      "run_id": "mp-opd-b200-atomic-100update-20260904-r3",
+      "status": "staged_after_diagnosis",
+      "pre_gpu_gate": "explicit llama tokenizer type plus CPU tests and data probe",
+      "retry_policy": "retries=0"
+    }
+  ],
+  "commit_created": true,
+  "push_performed": true
+}

@@ -1,0 +1,120 @@
+{
+  "torch": "2.11.0+cu130",
+  "cuda_runtime": "13.0",
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "bf16_supported": true,
+  "sparse_reference": {
+    "pass": true,
+    "output_dtype": "torch.float32",
+    "max_forward_error": 4.76837158203125e-07,
+    "max_backward_error": 2.9802322387695312e-08
+  },
+  "sdpa": {
+    "pass": true,
+    "losses": [
+      0.01703445054590702,
+      0.011950187385082245,
+      0.00817703828215599
+    ],
+    "max_weight_change": 0.00300602987408638,
+    "activation_dtype": "torch.bfloat16",
+    "parameter_dtype": "torch.float32"
+  },
+  "pkl": [
+    {
+      "pass": true,
+      "scope": "synthetic P-KL loss kernel plus optimizer only",
+      "student_shape": [
+        1,
+        128,
+        128256
+      ],
+      "teacher_shape": [
+        1,
+        160,
+        151936
+      ],
+      "parameter_dtype": "torch.float32",
+      "teacher_dtype": "torch.bfloat16",
+      "projection_is_synthetic": true,
+      "pretrained_model_used": false,
+      "steps": [
+        {
+          "step": 1,
+          "loss": -0.25215816497802734,
+          "grad_norm": 0.0003497776051517576,
+          "elapsed_s": 0.31563986698165536,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        },
+        {
+          "step": 2,
+          "loss": -0.2540416717529297,
+          "grad_norm": 0.00034511045669205487,
+          "elapsed_s": 0.012857188005000353,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        },
+        {
+          "step": 3,
+          "loss": -0.2558804452419281,
+          "grad_norm": 0.00034047014196403325,
+          "elapsed_s": 0.011463083326816559,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        }
+      ],
+      "max_weight_change_sample": 0.030565500259399414,
+      "peak_allocated_gib": 0.5608682632446289,
+      "peak_reserved_gib": 0.611328125
+    },
+    {
+      "pass": true,
+      "scope": "synthetic P-KL loss kernel plus optimizer only",
+      "student_shape": [
+        1,
+        256,
+        128256
+      ],
+      "teacher_shape": [
+        1,
+        288,
+        151936
+      ],
+      "parameter_dtype": "torch.float32",
+      "teacher_dtype": "torch.bfloat16",
+      "projection_is_synthetic": true,
+      "pretrained_model_used": false,
+      "steps": [
+        {
+          "step": 1,
+          "loss": -0.2596376836299896,
+          "grad_norm": 0.00022524264932144433,
+          "elapsed_s": 0.0436551570892334,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        },
+        {
+          "step": 2,
+          "loss": -0.2611980736255646,
+          "grad_norm": 0.0002222495386376977,
+          "elapsed_s": 0.023655819706618786,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        },
+        {
+          "step": 3,
+          "loss": -0.262725830078125,
+          "grad_norm": 0.0002192752290284261,
+          "elapsed_s": 0.023803346790373325,
+          "valid_chunks": 8.0,
+          "projected_accuracy": 0.0
+        }
+      ],
+      "max_weight_change_sample": 0.030088186264038086,
+      "peak_allocated_gib": 1.1014208793640137,
+      "peak_reserved_gib": 1.15234375
+    }
+  ],
+  "pass": true
+}

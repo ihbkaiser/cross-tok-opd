@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/NVIDIA-NeMo/RL.git",
+  "commit": "13a10647ebbf0f940d2b06ea41800b3f2fb46099",
+  "uv_lock_sha256": "95f63521d28a2a4104ff372c5985fe63826ab27d6901b78bada1ab1a89a81bf7",
+  "uv_version": "0.12.7",
+  "submodules": {
+    "3rdparty/Automodel-workspace/Automodel": "1814c6c93a66b9d59d254960ef6a99a64249b671",
+    "3rdparty/Gym-workspace/Gym": "c3bac96314a59f28b896f597eb9845d175bb0252",
+    "3rdparty/Megatron-Bridge-workspace/Megatron-Bridge": "b11414c71b15e54d333eb49346ed199f20fa9021",
+    "3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM": "7c9c3a027c503ae9ae1e8ad7b14397abb8269378"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "install-base",
+  "command": [
+    "bash",
+    "/workspace/xtoken-native/install_base.sh"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "started_at": "20260903T041644Z",
+  "timeout_seconds": 1200,
+  "attempt": 1,
+  "exit_code": 1,
+  "timed_out": false,
+  "elapsed_seconds": 742.5935559449717,
+  "finished_at": "2026-09-03T04:29:06.762750+00:00"
+}

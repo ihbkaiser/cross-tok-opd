@@ -1,0 +1,19 @@
+{
+  "schema": "guide-policy-v1",
+  "source_manifest": "guide-sources.json",
+  "source_selection": "same pinned sources as original training corpus",
+  "target_candidates": 1000,
+  "source_allocation": "original target divided by 10",
+  "math_fraction": 0.58,
+  "code_fraction": 0.42,
+  "exclude": ["full original 10000 prompts", "SFT selected prompts", "all evaluation test prompts"],
+  "reference_teacher": "Qwen2.5-7B-Instruct",
+  "reference_status": "teacher pseudo-labels until separately verified",
+  "roles": ["rollout", "guide-select", "guide-eval"],
+  "role_assignment": "disjoint prompt groups before optimization",
+  "test_selection_allowed": false,
+  "same_prompt_oracle": "diagnostic only",
+  "independent_guide_oracle": "exploratory promotion evidence",
+  "weak_signal": "allow bounded pilot; do not claim efficacy",
+  "technical_failure": "stop affected dependency branch; preserve other ready jobs"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "simct-resolve",
+  "command": [
+    "uv",
+    "pip",
+    "install",
+    "--python",
+    "/workspace/simct-native/.venv/bin/python",
+    "--dry-run",
+    "sglang[all]==0.5.9",
+    "torch==2.9.1",
+    "-e",
+    "/workspace/simct-xtoken-harness"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "attempt": 1,
+  "started_at": "20260903T062823.487378Z",
+  "timeout_seconds": 300,
+  "timed_out": false,
+  "interrupted": false,
+  "telemetry_samples": 1,
+  "telemetry_errors": [],
+  "exit_code": 1,
+  "child_exit_code": 1,
+  "elapsed_seconds": 9.26455798977986,
+  "finished_at": "2026-09-03T06:28:32.752363+00:00"
+}

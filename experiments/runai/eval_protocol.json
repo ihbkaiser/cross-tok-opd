@@ -1,0 +1,36 @@
+{
+  "schema": "simct-eval-preparation-v1",
+  "status": "runner_implemented_remote_preflight_pending",
+  "runner": "scripts/evaluation/contract_eval.py",
+  "profiles": ["author-code", "paper-spec"],
+  "profile_note": "paper-spec is a disclosed reconstruction; unresolved author details are not silently claimed exact",
+  "paper": "https://arxiv.org/html/2605.07711v1#A3",
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "completions_per_instance_per_repeat": 1,
+  "zero_shot": true,
+  "evaluation_seeds": [42, 43, 44, 45, 46],
+  "seed_provenance": "Locally chosen reproducibility convention; exact paper seeds unspecified. These are evaluation repeats, not independent training runs.",
+  "benchmarks": [
+    {"name": "gsm8k", "split": "test", "max_new_tokens": 4096, "scorer": "math_verify", "revision": null},
+    {"name": "math500", "split": "test", "max_new_tokens": 4096, "scorer": "math_verify", "revision": null},
+    {"name": "mbpp", "split": "test", "max_new_tokens": 2048, "scorer": "official_harness_unresolved", "revision": null},
+    {"name": "live-code-bench-v6", "release": "release_v6", "max_new_tokens": 4096, "scorer": "official_lcb_evaluator", "revision": null}
+  ],
+  "code_scoring": {"per_test_timeout_seconds": 10, "memory_cap_mb": 128, "isolated_sandbox_required": true},
+  "reporting": {"per_benchmark": "mean and std over five evaluation repeats", "std_ddof": 1, "std_provenance": "Local convention; also retain population std because paper does not specify ddof", "overall": "unweighted mean of all four benchmark means; no partial overall score"},
+  "model_candidates": [
+    {"id": "sft", "checkpoint": "/workspace/storage-shared/nlp/tungks/SimCT/runs/qwen-gemma-sft-paper-20260908-045828/checkpoint"},
+    {"id": "simct-2ep", "checkpoint": "/workspace/storage-shared/nlp/tungks/SimCT/runs/qwen-gemma-simct-2ep-mb4-20260908-093304/checkpoint"},
+    {"id": "mp-atomic-mb4", "launch_log": "/workspace/storage-shared/nlp/tungks/simct-runs/launch-mb4-qMo5DepS/atomic.launch.log", "expected_updates": 312},
+    {"id": "mp-fixed-mb4", "launch_log": "/workspace/storage-shared/nlp/tungks/simct-runs/launch-mb4-qMo5DepS/fixed.launch.log", "expected_updates": 312}
+  ],
+  "unresolved": [
+    "Dataset local paths, immutable revisions, counts and ID manifests",
+    "Exact MBPP variant and official harness identity used by authors",
+    "Paper versus released-code math prompt mismatch",
+    "Pin scorer versions and validate sandbox 10-second per-test / 128-MB contract",
+    "Qualify implemented generation and scorers in the company evaluation runtime before GPU use",
+    "Verify final checkpoint completion and source provenance after active training ends"
+  ]
+}

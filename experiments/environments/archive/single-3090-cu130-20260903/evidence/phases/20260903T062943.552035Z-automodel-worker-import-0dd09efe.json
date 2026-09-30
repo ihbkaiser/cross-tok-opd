@@ -1,0 +1,20 @@
+{
+  "name": "automodel-worker-import",
+  "command": [
+    "/workspace/xtoken-native/worker-venvs/nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2/bin/python",
+    "-c",
+    "from nemo_rl.models.policy.workers.dtensor_policy_worker_v2 import DTensorPolicyWorkerV2; import torch; print(\"DTensorPolicyWorkerV2_IMPORT_PASS\", torch.__version__, torch.cuda.is_available())"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "attempt": 1,
+  "started_at": "20260903T062943.552035Z",
+  "timeout_seconds": 180,
+  "timed_out": false,
+  "interrupted": false,
+  "telemetry_samples": 4,
+  "telemetry_errors": [],
+  "exit_code": 0,
+  "child_exit_code": 0,
+  "elapsed_seconds": 53.30852347705513,
+  "finished_at": "2026-09-03T06:30:36.860998+00:00"
+}

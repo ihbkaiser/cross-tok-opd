@@ -1,0 +1,28 @@
+{
+  "python": "3.13.14 (main, Aug  5 2026, 15:44:26) [Clang 22.1.3 ]",
+  "executable": "/workspace/xtoken-native/uv-cache/environments-v2/nemo-rl-cp3.13.14-fbb9ba34c2a36f09/bin/python3",
+  "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+  "repo": "https://github.com/NVIDIA-NeMo/RL.git",
+  "head": "13a10647ebbf0f940d2b06ea41800b3f2fb46099",
+  "git_status": "",
+  "submodules": "1814c6c93a66b9d59d254960ef6a99a64249b671 3rdparty/Automodel-workspace/Automodel (1814c6c)\n c3bac96314a59f28b896f597eb9845d175bb0252 3rdparty/Gym-workspace/Gym (c3bac96)\n b11414c71b15e54d333eb49346ed199f20fa9021 3rdparty/Megatron-Bridge-workspace/Megatron-Bridge (b11414c)\n 7c9c3a027c503ae9ae1e8ad7b14397abb8269378 3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM (7c9c3a0)",
+  "uv_lock_sha256": "95f63521d28a2a4104ff372c5985fe63826ab27d6901b78bada1ab1a89a81bf7",
+  "uv": "uv 0.12.7 (x86_64-unknown-linux-gnu)",
+  "gpu": "NVIDIA GeForce RTX 3090, 580.95.05, 24576 MiB, 8.6",
+  "torch_cuda_runtime": "13.0",
+  "cuda_available": true,
+  "bf16_supported": true,
+  "cgroup_memory_max": "56631492608",
+  "cgroup_cpu_max": "2304000 100000",
+  "packages": {
+    "torch": "2.11.0+cu130",
+    "torchvision": "0.26.0+cu130",
+    "transformers": "5.12.1",
+    "ray": "2.56.1",
+    "numpy": "2.5.1",
+    "pytest": "9.1.1",
+    "nemo-rl": "0.6.0+13a10647e"
+  },
+  "workspace_is_persistent_volume": false,
+  "default_venv_modified": false
+}

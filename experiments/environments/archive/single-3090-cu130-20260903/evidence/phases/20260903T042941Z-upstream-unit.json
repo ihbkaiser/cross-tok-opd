@@ -1,0 +1,15 @@
+{
+  "name": "upstream-unit",
+  "command": [
+    "bash",
+    "/workspace/xtoken-native/test_base.sh"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "started_at": "20260903T042941Z",
+  "timeout_seconds": 600,
+  "attempt": 1,
+  "exit_code": 0,
+  "timed_out": false,
+  "elapsed_seconds": 147.75240268930793,
+  "finished_at": "2026-09-03T04:32:09.424077+00:00"
+}

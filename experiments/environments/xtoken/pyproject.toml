@@ -1,0 +1,48 @@
+[project]
+name = "xtoken-dense-native-cu128"
+version = "0.1.0"
+requires-python = ">=3.13.14,<3.14"
+dependencies = [
+  "nemo-rl",
+  "nemo-automodel",
+  "nemo-lens[sdk]",
+  "megatron-fsdp",
+  "torch==2.11.0+cu128",
+  "torchvision==0.26.0+cu128",
+  "transformers==5.12.1",
+  "ray[default]==2.56.1",
+  "datasets==5.0.0",
+  "numpy==2.5.1",
+  "protobuf==6.33.6",
+  "pytest==9.1.1",
+  "pytest-timeout",
+  "pytest-cov",
+  "pytest-asyncio",
+  "pytest-shard",
+  "einops",
+  "psutil",
+  "packaging",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+# Dense HF/SDPA with same-node CUDA IPC: no MoE, SSM, Mooncake or CUDA13 stack.
+# This is an explicit native environment variant, not NVIDIA's container lock.
+exclude-dependencies = [
+  "nvidia-nvshmem-cu13", "nvidia-cudnn-cu13",
+  "mooncake-transfer-engine-cuda13", "tilelang", "nixl-cu13",
+]
+
+[tool.uv.sources]
+nemo-rl = { url = "https://github.com/NVIDIA-NeMo/RL/archive/13a10647ebbf0f940d2b06ea41800b3f2fb46099.tar.gz" }
+nemo-automodel = { url = "https://github.com/NVIDIA-NeMo/Automodel/archive/1814c6c93a66b9d59d254960ef6a99a64249b671.tar.gz" }
+nemo-lens = { url = "https://github.com/NVIDIA-NeMo/Lens/archive/b85578fc2b736a1804705e537001b5f45e9c715d.tar.gz" }
+megatron-fsdp = { url = "https://github.com/yuhezhang-ai/Megatron-LM/archive/455389c480af6b3acdca74c7830c68b3274eb083.tar.gz", subdirectory = "megatron/core/distributed/fsdp/src" }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

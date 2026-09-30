@@ -1,0 +1,20 @@
+{
+  "name": "cuda-smoke",
+  "command": [
+    "uv",
+    "run",
+    "--no-sync",
+    "python",
+    "/workspace/xtoken-native/gpu_smoke.py",
+    "--output",
+    "/workspace/xtoken-native/artifacts/gpu-smoke-01"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "started_at": "20260903T042949Z",
+  "timeout_seconds": 300,
+  "attempt": 1,
+  "exit_code": 0,
+  "timed_out": false,
+  "elapsed_seconds": 33.65374356787652,
+  "finished_at": "2026-09-03T04:30:22.962373+00:00"
+}

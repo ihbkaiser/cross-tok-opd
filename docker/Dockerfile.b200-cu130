@@ -1,0 +1,99 @@
+# syntax=docker/dockerfile:1.7
+
+ARG CUDA_BASE=nvidia/cuda:13.0.2-devel-ubuntu22.04
+ARG UV_VERSION=0.12.7
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
+
+FROM ${CUDA_BASE}
+
+ARG REPO_COMMIT=unknown
+
+LABEL org.opencontainers.image.title="SimCT B200 CUDA 13 runtime" \
+      org.opencontainers.image.description="Locked SimCT/KDFlow/MP-OPD and SFT environments for NVIDIA B200; models and data are external mounts" \
+      org.opencontainers.image.source="https://github.com/sontungkieu/SimCT" \
+      org.opencontainers.image.revision="${REPO_COMMIT}" \
+      org.opencontainers.image.licenses="MIT"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_HTTP_TIMEOUT=600 \
+    UV_PYTHON_INSTALL_DIR=/opt/python \
+    UV_PYTHON=3.12.12 \
+    SIMCT_ROOT=/opt/simct \
+    SIMCT_KD_ENV=/opt/venvs/simct-b200 \
+    SIMCT_SFT_ENV=/opt/venvs/simct-b200-sft \
+    MODEL_PATH=/models \
+    DATA_PATH=/data \
+    OUTPUT_PATH=/outputs \
+    HF_HOME=/cache/huggingface \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_DISABLE_IMPLICIT_TOKEN=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    TOKENIZERS_PARALLELISM=false \
+    TORCH_CUDA_ARCH_LIST=10.0 \
+    CUDAARCHS=100 \
+    CMAKE_CUDA_ARCHITECTURES=100 \
+    NCCL_CUMEM_HOST_ENABLE=0 \
+    RAY_USAGE_STATS_ENABLED=0 \
+    CUDA_HOME=/usr/local/cuda
+
+COPY --from=uv-bin /uv /uvx /usr/local/bin/
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        build-essential \
+        ca-certificates \
+        git \
+        libnuma1 \
+        libnuma-dev \
+        ninja-build \
+        numactl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/simct
+
+# Copy only lock-relevant sources first so dependency layers survive normal
+# training-code edits. The final COPY below brings in scripts, tests and docs.
+COPY pyproject.toml requirements.txt README.md ./
+COPY kdflow ./kdflow
+COPY experiments/environments/simct-b200 ./experiments/environments/simct-b200
+COPY experiments/environments/simct-b200-sft ./experiments/environments/simct-b200-sft
+COPY experiments/environments/patch_llamafactory_json_path.py ./experiments/environments/patch_llamafactory_json_path.py
+
+RUN uv python install 3.12.12 \
+    && env -u UV_INDEX_URL -u UV_DEFAULT_INDEX -u PIP_INDEX_URL -u PIP_TRUSTED_HOST \
+        UV_PROJECT_ENVIRONMENT=/opt/venvs/simct-b200 \
+        uv sync --project /opt/simct/experiments/environments/simct-b200 --locked \
+    && env -u UV_INDEX_URL -u UV_DEFAULT_INDEX -u PIP_INDEX_URL -u PIP_TRUSTED_HOST \
+        UV_PROJECT_ENVIRONMENT=/opt/venvs/simct-b200-sft \
+        uv sync --project /opt/simct/experiments/environments/simct-b200-sft --locked \
+    && /opt/venvs/simct-b200-sft/bin/python \
+        /opt/simct/experiments/environments/patch_llamafactory_json_path.py \
+    && uv pip check --python /opt/venvs/simct-b200/bin/python \
+    && uv pip check --python /opt/venvs/simct-b200-sft/bin/python \
+    && /opt/venvs/simct-b200/bin/python -c \
+        "from importlib.metadata import version; import kdflow, torch, transformers; assert torch.__version__ == '2.11.0+cu130'; assert version('sglang') == '0.5.11'" \
+    && /opt/venvs/simct-b200-sft/bin/python -c \
+        "import llamafactory, torch; assert torch.__version__ == '2.11.0+cu130'"
+
+COPY . /opt/simct
+COPY docker/entrypoint-b200.sh /usr/local/bin/simct-b200-entrypoint
+
+RUN chmod 0755 /usr/local/bin/simct-b200-entrypoint \
+    && ln -s /opt/venvs/simct-b200-sft/bin/llamafactory-cli /usr/local/bin/simct-sft \
+    && mkdir -p /models /data /outputs /cache/huggingface \
+    && test ! -e /opt/simct/models \
+    && test ! -e /opt/simct/data \
+    && test ! -e /opt/simct/outputs \
+    && test ! -e /opt/simct/wandb
+
+ENV PATH=/opt/venvs/simct-b200/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONPATH=/opt/simct
+
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/simct-b200-entrypoint"]
+CMD ["bash"]

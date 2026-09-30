@@ -1,0 +1,18 @@
+{
+  "observed_date": "2026-09-03",
+  "scope": "historical single-GPU setup and synthetic loss kernels, not model training",
+  "artifacts_in_git": false,
+  "artifacts": {
+    "environment.json": "9c843a3473afd159a7e2e795b04fddfc266d41988fe80c5147ea6d646b90a76e",
+    "upstream-xtoken-unit.xml": "180fdd96a48a0d65da0524d35beba9fd9f2dc7ae41b686cb6996d54b0be1d686",
+    "upstream-xtoken-loss.xml": "9263a783854fcd16efa8d836d7e71fda0d7d7b6b0c39a6e38cf42d8d62d69be8",
+    "gpu-smoke-01/summary.json": "8eb8e747a2f68d2b2fb107255e2639bb4359029db0e7cedd06be588f0314e362"
+  },
+  "passed_unit_tests": 133,
+  "skipped_multi_gpu_tests": 2,
+  "pip_check_exit_code": 1,
+  "pip_check_incompatibilities": 4,
+  "automodel_worker_validated": false,
+  "pretrained_model_training_validated": false,
+  "opd_validated": false
+}

@@ -1,0 +1,766 @@
+{
+  "captured_at": "2026-09-03T07:31:41.684980+00:00",
+  "sources": {
+    "nemo-rl": {
+      "path": "/workspace/xtoken-native/NeMo-RL",
+      "head": "13a10647ebbf0f940d2b06ea41800b3f2fb46099",
+      "status": "",
+      "submodules": "1814c6c93a66b9d59d254960ef6a99a64249b671 3rdparty/Automodel-workspace/Automodel (1814c6c)\n c3bac96314a59f28b896f597eb9845d175bb0252 3rdparty/Gym-workspace/Gym (c3bac96)\n b11414c71b15e54d333eb49346ed199f20fa9021 3rdparty/Megatron-Bridge-workspace/Megatron-Bridge (b11414c)\n 7c9c3a027c503ae9ae1e8ad7b14397abb8269378 3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM (7c9c3a0)"
+    },
+    "simct-harness": {
+      "path": "/workspace/simct-xtoken-harness",
+      "head": "9414f7cb7c3b44cce14a33d00ea3521d16b7ef69",
+      "status": "",
+      "submodules": ""
+    }
+  },
+  "uv": "uv 0.12.7 (x86_64-unknown-linux-gnu)",
+  "gpu": "NVIDIA GeForce RTX 3090, 580.95.05, 24576 MiB, 8.6",
+  "scope": "Original setup/configuration/scripts/package snapshots and bounded diagnostics; excludes venvs, caches, weights, credentials and host services",
+  "files": [
+    {
+      "path": "source-configs/nemo-rl/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/pyproject.toml",
+      "bytes": 36274,
+      "sha256": "827f5f82c37dcf99454e47982bb0c0b8aa82c48cb869223e2a475db0c90cf0f9"
+    },
+    {
+      "path": "source-configs/nemo-rl/uv.lock",
+      "source": "/workspace/xtoken-native/NeMo-RL/uv.lock",
+      "bytes": 908878,
+      "sha256": "95f63521d28a2a4104ff372c5985fe63826ab27d6901b78bada1ab1a89a81bf7"
+    },
+    {
+      "path": "source-configs/nemo-rl/.python-version",
+      "source": "/workspace/xtoken-native/NeMo-RL/.python-version",
+      "bytes": 8,
+      "sha256": "f8faecf2505680716c6279bf2cdec3d5a5ba2ba852f0d7df45d51ac1ce8d9ade"
+    },
+    {
+      "path": "source-configs/nemo-rl/.gitmodules",
+      "source": "/workspace/xtoken-native/NeMo-RL/.gitmodules",
+      "bytes": 525,
+      "sha256": "0bd9e93335cdf5b5aaa5c339f30f93eb60fa04b84513c16311e24d596f64aa5f"
+    },
+    {
+      "path": "source-configs/nemo-rl/LICENSE",
+      "source": "/workspace/xtoken-native/NeMo-RL/LICENSE",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "source-configs/simct-harness/pyproject.toml",
+      "source": "/workspace/simct-xtoken-harness/pyproject.toml",
+      "bytes": 598,
+      "sha256": "cc7782a719ad1ecd9e341182682163f16a3c63df097a95e78d9a93ca1d4c4f00"
+    },
+    {
+      "path": "source-configs/simct-harness/LICENSE",
+      "source": "/workspace/simct-xtoken-harness/LICENSE",
+      "bytes": 1071,
+      "sha256": "c9f18bd09f6b760b2ceb9826447d56fd72b272ee318fb2eb48be20a68210b3be"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Automodel-workspace/Automodel/.python-version",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Automodel-workspace/Automodel/.python-version",
+      "bytes": 4,
+      "sha256": "33307da56af13f791584518fef2e49641180bfbf2ef7b2d256c9ab6fad564f80"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Automodel-workspace/Automodel/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Automodel-workspace/Automodel/pyproject.toml",
+      "bytes": 22114,
+      "sha256": "e64071471bede15b9f1733ffe80ed89067108b5b0009df9dd6aaabae9b7d30ef"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Automodel-workspace/Automodel/uv.lock",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Automodel-workspace/Automodel/uv.lock",
+      "bytes": 1647133,
+      "sha256": "103493265a6d42fe02bd3cb9d03c7e768aeb4b0ddc3e65bf5392ba27af887628"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/.python-version",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/.python-version",
+      "bytes": 8,
+      "sha256": "f8faecf2505680716c6279bf2cdec3d5a5ba2ba852f0d7df45d51ac1ce8d9ade"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/pyproject.toml",
+      "bytes": 28076,
+      "sha256": "493450e9c6dab78f1d193ac149e382a79fed1ec8dfc5e2ac5184cb3c50d5c162"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/resources_servers/code_fim/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/resources_servers/code_fim/pyproject.toml",
+      "bytes": 1479,
+      "sha256": "cbf4d4afadd7e7bd97c6e1246cc59eb1acbe304be33c398fe5a59956667695c4"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/resources_servers/conversational_tool_use_simulation/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/resources_servers/conversational_tool_use_simulation/pyproject.toml",
+      "bytes": 1096,
+      "sha256": "407f682cf56fa798004fd9f5e6165bda5504ab86c3a5ebdca0a8a54a23fb5cd5"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/resources_servers/vlm_eval_kit/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/resources_servers/vlm_eval_kit/pyproject.toml",
+      "bytes": 2894,
+      "sha256": "5e87d7aa64ddbf8be906e84bd0e23d29b7ad989c001c51d47a1ac09f247311e9"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/responses_api_models/genrm_model/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/responses_api_models/genrm_model/pyproject.toml",
+      "bytes": 1257,
+      "sha256": "461cf07b60d6eafb99b74a2b75ad6867939dc600fbd9342f53b31ba1f6ec86a7"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/responses_api_models/local_vllm_model/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/responses_api_models/local_vllm_model/pyproject.toml",
+      "bytes": 1267,
+      "sha256": "32568b8f1095aa0a742a9fe75cbfe52f3a496f2c0f5badfa770c39914482e686"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/responses_api_models/vllm_model/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/responses_api_models/vllm_model/pyproject.toml",
+      "bytes": 1044,
+      "sha256": "7f10a5b49d9a25c8caf8d55be25a91282c477502b2e56494416a757672495cea"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Gym-workspace/Gym/uv.lock",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Gym-workspace/Gym/uv.lock",
+      "bytes": 882468,
+      "sha256": "e603d331f50cf6a2ee34a6e0dfe2b6c9eb5cb79d4f26f0b91fa69e11c4ecc16f"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/.gitmodules",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/.gitmodules",
+      "bytes": 113,
+      "sha256": "be5b410c92fc24ee84d8c2007f2cfb5f2cb6ae71396bc66d24b9ba4e663100d9"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/.python-version",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/.python-version",
+      "bytes": 4,
+      "sha256": "33307da56af13f791584518fef2e49641180bfbf2ef7b2d256c9ab6fad564f80"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/.python-version",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/.python-version",
+      "bytes": 4,
+      "sha256": "33307da56af13f791584518fef2e49641180bfbf2ef7b2d256c9ab6fad564f80"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/distributed/fsdp/src/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/megatron/core/distributed/fsdp/src/pyproject.toml",
+      "bytes": 2098,
+      "sha256": "5c9a453d2d098469db9ab3414116e688c69e46066cfb6fcba8627ca46477dbec"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/pyproject.toml",
+      "bytes": 10266,
+      "sha256": "4299b9e96afccd3da657c3e8a5a2e2c7d1c2543d1fba6a3c3e181040d34ed1aa"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/uv.lock",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/3rdparty/Megatron-LM/uv.lock",
+      "bytes": 1010800,
+      "sha256": "bf4a12de1e119536ec9a0bafabf02ada65039df62f90d51ddd210fe12b2b4427"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/docker/common/stubs/lightning/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/docker/common/stubs/lightning/pyproject.toml",
+      "bytes": 226,
+      "sha256": "7ac77e500ce68bd2b48635dc95ec61c4405b016e60093c43ab8640d39312dec3"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/pyproject.toml",
+      "bytes": 11248,
+      "sha256": "cf2585bbdff8003194c78fce79ef02fc355e4d6dae8104b343ce5a35a6bd5bd1"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/uv.lock",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/Megatron-Bridge-workspace/Megatron-Bridge/uv.lock",
+      "bytes": 513279,
+      "sha256": "569f7a0ed0c00a746283f63fa968a078841ddb80b7689e94d56569dd7aa60f79"
+    },
+    {
+      "path": "source-configs/nemo-rl/3rdparty/TensorRT-LLM-workspace/pyproject.toml",
+      "source": "/workspace/xtoken-native/NeMo-RL/3rdparty/TensorRT-LLM-workspace/pyproject.toml",
+      "bytes": 3967,
+      "sha256": "89d27605a04d286a236e0ae8829a22fecb11fec7c7936faa38bb304b3b529168"
+    },
+    {
+      "path": "original-scripts/run_logged.py",
+      "source": "/workspace/xtoken-native/run_logged.py",
+      "bytes": 3203,
+      "sha256": "ec70331dd4dcc3b7b7e8cdae45ca4d52e84caa72df1ec0afc264d00811799c7e"
+    },
+    {
+      "path": "original-scripts/install_base.sh",
+      "source": "/workspace/xtoken-native/install_base.sh",
+      "bytes": 440,
+      "sha256": "04aa911d23f177f8355e77febf935d472e6d5a8b30c2793e0c4069b082084e1a"
+    },
+    {
+      "path": "original-scripts/gpu_smoke.py",
+      "source": "/workspace/xtoken-native/gpu_smoke.py",
+      "bytes": 6785,
+      "sha256": "681d54790eb7bee87b6a4561f4c849d3509a14370ffd5b4906947876b20725d9"
+    },
+    {
+      "path": "original-scripts/test_base.sh",
+      "source": "/workspace/xtoken-native/test_base.sh",
+      "bytes": 547,
+      "sha256": "fde0e1b57d52eb87fd56a036534c895675b60435c8bd42b3dfd4b4906167fddd"
+    },
+    {
+      "path": "original-scripts/capture_environment.py",
+      "source": "/workspace/xtoken-native/capture_environment.py",
+      "bytes": 1605,
+      "sha256": "800ed0f31fd94d85fa33b298adf551e729571180d0a12a72421696a975de9a16"
+    },
+    {
+      "path": "original-scripts/preflight_worker.py",
+      "source": "/workspace/xtoken-native/preflight_worker.py",
+      "bytes": 1320,
+      "sha256": "f7c77ace8e1443c23a9b6d6503bd553f21896d832b45d650d1a04fd884b136ca"
+    },
+    {
+      "path": "original-scripts/finalize_evidence.py",
+      "source": "/workspace/xtoken-native/finalize_evidence.py",
+      "bytes": 2334,
+      "sha256": "1e5c11053135b8edae5c7e6e2fd0bda006ea7a641a895059e3d28c6ba8ec5941"
+    },
+    {
+      "path": "original-scripts/download_exact_models.py",
+      "source": "/workspace/xtoken-native/download_exact_models.py",
+      "bytes": 4305,
+      "sha256": "ae19e1cca7685d08380b784a2126649c67f1985c6ddd660f31b94f5f1fb5c9f2"
+    },
+    {
+      "path": "original-scripts/worker_dry_run.py",
+      "source": "/workspace/xtoken-native/worker_dry_run.py",
+      "bytes": 789,
+      "sha256": "814ee50f82dc1ba1c2278b24470d7e2c52ff8600924f7d1c2edd581cc427b02b"
+    },
+    {
+      "path": "original-scripts/install_native_envs.py",
+      "source": "/workspace/xtoken-native/install_native_envs.py",
+      "bytes": 3380,
+      "sha256": "c5f43c2a06976dd7605a8ea1d4008ee2f0aa6ddff911da78b9447faab8c97180"
+    },
+    {
+      "path": "original-scripts/prepare_xtoken_smoke.py",
+      "source": "/workspace/xtoken-native/prepare_xtoken_smoke.py",
+      "bytes": 2798,
+      "sha256": "3af0c0548cd35441000d36338bc488a61439a9414d819a7f7975594617ef619b"
+    },
+    {
+      "path": "original-scripts/README.md",
+      "source": "/workspace/xtoken-native/README.md",
+      "bytes": 3028,
+      "sha256": "6ec53d86731ff4f5a020ecc9cdcb38f5ca7b1b8885b7ce8f70b0bf822fcd9385"
+    },
+    {
+      "path": "original-scripts/REPORT.md",
+      "source": "/workspace/xtoken-native/REPORT.md",
+      "bytes": 7276,
+      "sha256": "9402b1874c586ff876c98fce177c81dd9ed73195efb7066d80ef6435c90aa02f"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T041644Z-install-base/command.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T041644Z-install-base/command.json",
+      "bytes": 232,
+      "sha256": "2b69c73b80233a64fb418acfc8c295a5923c504a7fea3c01c9f1bdddc0453596"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T041644Z-install-base/gpu.csv",
+      "source": "/workspace/xtoken-native/artifacts/20260903T041644Z-install-base/gpu.csv",
+      "bytes": 3300,
+      "sha256": "29a9c3ed56729f3d70bc164b5b84b226b25bcd203535c52572017027b4d2af0d"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T041644Z-install-base/result.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T041644Z-install-base/result.json",
+      "bytes": 365,
+      "sha256": "90b6c5655243781cd8037cfaf96283203499562bb1a98fdb79fcdc1cb4ec1c70"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T041644Z-install-base/stdout.log",
+      "source": "/workspace/xtoken-native/artifacts/20260903T041644Z-install-base/stdout.log",
+      "bytes": 12224,
+      "sha256": "33a1244cd407439b81b7fafbbc7fef49b7f1a046e9e1a438fe3d172bd66f4971"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042941Z-upstream-unit/command.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042941Z-upstream-unit/command.json",
+      "bytes": 229,
+      "sha256": "6b7a3327d4005be4ec3f7140630e4e48bef7feb9434755f557dee86f1eb19a3b"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042941Z-upstream-unit/gpu.csv",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042941Z-upstream-unit/gpu.csv",
+      "bytes": 660,
+      "sha256": "c3bff019e56e62a4432f2fdc638b45e424d96fc1c8f021a4a9ddac48b5052437"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042941Z-upstream-unit/result.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042941Z-upstream-unit/result.json",
+      "bytes": 363,
+      "sha256": "fc7125fb6f8cc576289410200311f14ceace0ca2e99a9560991157195de7cbf3"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042941Z-upstream-unit/stdout.log",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042941Z-upstream-unit/stdout.log",
+      "bytes": 4248,
+      "sha256": "e6aa8c75792fc5fba9e374af4416b59aa8a695aa68a3556f8634d2542acdada5"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042949Z-cuda-smoke/command.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042949Z-cuda-smoke/command.json",
+      "bytes": 337,
+      "sha256": "135465962dd767097bdce5f308dd22cc83ab602fd1aadd6fc8df79a6405bb9db"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042949Z-cuda-smoke/gpu.csv",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042949Z-cuda-smoke/gpu.csv",
+      "bytes": 202,
+      "sha256": "a94c15e235c5a97e288a10f36daaffb43e2ce5e7fadb36dc9e61d62d7375f7fa"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042949Z-cuda-smoke/result.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042949Z-cuda-smoke/result.json",
+      "bytes": 470,
+      "sha256": "d8e9d9ef537ce9e2a4bd65224da61bc04a4437262aec027ef3f89f8a26a50d65"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T042949Z-cuda-smoke/stdout.log",
+      "source": "/workspace/xtoken-native/artifacts/20260903T042949Z-cuda-smoke/stdout.log",
+      "bytes": 6329,
+      "sha256": "0a00e3dce4b1501730d79e1bfde43cb33576b0c3480ecfda39fea6a54efee7b6"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T043350Z-evidence/command.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T043350Z-evidence/command.json",
+      "bytes": 274,
+      "sha256": "dc1f7a4ce838203b77ac283b105985a2612be2d4ed82585a353917a6c4f9411b"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T043350Z-evidence/gpu.csv",
+      "source": "/workspace/xtoken-native/artifacts/20260903T043350Z-evidence/gpu.csv",
+      "bytes": 66,
+      "sha256": "2aa183054d13f5d23b61da4e030e97233287fe1d92a0476c7c9e0ed99a20173e"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T043350Z-evidence/result.json",
+      "source": "/workspace/xtoken-native/artifacts/20260903T043350Z-evidence/result.json",
+      "bytes": 408,
+      "sha256": "da2525dbfcda67600434374057d7865ac2cf5b7c4809e8b32ac484000f3c1c34"
+    },
+    {
+      "path": "diagnostics/artifacts/20260903T043350Z-evidence/stdout.log",
+      "source": "/workspace/xtoken-native/artifacts/20260903T043350Z-evidence/stdout.log",
+      "bytes": 1834,
+      "sha256": "bbfb2a21b2cf8d59031ad7766ff12b5017cb8c1426991730ddad13578086fe3a"
+    },
+    {
+      "path": "diagnostics/artifacts/backend-status.json",
+      "source": "/workspace/xtoken-native/artifacts/backend-status.json",
+      "bytes": 237,
+      "sha256": "392023d8f737e74a29d0f60d2e12619c7c3e22332be5df5f461d01256e213bb9"
+    },
+    {
+      "path": "diagnostics/artifacts/environment.json",
+      "source": "/workspace/xtoken-native/artifacts/environment.json",
+      "bytes": 1443,
+      "sha256": "9c843a3473afd159a7e2e795b04fddfc266d41988fe80c5147ea6d646b90a76e"
+    },
+    {
+      "path": "diagnostics/artifacts/gpu-smoke-01/summary.json",
+      "source": "/workspace/xtoken-native/artifacts/gpu-smoke-01/summary.json",
+      "bytes": 3172,
+      "sha256": "8eb8e747a2f68d2b2fb107255e2639bb4359029db0e7cedd06be588f0314e362"
+    },
+    {
+      "path": "diagnostics/artifacts/gpu-smoke-01/synthetic-projection-128.pt",
+      "source": "/workspace/xtoken-native/artifacts/gpu-smoke-01/synthetic-projection-128.pt",
+      "bytes": 3080237,
+      "sha256": "9bdbb5229c6b09ad1652e9d15ed1e0711a81d17f71dd09a3ba50bbcb40046476"
+    },
+    {
+      "path": "diagnostics/artifacts/gpu-smoke-01/synthetic-projection-256.pt",
+      "source": "/workspace/xtoken-native/artifacts/gpu-smoke-01/synthetic-projection-256.pt",
+      "bytes": 3080237,
+      "sha256": "d4acb5973f0cc0ab0298b1de9814a64598aff3bc85a8ed343e9f3e2efa1d7488"
+    },
+    {
+      "path": "diagnostics/artifacts/hf-Qwen--Qwen3-1.7B-access.log",
+      "source": "/workspace/xtoken-native/artifacts/hf-Qwen--Qwen3-1.7B-access.log",
+      "bytes": 153,
+      "sha256": "b655006a5dfed133b37f9b53dcec8218193daa0011e2eff73ca5c26261040b1a"
+    },
+    {
+      "path": "diagnostics/artifacts/hf-access.json",
+      "source": "/workspace/xtoken-native/artifacts/hf-access.json",
+      "bytes": 770,
+      "sha256": "0e3191b7b546f8ff76aa8c18e0a17585598a75811156d1985d6e80c42f115c7e"
+    },
+    {
+      "path": "diagnostics/artifacts/hf-meta-llama--Llama-3.2-1B-access.log",
+      "source": "/workspace/xtoken-native/artifacts/hf-meta-llama--Llama-3.2-1B-access.log",
+      "bytes": 272,
+      "sha256": "ef285250afd1234d6f9f86442a949dca38b5b0e75ec5b9602d2e8a2c2b6aabe0"
+    },
+    {
+      "path": "diagnostics/artifacts/packages.txt",
+      "source": "/workspace/xtoken-native/artifacts/packages.txt",
+      "bytes": 5090,
+      "sha256": "971aa3e4170f9920c9afc85a79b80cc1583bcca36be19078bfb6baa73d3fe9a2"
+    },
+    {
+      "path": "diagnostics/artifacts/secret-audit.json",
+      "source": "/workspace/xtoken-native/artifacts/secret-audit.json",
+      "bytes": 237,
+      "sha256": "94863a95cbde3bafcd30825030b7215aa20eb8af6e784dcbd1f7ab1d8125e578"
+    },
+    {
+      "path": "diagnostics/artifacts/sha256.json",
+      "source": "/workspace/xtoken-native/artifacts/sha256.json",
+      "bytes": 3099,
+      "sha256": "6b2a4f53e18833086be421584ec16141d678d7a65564fb34e677cec7a2139247"
+    },
+    {
+      "path": "diagnostics/artifacts/upstream-unit-results/20260903_042947.json",
+      "source": "/workspace/xtoken-native/artifacts/upstream-unit-results/20260903_042947.json",
+      "bytes": 203,
+      "sha256": "5632cc1a88d77acc89dc0b656e47bd84b2efd3c1bb40a5c6eb974215dcad41e8"
+    },
+    {
+      "path": "diagnostics/artifacts/upstream-unit-results/20260903_043119.json",
+      "source": "/workspace/xtoken-native/artifacts/upstream-unit-results/20260903_043119.json",
+      "bytes": 203,
+      "sha256": "e66b12fc8812f3bb3925e3525135b04d2040dc8c24420d9f16007b3b82613f5e"
+    },
+    {
+      "path": "diagnostics/artifacts/upstream-xtoken-loss.xml",
+      "source": "/workspace/xtoken-native/artifacts/upstream-xtoken-loss.xml",
+      "bytes": 1560,
+      "sha256": "9263a783854fcd16efa8d836d7e71fda0d7d7b6b0c39a6e38cf42d8d62d69be8"
+    },
+    {
+      "path": "diagnostics/artifacts/upstream-xtoken-unit.xml",
+      "source": "/workspace/xtoken-native/artifacts/upstream-xtoken-unit.xml",
+      "bytes": 20293,
+      "sha256": "180fdd96a48a0d65da0524d35beba9fd9f2dc7ae41b686cb6996d54b0be1d686"
+    },
+    {
+      "path": "diagnostics/artifacts/worker-wheel-preflight.json",
+      "source": "/workspace/xtoken-native/artifacts/worker-wheel-preflight.json",
+      "bytes": 329,
+      "sha256": "dfce0bbbc7e2ba40bffd0ed76503f53b7f1c77eefc1c2c79957ab42508476555"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/command.json",
+      "bytes": 396,
+      "sha256": "5f1fc809636a3b400275d5fdce502fdefbd4d64ce47a05c7232ead4e8b7ad481"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/gpu.csv",
+      "bytes": 66,
+      "sha256": "67abd802b952c879f1e44bec7d8d16a9dec143464d13a4a5b749c216363b5649"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/result.json",
+      "bytes": 509,
+      "sha256": "7010a9ee7436bbe60bee054592a3729deb4915af319f4bd71d9ab1b4c7ea2277"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062402.939469Z-automodel-locked-dry-run-7cd70db6/stdout.log",
+      "bytes": 7486,
+      "sha256": "a84a6235ca9ae404d539e359ac3ef161997151082d406e6cbb57d8520b8028b4"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/command.json",
+      "bytes": 337,
+      "sha256": "2693a157307a9a2cd227b82fce92e372b6799d09e5be4d1f72fa6c15c89a2d78"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/gpu.csv",
+      "bytes": 198,
+      "sha256": "6fc566c337be99ceda98a70eb2ae9eda1d2cfecc5d0f06f7c0b91ffa737355aa"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/result.json",
+      "bytes": 452,
+      "sha256": "e156e92ca7acd650bd6f38e683e5b1ff9d211bc3270fdf7da97ce21fa30255a0"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062821.719176Z-automodel-base-0ab6d09e/stdout.log",
+      "bytes": 6394,
+      "sha256": "c63d632fdf51590fa255fe597e336881e3ee9c8b05722f9f144d1a7a51bfd10e"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/command.json",
+      "bytes": 382,
+      "sha256": "df44d3a8726a1ee95d0777382763ec3e89d2ce644066a2e2233ef56b6ba702dd"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/gpu.csv",
+      "bytes": 66,
+      "sha256": "bc56f8ca83c5c4d35f5d5cd04298eb5fb0caafc9df7b0e93e51519a1de8c881f"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/result.json",
+      "bytes": 498,
+      "sha256": "7ba68b81bf70850448a102938602788895131564752bb9de6e1b9f840613a22c"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.374696Z-simct-venv-c95e10ce/stdout.log",
+      "bytes": 481,
+      "sha256": "dadaa3cbc475fad358a98a389f200931462ba15836714cd9d0b380584770d46c"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/command.json",
+      "bytes": 510,
+      "sha256": "dd0fa79216fd0e687c7c91699bb6670c5b0fb3ac51659c5cfef3ffe13dc3772b"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/gpu.csv",
+      "bytes": 66,
+      "sha256": "7b92ed061a5545f5095b98fad5347cd94ed184aa669cbdfceaba6dca04ec7bd8"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/result.json",
+      "bytes": 623,
+      "sha256": "822b3d0dac82adc744a71fc1fadd27081a51ecd3baf219f76347074008402e1a"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062823.487378Z-simct-resolve-00d777c4/stdout.log",
+      "bytes": 391,
+      "sha256": "1944175bb896c6af348ac9fde2ff191b49dac9d0638000775e5bd4a269d7c072"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/command.json",
+      "bytes": 710,
+      "sha256": "5ab522febf10c4aa58499932db78988355a9b6a725da7914ce355fdb94e30da1"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/gpu.csv",
+      "bytes": 264,
+      "sha256": "af4a0677d1fac3efae4c5c6604f169b4344e6f3658721ef767958dca3537b0bc"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/result.json",
+      "bytes": 823,
+      "sha256": "7084f72a2ae7cf49d0fbeaa0a9a71b138a0f20d2d11a637902955535be97ad58"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062855.883899Z-automodel-dense-install-5a865b3d/stdout.log",
+      "bytes": 2009,
+      "sha256": "14b42965ec52481351d49e4e6234f6f0e0ad42f90174c92d419171127c384a20"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/command.json",
+      "bytes": 653,
+      "sha256": "c27f2e422065c0400f6ab8803e28d89f2b50d2c86cc600093498ae7717cc7119"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/gpu.csv",
+      "bytes": 264,
+      "sha256": "dfbe351c3d5ded845d2bffdfbcb1e475d3d04f50a860146bc9be22f6c42dac01"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/result.json",
+      "bytes": 767,
+      "sha256": "963dcea31422374cac5c104642529d16ca9bd32cda0627bbdb57ebad13cb5dbc"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T062943.552035Z-automodel-worker-import-0dd09efe/stdout.log",
+      "bytes": 3903,
+      "sha256": "3d98191f3c88f177e21f61deaa898c03b50ea9b99b5a7b811baa0ddf32e75bf7"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/command.json",
+      "bytes": 510,
+      "sha256": "ec75956048e7a8fafcd78296f4901d455794e4de14541021476e08bf791b7706"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/gpu.csv",
+      "bytes": 66,
+      "sha256": "0d338bb0b7a4125fe9d850d65e7988487b26d1f15e69c18d281f33e813de3cf5"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/result.json",
+      "bytes": 623,
+      "sha256": "17811420e902623b5f0c3d2eb900df896804e1db8fc4b44872a21f992889be00"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063045.677857Z-simct-core-resolve-c5ba949f/stdout.log",
+      "bytes": 645,
+      "sha256": "5ed630196fce0c4fdfbe1d5094ab83ef9c404fad0fe40c911f31503187bf6751"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/command.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/command.json",
+      "bytes": 1002,
+      "sha256": "50bd22f4de67fbcca82b0611b09cc8f4a285fafcc40f45a7978d598f8e523ea3"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/gpu.csv",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/gpu.csv",
+      "bytes": 201,
+      "sha256": "99abd5c7144aee30ef8e0dd4708fcba20bcb5f7cf56eccd9f6c4979b1d5e50fc"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/result.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/result.json",
+      "bytes": 1118,
+      "sha256": "e5e8849ece94f7b75c2801cd694a9ddfff93a881dabbeafd1933c7c8d2aec06b"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/stdout.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/20260903T063051.819771Z-projection-exact-pair-7212ae7e/stdout.log",
+      "bytes": 27394,
+      "sha256": "a7fa3aafaed760097f66af8f555ca94d93246483adee2c212e6aed17e1fd0029"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/automodel-native-variant.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/automodel-native-variant.json",
+      "bytes": 514,
+      "sha256": "38c66339782969a62ece15c211bb838f971584dda2c0ea13ca6a27bce1989d7b"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/dataset_manifest.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/dataset_manifest.json",
+      "bytes": 439,
+      "sha256": "e22be01fb502407198f22525c1949ce8a080b0e3d0f4cd5234425fa13e63641a"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/dataset_rows.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/dataset_rows.json",
+      "bytes": 109497,
+      "sha256": "321849ecac1b606d97f78812bbe8326c5bdf5e06a7b402ade468f6a2c8182407"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/dataset_splits.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/dataset_splits.json",
+      "bytes": 838,
+      "sha256": "6b5acabf00999e759b25cfcce5397c5758b23110163b0bc5961f7dbded84c2d5"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/formal_logic_first32.parquet",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/formal_logic_first32.parquet",
+      "bytes": 38316,
+      "sha256": "73d64ff2edc3c6b8fa1690f37d0651b8ca1b7b8ad69291eb017743de013fbca2"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/model_download.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/model_download.json",
+      "bytes": 419,
+      "sha256": "592e002dddb1b3a60e6be61301647a2df2a39366ea9d873cd081364751c433f6"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/model_download_authenticated.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/model_download_authenticated.json",
+      "bytes": 2553,
+      "sha256": "740921c43142d0d91e7e34101b739d5c7f8c29ba1eff8ffb80c997e072c838b5"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/model_weights_verified.json",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/model_weights_verified.json",
+      "bytes": 2636,
+      "sha256": "a7378b52178e38c0a5efbf168518ddbdc6bc187591e7fac0f7f808a79a53216d"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/student_access.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/student_access.log",
+      "bytes": 185,
+      "sha256": "27242ced77d6845cfde0fad38122687322aaeb35f1621adb45feb3e9de2e4316"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/student_access_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/student_access_authenticated.log",
+      "bytes": 135,
+      "sha256": "dea4fca93bd6fd7e733e4d224ce4ab38e42cb51159091ed41314f3cb661cdd15"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/student_weights_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/student_weights_authenticated.log",
+      "bytes": 432,
+      "sha256": "8d1165e183a9e85189eb30cf71dded16f0fc48179ff9e56b010a7be213a4b449"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/student_weights_verified_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/student_weights_verified_authenticated.log",
+      "bytes": 123,
+      "sha256": "193a9717ba34b18013af1af4d5723728d6a024731254976aadaa9842b16ed774"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/teacher_access_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/teacher_access_authenticated.log",
+      "bytes": 127,
+      "sha256": "1144bc2aa9924b78265708f23c2c8435cac26f9ff66457fd9ba7e02425e467ad"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/teacher_weights_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/teacher_weights_authenticated.log",
+      "bytes": 424,
+      "sha256": "19413cd235778281ba92a8b461f9946784b0535b38fef9771b156f3414c778c6"
+    },
+    {
+      "path": "diagnostics/smoke-20260903-r1/teacher_weights_verified_authenticated.log",
+      "source": "/workspace/xtoken-native/smoke-20260903-r1/teacher_weights_verified_authenticated.log",
+      "bytes": 115,
+      "sha256": "26425ac6fd3d708a9dcc35a7138da18ed4d478bd17060ba7855f1d410704352e"
+    },
+    {
+      "path": "snapshots/xtoken-base/pyvenv.cfg",
+      "source": "/workspace/xtoken-native/NeMo-RL/.venv/pyvenv.cfg",
+      "bytes": 197,
+      "sha256": "7e550c7beead6fca7996e0a7cd6b5a6e3a7019c09a38b59cd4193017531bed1e"
+    },
+    {
+      "path": "snapshots/xtoken-automodel-worker/pyvenv.cfg",
+      "source": "/workspace/xtoken-native/worker-venvs/nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2/pyvenv.cfg",
+      "bytes": 206,
+      "sha256": "215d910d57b3ea591ff195acd09b81bd670b24022456bb68350b7fd7705dda38"
+    },
+    {
+      "path": "snapshots/simct-incomplete/pyvenv.cfg",
+      "source": "/workspace/simct-native/.venv/pyvenv.cfg",
+      "bytes": 131,
+      "sha256": "d08bf6a8f0c642c58a2c680f4a5926158f1da33721c9b1f7aa916ca2c416f0b9"
+    }
+  ]
+}

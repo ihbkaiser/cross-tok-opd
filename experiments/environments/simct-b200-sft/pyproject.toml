@@ -1,0 +1,29 @@
+[project]
+name = "simct-sft-b200-cu130"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "llamafactory==0.9.5",
+  "torch==2.11.0+cu130",
+  "torchvision==0.26.0+cu130",
+  "torchaudio==2.11.0+cu130",
+  "wandb",
+  "pytest>=8.4,<9",
+  "ninja",
+  "packaging",
+  "psutil",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

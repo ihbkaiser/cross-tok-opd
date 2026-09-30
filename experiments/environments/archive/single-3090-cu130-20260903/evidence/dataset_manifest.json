@@ -1,0 +1,10 @@
+{
+  "dataset": "nvidia/Nemotron-Pretraining-Specialized-v1.1",
+  "config": "Nemotron-Pretraining-Formal-Logic",
+  "split": "train",
+  "offset": 0,
+  "rows": 32,
+  "parquet_path": "/workspace/xtoken-native/smoke-20260903-r1/formal_logic_first32.parquet",
+  "sha256": "73d64ff2edc3c6b8fa1690f37d0651b8ca1b7b8ad69291eb017743de013fbca2",
+  "provenance": "Dataset Viewer current snapshot frozen by local content hash; not full paper dataset"
+}

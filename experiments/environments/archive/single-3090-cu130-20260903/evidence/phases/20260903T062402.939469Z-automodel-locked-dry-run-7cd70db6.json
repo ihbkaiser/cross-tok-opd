@@ -1,0 +1,23 @@
+{
+  "name": "automodel-locked-dry-run",
+  "command": [
+    "uv",
+    "sync",
+    "--locked",
+    "--extra",
+    "automodel",
+    "--dry-run"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "attempt": 1,
+  "started_at": "20260903T062402.939469Z",
+  "timeout_seconds": 300,
+  "timed_out": false,
+  "interrupted": false,
+  "telemetry_samples": 1,
+  "telemetry_errors": [],
+  "exit_code": 0,
+  "child_exit_code": 0,
+  "elapsed_seconds": 4.36247194185853,
+  "finished_at": "2026-09-03T06:24:07.302431+00:00"
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "mp-opd-toy-v0",
+  "seed": 43,
+  "atom_count": 6,
+  "adapter_dim": 4,
+  "max_span_length": 4,
+  "virtual_learning_rate": 0.05,
+  "partition_temperature": 0.7,
+  "finite_difference_epsilon": 0.0001,
+  "split": {
+    "rollout_batch_ids": ["toy-B-000", "toy-B-001"],
+    "meta_train_ids": ["toy-M-train-000"],
+    "validation_ids": ["toy-M-valid-000"],
+    "test_ids": ["toy-M-test-000"]
+  },
+  "model_revision": "toy-linear-adapter-v0",
+  "teacher_revision": "toy-fixed-path-scores-v0",
+  "dataset_revision": "deterministic-analytic-fixture-v0"
+}

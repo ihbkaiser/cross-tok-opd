@@ -1,0 +1,94 @@
+{
+  "started_at": "2026-09-03T06:28:20.686518+00:00",
+  "attempt": 3,
+  "retry_reason": "Authenticated access passed; CLI interpreted extra include patterns as filenames, so prior pass only proves metadata download. Now download and verify actual safetensors.",
+  "token_persisted": false,
+  "models": [
+    {
+      "role": "student",
+      "repo": "meta-llama/Llama-3.2-1B",
+      "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+      "weights_verified": true,
+      "snapshot_path": "/workspace/xtoken-native/hf-cache/hub/models--meta-llama--Llama-3.2-1B/snapshots/4e20de362430cd3b72f300e6b0f18e50e7166e08",
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "bytes": 7712
+        },
+        {
+          "name": "config.json",
+          "bytes": 843
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 185
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 2471645608
+        },
+        {
+          "name": "special_tokens_map.json",
+          "bytes": 301
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 9085657
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 50500
+        }
+      ],
+      "config_sha256": "bfb5d39c327ee5c3a65e3574596ff30b052a445cfc59a25bdf3b4c0c5a44f4d2"
+    },
+    {
+      "role": "teacher",
+      "repo": "Qwen/Qwen3-1.7B",
+      "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "weights_verified": true,
+      "snapshot_path": "/workspace/xtoken-native/hf-cache/hub/models--Qwen--Qwen3-1.7B/snapshots/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 726
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 239
+        },
+        {
+          "name": "merges.txt",
+          "bytes": 1671853
+        },
+        {
+          "name": "model-00001-of-00002.safetensors",
+          "bytes": 3441185608
+        },
+        {
+          "name": "model-00002-of-00002.safetensors",
+          "bytes": 622329984
+        },
+        {
+          "name": "model.safetensors.index.json",
+          "bytes": 25605
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11422654
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 9732
+        },
+        {
+          "name": "vocab.json",
+          "bytes": 2776833
+        }
+      ],
+      "config_sha256": "1ddb5b89ebc90dcb417a45c213d818577e65976454d29385c8f6140771d95197"
+    }
+  ],
+  "complete": true,
+  "finished_at": "2026-09-03T06:31:32.665225+00:00"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "simct-venv",
+  "command": [
+    "uv",
+    "venv",
+    "--python",
+    "3.12",
+    "/workspace/simct-native/.venv"
+  ],
+  "cwd": "/workspace/xtoken-native/NeMo-RL",
+  "attempt": 1,
+  "started_at": "20260903T062823.374696Z",
+  "timeout_seconds": 180,
+  "timed_out": false,
+  "interrupted": false,
+  "telemetry_samples": 1,
+  "telemetry_errors": [],
+  "exit_code": 0,
+  "child_exit_code": 0,
+  "elapsed_seconds": 0.11168358288705349,
+  "finished_at": "2026-09-03T06:28:23.486856+00:00"
+}

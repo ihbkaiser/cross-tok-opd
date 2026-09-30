@@ -1,0 +1,15 @@
+{
+  "mode": "dense-HF-PyTorch-SDPA-native",
+  "skipped_optional_packages": [
+    "transformer-engine",
+    "flash-attn",
+    "deep-ep",
+    "mamba-ssm",
+    "causal-conv1d",
+    "nv-grouped-gemm",
+    "tilelang"
+  ],
+  "reason": "Single Ampere dense models; host nvcc12.8 differs from locked torch cu130; no MoE/SSM/TE/Flash kernel build",
+  "worker_path": "/workspace/xtoken-native/worker-venvs/nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2",
+  "upstream_source_unmodified": true
+}
