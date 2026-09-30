@@ -35,13 +35,15 @@ PARTITION_SEED = 43
 RECIPE = dict(mode="random", learning_rate=1e-6, micro_train_batch_size=4, train_batch_size=64,
               num_epochs=2, optimizer_updates=UPDATES, alternating=False,
               partition_seed=PARTITION_SEED, temperature=0.6, top_p=0.95,
+              min_span_length=2,
               generate_max_len=4096, max_len=4096, source_group="company-v2-random")
 # Recipe flags a stale interactive shell must never inject into an immutable run.
 # Infrastructure flags (MP_RUNTIME_DIR, MP_RAY_TMP, MP_SHARED_ROOT) stay inherited.
 RECIPE_FLAGS = ("MP_ALTERNATING", "MP_ENERGY_CHECKPOINT", "MP_ENERGY_EVERY", "MP_ENERGY_LR",
                  "MP_META_PATH", "MP_META_MICRO_BATCH_SIZE", "MP_MAX_LEN", "MP_PAUSE_AFTER_UPDATES",
                  "MP_CHECKPOINT_STEPS", "MP_SEED", "MP_PARTITION_SEED", "MP_FIXED_SPAN_LENGTH",
-                 "MP_MAX_SPAN_LENGTH", "MP_MICRO_TRAIN_BATCH_SIZE", "MP_ALGORITHM",
+                 "MP_MAX_SPAN_LENGTH", "MP_MIN_SPAN_LENGTH", "MP_MICRO_TRAIN_BATCH_SIZE",
+                 "MP_ALGORITHM",
                  "MP_ATTN_IMPLEMENTATION", "MP_PREFLIGHT_ONLY", "MP_RESUME", "MP_RUN_ROOT",
                  "MP_STUDENT_PATH", "MP_TEACHER_PATH", "MP_DATASET_PATH", "MP_SOURCE_COMMIT",
                  "MP_SOURCE_DIRTY")
@@ -133,6 +135,7 @@ def train_env(case, config):
         MP_STUDENT_PATH=c["student"], MP_TEACHER_PATH=c["teacher"], MP_DATASET_PATH=c["dataset"],
         MP_SEED=str(config["train_seed"]), MP_PARTITION_SEED=str(PARTITION_SEED),
         MP_FIXED_SPAN_LENGTH=str(config["span"]), MP_MAX_SPAN_LENGTH=str(config["span"]),
+        MP_MIN_SPAN_LENGTH=str(RECIPE["min_span_length"]),
         MP_ALGORITHM="mp_opd", MP_ATTN_IMPLEMENTATION="eager",
         MP_MICRO_TRAIN_BATCH_SIZE=str(config["micro_B"]),
         MP_PREFLIGHT_ONLY="0",

@@ -40,14 +40,24 @@ def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
     return tuple((start, min(start + length, n)) for start in range(0, n, length))
 
 
-def random_partition(n: int, max_length: int, seed: int) -> tuple[tuple[int, int], ...]:
+def random_partition(n: int, max_length: int, seed: int,
+                     min_length: int = 1) -> tuple[tuple[int, int], ...]:
+    """Random spans of length in [min_length, max_length], tiling [0, n) exactly.
+
+    min_length=1 is the historical draw. A short tail is clamped so the last span covers the
+    remaining atoms even when fewer than min_length are left, instead of failing.
+    """
     if n < 0 or max_length <= 0:
         raise ValueError("n must be nonnegative and max_length positive")
+    if min_length <= 0 or min_length > max_length:
+        raise ValueError("min_length must be positive and no larger than max_length")
     generator = random.Random(int(seed))
     parts = []
     cursor = 0
     while cursor < n:
-        length = generator.randint(1, min(max_length, n - cursor))
+        high = min(max_length, n - cursor)
+        low = min(min_length, high)
+        length = generator.randint(low, high)
         parts.append((cursor, cursor + length))
         cursor += length
     return tuple(parts)
@@ -174,6 +184,7 @@ class MetaPartitionedOPD:
         self.atomizer = SimCTAtomizer(student_tokenizer, teacher_tokenizer)
         self.mode = self.args.kd.mp_opd_mode
         self.max_span_length = int(self.args.kd.mp_opd_max_span_length)
+        self.min_span_length = int(getattr(self.args.kd, "mp_opd_min_span_length", 1))
         self.fixed_span_length = int(self.args.kd.mp_opd_fixed_span_length)
         self.temperature = float(self.args.kd.mp_opd_partition_temperature)
         self.host_mask = bool(getattr(self.args.kd, "mp_opd_host_mask", False))
@@ -299,7 +310,7 @@ class MetaPartitionedOPD:
                 f"{credits.weight.detach().cpu().tolist()}"
             ).encode()
             seed = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
-            partition = random_partition(n, self.max_span_length, seed)
+            partition = random_partition(n, self.max_span_length, seed, self.min_span_length)
             return hard_partition_loss(
                 credits.current_nll, credits.base_credit, credits.weight, partition
             ), metrics

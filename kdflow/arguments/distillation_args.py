@@ -197,6 +197,7 @@ class DistillationArguments:
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft"]},
     )
     mp_opd_max_span_length: int = field(default=4)
+    mp_opd_min_span_length: int = field(default=1)
     mp_opd_fixed_span_length: int = field(default=2)
     mp_opd_partition_temperature: float = field(default=1.0)
     mp_opd_random_seed: int = field(default=43)
@@ -255,6 +256,9 @@ class DistillationArguments:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
+            if not 1 <= self.mp_opd_min_span_length <= self.mp_opd_max_span_length:
+                raise ValueError("mp_opd_min_span_length must be at least 1 and no larger "
+                                 "than mp_opd_max_span_length")
             if self.mp_opd_partition_temperature <= 0:
                 raise ValueError("mp_opd_partition_temperature must be positive")
             if self.mp_opd_energy_hidden_dim <= 0 or self.mp_opd_energy_layers <= 0:
