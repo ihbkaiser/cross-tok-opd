@@ -43,12 +43,12 @@ def _fake_run_ok(seen=None, make_target=False):
     return fake_run
 
 
-def test_ladder_is_two_spans_by_three_seeds():
+def test_ladder_is_three_spans_by_three_seeds():
     configs = Q.configurations()
-    assert len(configs) == Q.expected_trains() == 6
-    assert {c["span"] for c in configs} == {3, 4}
+    assert len(configs) == Q.expected_trains() == 9
+    assert {c["span"] for c in configs} == {3, 4, 5}
     assert {c["train_seed"] for c in configs} == {42, 43, 44}
-    assert len({c["id"] for c in configs}) == 6
+    assert len({c["id"] for c in configs}) == 9
     # Placement is not part of the campaign contract, so it must not appear here.
     assert all("slot" not in c for c in configs)
 
@@ -68,13 +68,13 @@ def test_recipe_matches_company_v2_fixed():
 
 def test_placement_defaults_and_overrides_without_touching_the_contract(tmp_path, monkeypatch):
     monkeypatch.delenv("MP_LADDER_SLOTS", raising=False)
-    assert Q.slots() == {"fixed3": 6, "fixed4": 7}
+    assert Q.slots() == {"fixed3": 5, "fixed4": 6, "fixed5": 7}
     case = _case(tmp_path)
     before = Q.checked_config(case)["runs"]
-    monkeypatch.setenv("MP_LADDER_SLOTS", "2,3")
-    assert Q.slots() == {"fixed3": 2, "fixed4": 3}
+    monkeypatch.setenv("MP_LADDER_SLOTS", "2,3,4")
+    assert Q.slots() == {"fixed3": 2, "fixed4": 3, "fixed5": 4}
     assert Q.checked_config(case)["runs"] == before
-    for bad in ("2", "2,2", "8,3", "2,3,4", "x,3"):
+    for bad in ("2", "2,3", "2,2,3", "2,3,3", "8,3,4", "x,3,4"):
         monkeypatch.setenv("MP_LADDER_SLOTS", bad)
         with pytest.raises(ValueError):
             Q.slots()
@@ -82,7 +82,7 @@ def test_placement_defaults_and_overrides_without_touching_the_contract(tmp_path
 
 def test_eval_cells_cover_every_run_at_every_checkpoint():
     cells = Q.eval_cells()
-    assert len(cells) == len(Q.configurations()) * len(Q.STEPS) == 48
+    assert len(cells) == len(Q.configurations()) * len(Q.STEPS) == 72
 
 
 def test_ladder_ids_never_collide_with_the_alternating_campaign():
@@ -92,7 +92,7 @@ def test_ladder_ids_never_collide_with_the_alternating_campaign():
 def test_train_env_pins_the_slot_derives_ports_and_keeps_infrastructure(tmp_path, monkeypatch):
     case = _case(tmp_path)
     config = Q.configurations()[0]
-    monkeypatch.setenv("MP_LADDER_SLOTS", "2,3")
+    monkeypatch.setenv("MP_LADDER_SLOTS", "2,3,4")
     monkeypatch.setenv("MP_ALTERNATING", "1")
     monkeypatch.setenv("MP_RUNTIME_DIR", "/tmp/runtime")
     env, slot = Q.train_env(case, config)
@@ -131,7 +131,7 @@ def test_train_one_passes_an_explicit_output_directory(tmp_path, monkeypatch):
                             str(target)]
     receipt = json.loads(Q.receipt_path(case, config).read_text())
     assert receipt["returncode"] == 0 and receipt["run_dir"] == str(target)
-    assert receipt["resume"] == "0" and receipt["slot"] == 6
+    assert receipt["resume"] == "0" and receipt["slot"] == 5
     assert Q.finished(case, config) is True
     assert Q.run_dir_of(case, config) == target
 
@@ -163,7 +163,7 @@ def test_train_one_resumes_into_the_same_directory(tmp_path, monkeypatch):
     assert list(Q.run_dir(case, config).parent.glob(config["id"] + ".abandoned-*")) == []
 
 
-def test_train_starts_both_spans_of_a_seed_together(tmp_path, monkeypatch):
+def test_train_starts_every_span_of_a_seed_together(tmp_path, monkeypatch):
     case = _case(tmp_path)
     started = []
     real_popen = subprocess.Popen
@@ -182,8 +182,9 @@ def test_train_starts_both_spans_of_a_seed_together(tmp_path, monkeypatch):
     Q.train(case)
     assert started == [c["id"] for c in Q.configurations()]
     for seed in Q.TRAIN_SEEDS:
-        pair = [x for x in started if x.endswith("s" + str(seed))]
-        assert pair == ["FIX-fixed3-s" + str(seed), "FIX-fixed4-s" + str(seed)], pair
+        group = [x for x in started if x.endswith("s" + str(seed))]
+        assert group == ["FIX-fixed3-s" + str(seed), "FIX-fixed4-s" + str(seed),
+                         "FIX-fixed5-s" + str(seed)], group
 
 
 def test_train_skips_a_run_that_already_finished(tmp_path, monkeypatch):
@@ -206,7 +207,7 @@ def test_train_skips_a_run_that_already_finished(tmp_path, monkeypatch):
     monkeypatch.setattr(Q.subprocess, "Popen", fake_popen)
     Q.train(case)
     assert first["id"] not in started
-    assert len(started) == 5
+    assert len(started) == 8
 
 
 def test_checked_config_refuses_a_drifting_recipe_or_commit(tmp_path):

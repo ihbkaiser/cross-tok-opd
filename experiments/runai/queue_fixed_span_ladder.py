@@ -24,11 +24,11 @@ WRITE = F.write
 HOST_WRAPPER = ROOT / "experiments/runai/python-b200-host.sh"
 RUNNER = ROOT / "experiments/runai/run_single_gpu.py"
 
-VARIANTS = (("fixed3", 3), ("fixed4", 4))
+VARIANTS = (("fixed3", 3), ("fixed4", 4), ("fixed5", 5))
 TRAIN_SEEDS = (42, 43, 44)
 # Default placement only. The wrapper derives its port bases from the slot, so the two
 # concurrent jobs never collide; MP_LADDER_SLOTS overrides the placement per host.
-DEFAULT_SLOTS = (6, 7)
+DEFAULT_SLOTS = (5, 6, 7)
 STEPS = (40, 80, 120, 156, 200, 240, 280, 312)
 UPDATES = 312
 PARTITION_SEED = 43
@@ -105,7 +105,7 @@ def initialize(case, student, teacher, dataset, template_case):
         runs=configurations(), recipe=RECIPE, steps=list(STEPS), eval_seeds=[42, 43, 44],
         student=student, teacher=teacher, dataset=dataset,
         eval_template_source=str(template_case), created=time.time(),
-        scope="Fixed-span ladder at the company-v2-fixed recipe; span 3 and 4, training seeds 42/43/44"))
+        scope="Fixed-span ladder at the company-v2-fixed recipe; span 3, 4 and 5, training seeds 42/43/44"))
     return case
 
 
