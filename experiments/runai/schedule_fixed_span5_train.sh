@@ -88,6 +88,7 @@ cat > "$LOGS/stream_span5.sh" <<'EOS'
 #!/usr/bin/env bash
 set -uo pipefail
 SRC="$1"; CASE="$2"; SLOT="$3"
+export PYTHONPATH="$SRC/experiments/modal/vendor:$SRC:$SRC/experiments/runai"
 export MP_LADDER_SLOTS="1,2,$SLOT"
 export MP_PARITY_CAPTURE_DIR="$CASE/captures"
 mkdir -p "$MP_PARITY_CAPTURE_DIR"
@@ -102,6 +103,7 @@ cat > "$LOGS/stream_s44.sh" <<'EOS'
 #!/usr/bin/env bash
 set -uo pipefail
 SRC="$1"; CASE="$2"; SLOT="$3"
+export PYTHONPATH="$SRC/experiments/modal/vendor:$SRC:$SRC/experiments/runai"
 export MP_PARITY_CAPTURE_DIR="$CASE/captures"
 mkdir -p "$MP_PARITY_CAPTURE_DIR"
 echo "=== START FIX-fixed3-s44 $(date -Is)"
