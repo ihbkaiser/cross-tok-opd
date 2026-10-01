@@ -32,6 +32,10 @@ from ._mp_opd_credit import (
 from ._mp_opd_energy import MPAtomEnergy, load_energy_checkpoint
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
+from ._mp_opd_training_diagnostics import (
+    logit_gradient_metrics,
+    partition_metrics,
+)
 
 
 def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
@@ -100,6 +104,18 @@ def _finite_stats(prefix: str, values: torch.Tensor) -> dict[str, torch.Tensor]:
         f"{prefix}_positive_fraction": (values > 0).float().mean(),
         f"{prefix}_negative_fraction": (values < 0).float().mean(),
     }
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name}={raw!r} must be a boolean value")
 
 
 def _behavior_parity_metrics(
@@ -189,6 +205,20 @@ class MetaPartitionedOPD:
         self.temperature = float(self.args.kd.mp_opd_partition_temperature)
         self.host_mask = bool(getattr(self.args.kd, "mp_opd_host_mask", False))
         self.timing_enabled = os.environ.get("MP_OPD_TIMING", "0") == "1"
+        # The diagnostics are opt-in because logit-space gradient probes retain
+        # the student graph and perform three extra autograd traversals per valid
+        # sample. When enabled, scalar locality/pooling metrics and the exact
+        # selected-logit gradient comparison are emitted by training_step.
+        self.diagnostics_enabled = _env_flag("MP_OPD_DIAGNOSTICS", False)
+        self.diagnostics_logit_grad = _env_flag(
+            "MP_OPD_DIAGNOSTICS_LOGIT_GRAD", self.diagnostics_enabled
+        )
+        raw_every = os.environ.get("MP_OPD_DIAGNOSTICS_EVERY", "1")
+        try:
+            self.diagnostics_every = max(1, int(raw_every))
+        except ValueError as error:
+            raise ValueError("MP_OPD_DIAGNOSTICS_EVERY must be a positive integer") from error
+        self._diagnostic_step = 0
         self.random_seed = int(self.args.kd.mp_opd_random_seed)
         self.energy = None
         self.energy_optimizer = None
@@ -291,19 +321,52 @@ class MetaPartitionedOPD:
         """Explicitly separate from ``get_projector_params``/student optimizer."""
         return [] if self.energy is None else list(self.energy.parameters())
 
-    def _partition_loss(self, credits, atoms, micro_batch, sample_index: int):
+    def _partition_loss(
+        self,
+        credits,
+        atoms,
+        micro_batch,
+        sample_index: int,
+        *,
+        diagnostics: bool = False,
+        diagnostic_seed: int = 0,
+        student_logits: torch.Tensor | None = None,
+    ):
         n = len(atoms)
         metrics = {}
+
+        def hard_loss_with_metrics(partition):
+            loss = hard_partition_loss(
+                credits.current_nll, credits.base_credit, credits.weight, partition
+            )
+            if diagnostics:
+                metrics.update(
+                    partition_metrics(
+                        credits.base_credit,
+                        credits.weight,
+                        partition,
+                        shuffle_seed=diagnostic_seed,
+                    )
+                )
+                if self.diagnostics_logit_grad and student_logits is not None:
+                    metrics.update(
+                        logit_gradient_metrics(
+                            student_logits,
+                            credits.student_token_nll,
+                            credits.rate,
+                            credits.weight,
+                            partition,
+                            shuffle_seed=diagnostic_seed,
+                        )
+                    )
+            return loss, metrics
+
         if self.mode == "atomic":
             partition = fixed_partition(n, 1)
-            return hard_partition_loss(
-                credits.current_nll, credits.base_credit, credits.weight, partition
-            ), metrics
+            return hard_loss_with_metrics(partition)
         if self.mode == "fixed":
             partition = fixed_partition(n, self.fixed_span_length)
-            return hard_partition_loss(
-                credits.current_nll, credits.base_credit, credits.weight, partition
-            ), metrics
+            return hard_loss_with_metrics(partition)
         if self.mode == "random":
             material = (
                 f"{self.random_seed}:{sample_index}:"
@@ -311,9 +374,7 @@ class MetaPartitionedOPD:
             ).encode()
             seed = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
             partition = random_partition(n, self.max_span_length, seed, self.min_span_length)
-            return hard_partition_loss(
-                credits.current_nll, credits.base_credit, credits.weight, partition
-            ), metrics
+            return hard_loss_with_metrics(partition)
 
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
@@ -333,9 +394,7 @@ class MetaPartitionedOPD:
             )
             oracle = hard_max_partition(utilities, utility_valid)
             metrics["mp_opd_delta_pred"] = oracle.score.detach()
-            return hard_partition_loss(
-                credits.current_nll, credits.base_credit, credits.weight, oracle.partition
-            ), metrics
+            return hard_loss_with_metrics(oracle.partition)
 
         if self.mode == "soft":
             features = atom_features(atoms, credits)
@@ -361,6 +420,20 @@ class MetaPartitionedOPD:
                     ).detach(),
                 }
             )
+            if diagnostics:
+                atomic_rate = credits.rate.detach()
+                effective_rate = rates_per_atom.detach()
+                metrics.update(
+                    {
+                        "mp_opd_diag_effective_rate_std": effective_rate.float().std(unbiased=False),
+                        "mp_opd_diag_effective_vs_atomic_rate_rmse": (
+                            (effective_rate.float() - atomic_rate.float()).square().mean().sqrt()
+                        ),
+                        "mp_opd_diag_effective_rate_sign_flip_fraction": (
+                            (effective_rate * atomic_rate < 0).float().mean()
+                        ),
+                    }
+                )
             if partition_seconds is not None:
                 metrics["mp_opd_semimarkov_wall_seconds"] = torch.tensor(
                     partition_seconds, device=distribution.log_z.device, dtype=torch.float64
@@ -373,6 +446,11 @@ class MetaPartitionedOPD:
 
     def training_step(self, micro_batch):
         started = time.perf_counter()
+        self._diagnostic_step += 1
+        diagnostics_due = (
+            self.diagnostics_enabled
+            and self._diagnostic_step % self.diagnostics_every == 0
+        )
         student_input_ids = micro_batch["stu_input_ids"]
         student_attn_mask = micro_batch["stu_attn_mask"]
         student_loss_mask = micro_batch["stu_loss_mask"].bool()
@@ -467,7 +545,13 @@ class MetaPartitionedOPD:
                 torch.tensor(tea_ids, device=tea_logits.device),
             )
             sample_loss, sample_metrics = self._partition_loss(
-                credits, atoms, micro_batch, batch_index
+                credits,
+                atoms,
+                micro_batch,
+                batch_index,
+                diagnostics=diagnostics_due,
+                diagnostic_seed=int(sample_key, 16),
+                student_logits=stu_logits if diagnostics_due else None,
             )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():
@@ -489,6 +573,9 @@ class MetaPartitionedOPD:
         metrics = {
             "loss": kd_loss,
             "kd_loss": kd_loss,
+            "mp_opd_diag_enabled": kd_loss.new_tensor(float(self.diagnostics_enabled)),
+            "mp_opd_diag_active": kd_loss.new_tensor(float(diagnostics_due)),
+            "mp_opd_diag_step": kd_loss.new_tensor(float(self._diagnostic_step)),
             "mp_opd_valid_atom_count": kd_loss.new_tensor(float(total_atoms)),
             "mp_opd_invalid_sample_count": kd_loss.new_tensor(float(total_invalid)),
             "mp_opd_valid_sample_count": kd_loss.new_tensor(float(valid_samples)),

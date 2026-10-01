@@ -21,6 +21,11 @@ class AtomCreditTensors:
     weight: torch.Tensor
     rate: torch.Tensor
     current_nll: torch.Tensor
+    # Per-student-token NLL is kept only so the optional MP-OPD diagnostics can
+    # compare atomic and pooled weighting in logit space without recomputing a
+    # second log_softmax. Existing diagnostic-only callers construct this
+    # dataclass positionally, so the field remains optional for compatibility.
+    student_token_nll: torch.Tensor | None = None
 
 
 _FUSED_CREDIT_FLAG = "MP_OPD_FUSED_CREDIT"
@@ -104,7 +109,15 @@ def build_atom_credits(
     weight = torch.tensor(weights, dtype=torch.float32, device=student_logits.device)
     base = (teacher_score - student_old).detach()
     rate = (base / weight).detach()
-    return AtomCreditTensors(teacher_score, student_old, base, weight, rate, torch.stack(h))
+    return AtomCreditTensors(
+        teacher_score,
+        student_old,
+        base,
+        weight,
+        rate,
+        torch.stack(h),
+        -student_logp,
+    )
 
 
 def span_tables(base: torch.Tensor, weight: torch.Tensor, max_span_length: int):
