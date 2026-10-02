@@ -1,4 +1,12 @@
-"""The random-span ladder: placement stays out of the contract, and a killed run resumes."""
+"""The random-span ladder: the launched mode is the recipe's mode, and placement stays out of it.
+
+This file used to pin `"fixed"` as the runner's argv mode, which is exactly what made the first
+min2max5 stack train one fixed span per arm: run_single_gpu.py takes argv[1] as mp_opd_mode, so
+mp_opd_mode was "fixed", mp_opd_fixed_span_length equalled the variant's max span, and
+min_span_length (inert outside random mode) was ignored while campaign.json still recorded mode
+"random". checked_config() cannot catch that drift because the campaign only stores the recipe,
+so the launch is pinned to the recipe here.
+"""
 import json
 from pathlib import Path
 import subprocess
@@ -55,6 +63,8 @@ def test_random_ladder_is_four_bounds_by_three_seeds():
 
 def test_recipe_matches_company_v2_random():
     assert Q.RECIPE["mode"] == "random"
+    assert Q.RECIPE["min_span_length"] == 2
+    assert Q.RECIPE["source_group"] == "company-v2-random"
     assert Q.RECIPE["learning_rate"] == 1e-6
     assert Q.RECIPE["micro_train_batch_size"] == 4
     assert Q.RECIPE["train_batch_size"] == 64
@@ -83,6 +93,25 @@ def test_placement_defaults_and_overrides_without_touching_the_contract(tmp_path
 def test_eval_cells_cover_every_run_at_every_checkpoint():
     cells = Q.eval_cells()
     assert len(cells) == len(Q.configurations()) * len(Q.STEPS) == 96
+    assert "RND-random5-s43-step312" in cells
+
+
+def test_eval_label_names_the_span_range_that_is_trained():
+    assert Q.eval_mode_label(5) == "random-min2max5"
+    assert Q.eval_mode_label(2) == "random-min2max2"
+    assert Q.eval_mode_label(3) != "fixed-span3"
+
+
+def test_runner_mode_is_the_recipes_mode_and_reaches_the_argv(tmp_path, monkeypatch):
+    assert Q.RUNNER_MODE == Q.RECIPE["mode"] == "random"
+    case = _case(tmp_path)
+    seen = {}
+    monkeypatch.setattr(Q.subprocess, "run", _fake_run_ok(seen, make_target=True))
+    Q.train_one(case, Q.configurations()[-1])
+    # run_single_gpu.py reads argv[1] as mp_opd_mode, so this is the only place the launched mode
+    # is decided; it has to be the mode the campaign records.
+    assert seen["argv"][3] == Q.RUNNER_MODE == "random"
+    assert Q.checked_config(case)["recipe"]["mode"] == seen["argv"][3]
 
 
 def test_ladder_ids_never_collide_with_the_alternating_campaign():
@@ -103,8 +132,11 @@ def test_train_env_pins_the_slot_derives_ports_and_keeps_infrastructure(tmp_path
     assert env["KDFLOW_ROLLOUT_PORT_BASE"] == "16000"
     assert env["KDFLOW_ROUTER_PROMETHEUS_PORT"] == "21000"
     assert env["MP_RAY_TMP"].startswith("/tmp/ar")
-    # A longer fixed span trips run_single_gpu.py:176 unless the max bound moves with it.
+    # The draw is randint(min, min(max, remaining)) inside random mode, so the max bound must move
+    # with the variant's span and the min bound must stay at the recipe's value.
     assert env["MP_FIXED_SPAN_LENGTH"] == str(config["span"]) == env["MP_MAX_SPAN_LENGTH"]
+    assert env["MP_MIN_SPAN_LENGTH"] == str(Q.RECIPE["min_span_length"]) == "2"
+    assert env["MP_SEED"] == str(config["train_seed"]) == "42"
     assert env["MP_RESUME"] == "0"
     assert "MP_ALTERNATING" not in env
     assert env["MP_RUNTIME_DIR"] == "/tmp/runtime"
@@ -129,7 +161,7 @@ def test_train_one_passes_an_explicit_output_directory(tmp_path, monkeypatch):
     target = Q.train_one(case, config)
     assert target == Q.run_dir(case, config)
     assert seen["argv"] == ["bash", str(ROOT / "experiments/runai/python-b200-host.sh"),
-                            str(ROOT / "experiments/runai/run_single_gpu.py"), "fixed", "312",
+                            str(ROOT / "experiments/runai/run_single_gpu.py"), "random", "312",
                             str(target)]
     receipt = json.loads(Q.receipt_path(case, config).read_text())
     assert receipt["returncode"] == 0 and receipt["run_dir"] == str(target)

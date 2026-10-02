@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Random-span ladder: span 3 and 4 at the company-v2-fixed recipe, one variant per GPU slot.
+"""Random-span ladder: max span 2..5 with the recipe's min span 2, one variant per GPU slot.
 
 Training launches the repo host wrapper with an explicit output directory, so a killed run
 can be resumed into the same directory instead of silently creating a second one. Placement
@@ -37,6 +37,11 @@ RECIPE = dict(mode="random", learning_rate=1e-6, micro_train_batch_size=4, train
               partition_seed=PARTITION_SEED, temperature=0.6, top_p=0.95,
               min_span_length=2,
               generate_max_len=4096, max_len=4096, source_group="company-v2-random")
+# The runner takes the algorithm mode as its first positional argument, so derive it from the
+# recipe: the launched mode and campaign.json then agree by construction. Launching this case as
+# "fixed" silently trains one fixed span (min_span_length is inert outside random mode) while the
+# campaign still records mode "random".
+RUNNER_MODE = RECIPE["mode"]
 # Recipe flags a stale interactive shell must never inject into an immutable run.
 # Infrastructure flags (MP_RUNTIME_DIR, MP_RAY_TMP, MP_SHARED_ROOT) stay inherited.
 RECIPE_FLAGS = ("MP_ALTERNATING", "MP_ENERGY_CHECKPOINT", "MP_ENERGY_EVERY", "MP_ENERGY_LR",
@@ -75,6 +80,11 @@ def expected_trains():
     return len(configurations())
 
 
+def eval_mode_label(span):
+    """Plan label naming the span range this arm actually trains, e.g. random-min2max5."""
+    return "random-min" + str(RECIPE["min_span_length"]) + "max" + str(span)
+
+
 def eval_cells():
     return [c["id"] + "-step" + str(step) for c in configurations() for step in STEPS]
 
@@ -108,7 +118,8 @@ def initialize(case, student, teacher, dataset, template_case):
         runs=configurations(), recipe=RECIPE, steps=list(STEPS), eval_seeds=[42, 43, 44],
         student=student, teacher=teacher, dataset=dataset,
         eval_template_source=str(template_case), created=time.time(),
-        scope="Random-span ladder at the company-v2-random recipe; max span 2, 3, 4 and 5 (spans 1..N), training seeds 42/43/44"))
+        scope="Random-span ladder at the company-v2-random recipe; min span 2 with max span 2, 3, "
+              "4 and 5 (spans 2..N), training seeds 42/43/44"))
     return case
 
 
@@ -163,7 +174,7 @@ def train_one(case, config):
         print("ABANDONED", husk, flush=True)
     log = target.parent / (config["id"] + ".attempt-" + str(time.time_ns()) + ".log")
     log.parent.mkdir(parents=True, exist_ok=True)
-    argv = ["bash", str(HOST_WRAPPER), str(RUNNER), "fixed", str(UPDATES), str(target)]
+    argv = ["bash", str(HOST_WRAPPER), str(RUNNER), RUNNER_MODE, str(UPDATES), str(target)]
     print("RUN_LOG", log, "slot", slot, "resume", env["MP_RESUME"], flush=True)
     with log.open("xb") as handle:
         result = subprocess.run(argv, env=env, stdout=handle, stderr=subprocess.STDOUT)
@@ -222,7 +233,7 @@ def eval_plan(case, config, step):
     plan = READ(case / "eval-template.json")
     identity = B.checkpoint_stable(source_dir / "checkpoint" / ("step" + str(step)))
     plan.update(jobs=[dict(id=config["id"] + "-step" + str(step),
-                         mode="fixed-span" + str(config["span"]), step=step, tier=0,
+                         mode=eval_mode_label(config["span"]), step=step, tier=0,
                          checkpoint=identity)],
                 source=D.script_hashes(), hours=168, admit_hours=168)
     WRITE(path, plan)
