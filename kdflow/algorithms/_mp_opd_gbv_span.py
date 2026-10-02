@@ -162,12 +162,17 @@ def atom_logit_sensitivity(
     selected_log_prob: torch.Tensor | None = None,
     vocab_chunk: int | None = None,
 ) -> torch.Tensor:
-    """Sum :func:`token_logit_sensitivity` over contiguous, covering atom ranges.
+    """Sum :func:`token_logit_sensitivity` over contiguous atom ranges.
 
     ``atom_ranges`` are half-open ``[start, end)`` slices into the same flattened
-    student-token axis the credit path uses. They must tile ``[0, tokens)`` exactly:
-    a gap or an overlap would silently attribute sensitivity to the wrong atom, so
-    it raises instead.
+    student-token axis the credit path uses. They must be ordered and must not
+    overlap: an overlap would attribute one token to two atoms, so it raises.
+
+    Gaps are allowed and are not an error. The atomizer can leave tokens outside every
+    atom (masked EOS and other non-atomized positions), and the credit path already
+    ignores them; those tokens contribute to no atom's sensitivity, which is exactly
+    the per-atom sum this objective is defined on. Demanding a perfect cover was
+    measured wrong on a real microbatch (B200 smoke, 2026-10-02).
     """
     if not atom_ranges:
         raise ValueError("at least one atom range is required")
@@ -176,13 +181,11 @@ def atom_logit_sensitivity(
     tokens = int(student_logits.shape[0])
     cursor = 0
     for start, end in atom_ranges:
-        if start != cursor:
-            raise ValueError("atom ranges must be contiguous and start at 0")
+        if start < cursor:
+            raise ValueError("atom ranges must be ordered and must not overlap")
         if not start < end <= tokens:
             raise ValueError("atom ranges must stay inside the token axis")
         cursor = end
-    if cursor != tokens:
-        raise ValueError("atom ranges must cover every student token")
     per_token = token_logit_sensitivity(
         student_logits,
         labels,

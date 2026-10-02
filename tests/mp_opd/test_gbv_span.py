@@ -98,7 +98,7 @@ def test_selected_partition_conserves_signed_credit_and_reuses_hard_loss():
         (base[start:end].sum() / weight[start:end].sum()) * nll[start:end].sum()
         for start, end in partition
     )
-    assert float(loss.detach()) == pytest.approx(float(expected), rel=1e-12)
+    assert float(loss.detach()) == pytest.approx(float(expected.detach()), rel=1e-12)
     gradient = torch.autograd.grad(loss, nll, retain_graph=True)[0]
     assert torch.equal(
         gradient,
@@ -192,7 +192,7 @@ def test_sensitivity_is_detached_and_survives_bf16_logits():
     assert torch.allclose(per_token, expected, atol=1e-3)
 
 
-def test_atom_sensitivity_tiles_token_axis_and_rejects_gaps():
+def test_atom_sensitivity_sums_ranges_and_allows_gaps_but_not_overlap():
     torch.manual_seed(9)
     logits = torch.randn(6, 13, dtype=torch.float64)
     labels = torch.tensor([0, 1, 2, 3, 4, 5])
@@ -202,12 +202,19 @@ def test_atom_sensitivity_tiles_token_axis_and_rejects_gaps():
     assert torch.allclose(
         atoms, torch.stack([per_token[start:end].sum() for start, end in ranges])
     )
-    with pytest.raises(ValueError):
-        atom_logit_sensitivity(logits, labels, ((0, 2), (3, 6)))
-    with pytest.raises(ValueError):
-        atom_logit_sensitivity(logits, labels, ((0, 2), (2, 5)))
+    # A real microbatch leaves non-atomized tokens (masked EOS) between atoms, so a gap
+    # is legitimate: those tokens belong to no atom and contribute to no sensitivity.
+    gapped = ((0, 2), (3, 6))
+    assert torch.allclose(
+        atom_logit_sensitivity(logits, labels, gapped, vocab_chunk=4),
+        torch.stack([per_token[0:2].sum(), per_token[3:6].sum()]),
+    )
     with pytest.raises(ValueError):
         atom_logit_sensitivity(logits, labels, ((0, 3), (2, 6)))
+    with pytest.raises(ValueError):
+        atom_logit_sensitivity(logits, labels, ((3, 4), (0, 2)))
+    with pytest.raises(ValueError):
+        atom_logit_sensitivity(logits, labels, ((0, 2), (2, 7)))
     with pytest.raises(ValueError):
         atom_logit_sensitivity(logits, labels, ())
 
