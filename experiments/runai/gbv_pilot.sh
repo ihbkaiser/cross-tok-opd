@@ -27,6 +27,10 @@ export MP_SHARED_ROOT=${MP_SHARED_ROOT:-$SHARE/SimCT}
 PORT=$((15000 + 1000 * GPU))
 RBASE=$((23000 + 1000 * GPU))
 PBASE=$((20000 + 1000 * GPU))
+# Same PYTHONPATH the queue wrappers export (schedule_fixed_span5_train.sh,
+# run_pending_and_eval.sh, run_single_gpu.sh): the algorithm registry imports every
+# algorithm and xtoken needs the vendored aligner, so vendor must be on the path.
+PYTHONPATH_VALUE="$SRC/experiments/modal/vendor:$SRC:$SRC/experiments/runai"
 mkdir -p "$OUT"
 
 tag_of() {
@@ -83,6 +87,7 @@ run_one() {  # $1=mode $2=tag $3=beta
       KDFLOW_ROLLOUT_PORT_BASE="$PORT" \
       KDFLOW_ROUTER_PORT_BASE="$RBASE" \
       KDFLOW_ROUTER_PROMETHEUS_PORT="$PBASE" \
+      PYTHONPATH="$PYTHONPATH_VALUE" \
       MP_ALGORITHM=mp_opd MP_ATTN_IMPLEMENTATION=eager \
       MP_SEED="$SEED" MP_PARTITION_SEED="$PARTITION_SEED" \
       MP_MAX_SPAN_LENGTH=4 MP_FIXED_SPAN_LENGTH=2 \
@@ -104,12 +109,34 @@ run_one() {  # $1=mode $2=tag $3=beta
   echo "PILOT_RUN_DONE $tag rc=0"
 }
 
+# Cheap fail-fast: the algorithm registry imports every algorithm, and xtoken needs the
+# vendored aligner. Without PYTHONPATH pointing at experiments/modal/vendor this dies in
+# seconds -- but only after the guard already claimed the card, which is exactly the
+# mistake that cost one attempt on 2026-10-02. Check it before any run starts.
+preflight_import() {
+  local out
+  if ! out=$(cd "$SRC" && env PYTHONPATH="$PYTHONPATH_VALUE" \
+      bash experiments/runai/python-b200-host.sh -c \
+      'import kdflow.algorithms; print("IMPORT_OK")' 2>&1); then
+    echo "PREFLIGHT_FAIL khong import duoc kdflow.algorithms; 15 dong cuoi:"
+    echo "$out" | tail -15
+    return 1
+  fi
+  echo "PREFLIGHT_OK $(echo "$out" | tail -1) pythonpath=$PYTHONPATH_VALUE"
+}
+
 guard
+if ! preflight_import; then
+  echo "PILOT_STOPPED at preflight (chua chiem GPU cho run nao)" | tee "$OUT/pilot-summary.txt"
+  exit 3
+fi
+
 {
   echo "pilot start $(date -Is)"
   echo "src=$SRC gpu=$GPU updates=$UPDATES seed=$SEED partition_seed=$PARTITION_SEED"
   echo "geometry=$GEOMETRY micro_B=$MICRO_B betas=$BETAS"
-} | tee "$OUT/pilot-summary.txt"
+  echo "pythonpath=$PYTHONPATH_VALUE"
+} | tee -a "$OUT/pilot-summary.txt"
 
 if ! run_one atomic atomic 1.0; then
   echo "PILOT_STOPPED at atomic" | tee -a "$OUT/pilot-summary.txt"
