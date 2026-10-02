@@ -1,30 +1,44 @@
 #!/usr/bin/env python3
-"""Phi-4-mini -> Gemma-2-2B fixed-span ladder: arms fix2, fix3, fix4, fix5.
+"""Phi-4-mini -> Gemma-2-2B fixed-span ladder, ONE ARM PER CASE.
 
-Thin wrapper over queue_fixed_span_ladder. The base module owns the contract
-(placement, recipe shape, step milestones, receipt/resume behaviour) and keeps one
-VARIANTS tuple and one run-id prefix; this pair needs a different arm set, a distinct
-id prefix and its own scope text, and those are the only things overridden here.
+Why one arm per case: the base module places one variant per GPU slot and validates
+that the slots are distinct, and the slot is used verbatim as CUDA_VISIBLE_DEVICES.
+The phi pair runs on a single B200, so a four-arm case cannot be launched at all.
+With exactly one variant the placement is the single-element tuple (0,), and the base
+`train` action -- which launches every pending variant of one seed and then waits --
+therefore runs exactly one process at a time: the three seeds go through slot 0
+sequentially, which is what a one-GPU host can actually do.
 
-The second pair of the paper (teacher Phi-4-mini, student Gemma-2-2B-IT) reuses the
-same SFT recipe as the qwen pair, so the arm set is what changes, not the recipe:
-span 2 (the historical `fixed` arm) through span 5, i.e. the full fixed range that
-this pair's plan asks for.
+Pick the arm through PHI_FIX_ARM; each arm gets its own case (and its own
+campaign.json commit/receipt lineage):
 
-DEFAULT_SLOTS is placement only and stays out of the campaign contract, but slots()
-requires exactly one distinct slot per variant in 0..7, so four arms need four slots.
+    PHI_FIX_ARM=fix2 MP_LADDER_SLOTS=0 python3 queue_phi_fixed_ladder.py init --case ... --student ... --teacher ... --dataset ...
+    PHI_FIX_ARM=fix2 MP_LADDER_SLOTS=0 python3 queue_phi_fixed_ladder.py train --case ...
 
-Usage is identical to the base module:
-    python3 queue_phi_fixed_ladder.py init --case ... --student ... --teacher ... --dataset ...
-    python3 queue_phi_fixed_ladder.py train-one --case ... --id PHI-fix2-s42
+Run ids are stable and pair-scoped: PHI-fix2-s42, PHI-fix2-s43, PHI-fix2-s44, and the
+same for fix3, fix4, fix5. Nothing else in the contract changes: span recipe, eight
+step milestones, receipts and resume behaviour all come from the base module.
 """
+import os
+
 import queue_fixed_span_ladder as base
 
-base.VARIANTS = (("fix2", 2), ("fix3", 3), ("fix4", 4), ("fix5", 5))
-base.DEFAULT_SLOTS = (4, 5, 6, 7)
+ARMS = {"fix2": 2, "fix3": 3, "fix4": 4, "fix5": 5}
+
+arm = os.environ.get("PHI_FIX_ARM", "").strip()
+if arm not in ARMS:
+    raise SystemExit(
+        "PHI_FIX_ARM must be one of %s (got %r); one arm per case because the phi "
+        "pair runs on a single GPU" % (", ".join(sorted(ARMS)), arm)
+    )
+
+span = ARMS[arm]
+base.VARIANTS = ((arm, span),)
+base.DEFAULT_SLOTS = (0,)
 base.ID_PREFIX = "PHI-"
 base.SCOPE = ("Phi-4-mini -> Gemma-2-2B-IT fixed-span ladder at the company-v2-fixed "
-              "recipe; span 2, 3, 4 and 5, training seeds 42/43/44")
+              "recipe; arm %s (span %d), training seeds 42/43/44, one arm per case "
+              "because the pair runs on a single B200" % (arm, span))
 
 
 if __name__ == "__main__":
