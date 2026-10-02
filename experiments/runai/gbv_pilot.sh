@@ -23,8 +23,10 @@ LOCKS=${LOCKS:-$SHARE/SimCT/runs/gbv-pilot-locks}
 GPU=${GPU:-0}
 UPDATES=${UPDATES:-40}
 SEED=${SEED:-42}
-# SEEDS turns the pilot driver into a beta x seed matrix, e.g. SEEDS="42 43 44".
-SEEDS=${SEEDS:-$SEED}
+# SEEDS turns the driver into a beta x seed matrix. Comma or space separated both work,
+# because `env SEEDS=42,43,44 ...` is the only way to pass a list through `env` without
+# relying on the caller's quoting.
+SEEDS=$(printf '%s' "${SEEDS:-$SEED}" | tr ',' ' ')
 PARTITION_SEED=${PARTITION_SEED:-43}
 GEOMETRY=${GEOMETRY:-exact_logit}
 MICRO_B=${MICRO_B:-2}
