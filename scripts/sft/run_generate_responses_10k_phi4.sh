@@ -29,7 +29,7 @@ OUTPUT_BASE="${DATA_PATH}"
 PORT=30000
 DP_SIZE=8
 SERVER_LOG="/tmp/sglang_server_responses_10k_phi4.log"
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Step 0: Copy model to local SSD ---
 if [ ! -d "${LOCAL_MODEL_PATH}" ]; then

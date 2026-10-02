@@ -14,7 +14,7 @@
 set -e
 set -x
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATASET_BASE=${DATA_PATH:-"./data"}
 
 RESPONSE_DIR="${DATASET_BASE}/teacher_responses_10k_phi-4-mini"
