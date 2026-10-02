@@ -60,6 +60,13 @@ LOG=${LOG:-$SHARED/SimCT/runs/$RUN_NAME/train.log}
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# kdflow/algorithms/__init__.py imports every algorithm eagerly, and
+# kdflow/algorithms/xtoken.py needs `xtoken_upstream_token_aligner`, vendored at
+# experiments/modal/vendor. Without this PYTHONPATH, train_sft dies at import time
+# with ModuleNotFoundError before any model load, even though this script never
+# uses xtoken. Same value the runai wrappers and the runbook use.
+export PYTHONPATH="$REPO_ROOT/experiments/modal/vendor:$REPO_ROOT:$REPO_ROOT/experiments/runai${PYTHONPATH:+:$PYTHONPATH}"
+
 echo "aim: effective batch 64 = micro $MICRO x accum $ACCUM x world $GPUS"
 echo "student : $STUDENT"
 echo "dataset : $DATASET"
