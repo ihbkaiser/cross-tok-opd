@@ -67,6 +67,15 @@ cd "$REPO_ROOT"
 # uses xtoken. Same value the runai wrappers and the runbook use.
 export PYTHONPATH="$REPO_ROOT/experiments/modal/vendor:$REPO_ROOT:$REPO_ROOT/experiments/runai${PYTHONPATH:+:$PYTHONPATH}"
 
+# The compute node has no direct internet: only an HF proxy that httpx does not use.
+# kdflow defaults to --attn_implementation flash_attention_2, and transformers then
+# calls load_and_register_attn_kernel(), which reaches the Hub over httpx and dies
+# with httpx.ConnectError [Errno 101] Network is unreachable. Two guards:
+#   * pass --attn_implementation sdpa, the value the earlier phi/gemma runs used;
+#   * force offline mode so no other hub round-trip can be attempted.
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
 echo "aim: effective batch 64 = micro $MICRO x accum $ACCUM x world $GPUS"
 echo "student : $STUDENT"
 echo "dataset : $DATASET"
@@ -79,6 +88,7 @@ OPTS+=" --num_nodes 1"
 OPTS+=" --num_gpus_per_node $GPUS"
 OPTS+=" --backend fsdp2"
 OPTS+=" --student_name_or_path $STUDENT"
+OPTS+=" --attn_implementation sdpa"
 OPTS+=" --train_dataset_path $DATASET"
 OPTS+=" --input_key messages"
 OPTS+=" --apply_chat_template True"
