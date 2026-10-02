@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv"}
 limit = int(limit)
 assert 0 <= limit <= 312
 
@@ -258,7 +258,7 @@ manifest = {
     "cuda_visible_devices": os.environ["CUDA_VISIBLE_DEVICES"],
     "variant": mode,
     "energy_sha256": (prepared_entries(prepared_receipt, "energy", energy_path)[energy_path.name]["sha256"] if prepared_receipt is not None else file_hash(energy_path)) if mode == "soft" else None,
-    "partition_dp_dtype": "float64" if mode == "soft" else None,
+    "partition_dp_dtype": "float64" if mode in {"soft", "gbv"} else None,
     "cooperative_stop_at": os.environ.get("MP_TRAIN_STOP_AT"),
     "checkpoint_reserve_seconds": os.environ.get("MP_CHECKPOINT_RESERVE_SECONDS", "300"),
     "models_sha256": model_manifest,
