@@ -66,6 +66,8 @@ opts.update(
     mp_opd_max_span_length=1 if mode == "atomic" else int(os.environ.get("MP_MAX_SPAN_LENGTH", "2")),
     mp_opd_fixed_span_length=int(os.environ.get("MP_FIXED_SPAN_LENGTH", "2")),
     mp_opd_min_span_length=int(os.environ.get("MP_MIN_SPAN_LENGTH", "1")),
+    mp_opd_gbv_beta=float(os.environ.get("MP_GBV_BETA", "1.0")),
+    mp_opd_gbv_geometry=os.environ.get("MP_GBV_GEOMETRY", "token_count"),
     diagnostic_max_updates=limit,
     save_steps=20,
     save_path=str(run_dir / "checkpoint"),

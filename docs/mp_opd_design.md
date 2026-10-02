@@ -7,7 +7,7 @@ branch:
 
 ```text
 --kd_algorithm mp_opd
---mp_opd_mode atomic|fixed|random|oracle|soft
+--mp_opd_mode atomic|fixed|random|oracle|soft|gbv
 ```
 
 The isolated worktree used during development protects the completed SimCT and
@@ -135,8 +135,59 @@ boundary must not call MP-OPD.
   closed unless instrumentation supplies per-atom directional scores.
 - `soft`: a learned semi-Markov distribution. Normal training requires an
   audited energy checkpoint; random initialization is rejected.
+- `gbv`: Gradient Bias-Variance Span. Each candidate span pays
+  `D_g(c)/E_g + beta*(Q_c/W_c)/Q_0` — observed squared gradient distortion of
+  pooling the span's rates, plus `beta` times the span's retained estimator
+  degrees of freedom — and the exact minimum-cost full-cover partition is found by
+  the same `O(nL)` dynamic program as `oracle`. No extra parameters, no auxiliary
+  checkpoint. See the section below.
 
 No mode splits a SimCT atom.
+
+## GBV-Span (`mp_opd_mode=gbv`)
+
+Scale-free objective, from the method note *Gradient Bias Variance Adaptive Span
+for MP OPD*:
+
+```text
+C_beta(c) = D_g(c)/E_g + beta * (Q_c/W_c)/Q_0
+D_g(c)    = 0.5 * sum_{i in c} q_i (r_i - rbar_c)^2
+E_g       = 0.5 * sum_i q_i (r_i - rbar)^2
+Q_0       = sum_i q_i / w_i
+```
+
+`r_i = b_i/w_i` is the atomic credit rate, `w_i` the atom token mass and `q_i` the
+atom logit sensitivity. Only the partition changes; the loss is still the hard
+pooled loss, so signed-credit conservation is exact for every selected partition.
+
+Atom sensitivity has two settings, and the difference is a claim, not a detail:
+
+| `mp_opd_gbv_geometry` | `q_i` | Cost |
+|---|---|---|
+| `token_count` (default) | `w_i` | none; this is the weighted Potts special case (`Q_c/W_c = 1`, so the second term is `beta*|pi|/n`) |
+| `exact_logit` | `sum_t (1 - 2 p_t(y_t) + sum_v p_t(v)^2)` | one chunked pass over the student logits per sample; no `autograd.grad` |
+
+`beta` is a locked recipe knob (`mp_opd_gbv_beta`); the method note's pilot grid is
+`{0.1, 0.3, 1.0, 3.0}` and it must be fixed before a primary multi-seed comparison.
+`MP_OPD_GBV_VOCAB_CHUNK` (default 16384) is a memory knob for the exact pass only.
+
+Numerical contract: cost tables are float64, invalid cells are `+inf` behind an
+explicit validity mask, and if `E_g` falls below a relative floor the draw is
+reported degenerate and the coarsest admissible tiling is returned instead of
+dividing by a numerically-zero energy. Ties fall to the shortest admissible span.
+
+Telemetry: `mp_opd_gbv_beta`, `mp_opd_gbv_exact_geometry`, `mp_opd_gbv_total_cost`,
+`mp_opd_gbv_distortion_term`, `mp_opd_gbv_dof_term`,
+`mp_opd_gbv_retained_dof_fraction`, `mp_opd_gbv_selected_span_count`,
+`mp_opd_gbv_selected_span_length_mean`, `mp_opd_gbv_span_length_max`,
+`mp_opd_gbv_span_{1,2,3,4}_fraction`, `mp_opd_gbv_boundary_strength_mean` (mean
+absolute pooled-rate jump across selected boundaries) and `mp_opd_gbv_degenerate`.
+
+Evidence boundary: the exact parts are the credit conservation, the selected-logit
+geometry and the dynamic program. The token-noise covariance model, the claim that
+the logit-space optimum is also a parameter-space optimum, and any claim that GBV
+reduces training variance or beats fixed span 3 are **not** established by this
+implementation and must not be reported as results.
 
 ## Semi-Markov dynamic program
 

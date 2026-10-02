@@ -30,6 +30,12 @@ from ._mp_opd_credit import (
     span_tables,
 )
 from ._mp_opd_energy import MPAtomEnergy, load_energy_checkpoint
+from ._mp_opd_gbv_span import (
+    atom_logit_sensitivity,
+    gbv_partition,
+    gbv_partition_metrics,
+    gbv_span_costs,
+)
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -203,6 +209,15 @@ class MetaPartitionedOPD:
         self.min_span_length = int(getattr(self.args.kd, "mp_opd_min_span_length", 1))
         self.fixed_span_length = int(self.args.kd.mp_opd_fixed_span_length)
         self.temperature = float(self.args.kd.mp_opd_partition_temperature)
+        # GBV-Span selects a partition from observed credit rates and logit
+        # sensitivities; beta and the geometry are locked recipe knobs, and the
+        # exact geometry is the only reason the student logits are retained for a
+        # non-diagnostic step.
+        self.gbv_beta = float(getattr(self.args.kd, "mp_opd_gbv_beta", 1.0))
+        self.gbv_geometry = str(getattr(self.args.kd, "mp_opd_gbv_geometry", "token_count"))
+        if self.mode == "gbv" and self.gbv_geometry not in {"exact_logit", "token_count"}:
+            raise ValueError(f"unsupported mp_opd_gbv_geometry: {self.gbv_geometry}")
+        self.gbv_needs_logits = self.mode == "gbv" and self.gbv_geometry == "exact_logit"
         self.host_mask = bool(getattr(self.args.kd, "mp_opd_host_mask", False))
         self.timing_enabled = os.environ.get("MP_OPD_TIMING", "0") == "1"
         # The diagnostics are opt-in because logit-space gradient probes retain
@@ -331,6 +346,7 @@ class MetaPartitionedOPD:
         diagnostics: bool = False,
         diagnostic_seed: int = 0,
         student_logits: torch.Tensor | None = None,
+        student_labels: torch.Tensor | None = None,
     ):
         n = len(atoms)
         metrics = {}
@@ -375,6 +391,49 @@ class MetaPartitionedOPD:
             seed = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
             partition = random_partition(n, self.max_span_length, seed, self.min_span_length)
             return hard_loss_with_metrics(partition)
+
+        if self.mode == "gbv":
+            if self.gbv_geometry == "exact_logit":
+                if student_logits is None:
+                    raise RuntimeError(
+                        "mp_opd gbv exact_logit geometry requires the student logits"
+                    )
+                if credits.student_token_nll is None:
+                    raise RuntimeError(
+                        "mp_opd gbv exact_logit geometry requires per-token student NLL"
+                    )
+                if credits.student_token_nll.numel() != student_logits.shape[0]:
+                    raise ValueError(
+                        "per-token student NLL and student logits disagree on token count"
+                    )
+                sensitivity = atom_logit_sensitivity(
+                    student_logits,
+                    student_labels,
+                    tuple((atom.student_start, atom.student_end) for atom in atoms),
+                    selected_log_prob=-credits.student_token_nll,
+                )
+            else:
+                # q_i = w_i is the documented token-count approximation; it turns the
+                # objective into the weighted Potts special case and costs nothing.
+                sensitivity = credits.weight
+            gbv_tables = gbv_span_costs(
+                credits.rate,
+                credits.weight,
+                sensitivity,
+                self.max_span_length,
+                self.gbv_beta,
+            )
+            gbv_selected = gbv_partition(gbv_tables)
+            metrics.update(
+                gbv_partition_metrics(
+                    gbv_tables, gbv_selected, credits.rate, credits.weight
+                )
+            )
+            metrics["mp_opd_gbv_beta"] = credits.rate.new_tensor(self.gbv_beta)
+            metrics["mp_opd_gbv_exact_geometry"] = credits.rate.new_tensor(
+                float(self.gbv_geometry == "exact_logit")
+            )
+            return hard_loss_with_metrics(gbv_selected)
 
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
@@ -537,10 +596,11 @@ class MetaPartitionedOPD:
                 invalid_reasons[reason] = invalid_reasons.get(reason, 0) + 1
                 continue
             atoms = atomized.atoms
+            stu_label_tensor = torch.tensor(stu_ids, device=stu_logits.device)
             credits = build_atom_credits(
                 atoms,
                 stu_logits,
-                torch.tensor(stu_ids, device=stu_logits.device),
+                stu_label_tensor,
                 tea_logits,
                 torch.tensor(tea_ids, device=tea_logits.device),
             )
@@ -551,7 +611,8 @@ class MetaPartitionedOPD:
                 batch_index,
                 diagnostics=diagnostics_due,
                 diagnostic_seed=int(sample_key, 16),
-                student_logits=stu_logits if diagnostics_due else None,
+                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits) else None,
+                student_labels=stu_label_tensor,
             )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():

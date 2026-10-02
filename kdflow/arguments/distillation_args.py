@@ -1,4 +1,5 @@
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -194,13 +195,29 @@ class DistillationArguments:
     # MP-OPD scalar canonical-path credit and contiguous atom partitioning.
     mp_opd_mode: str = field(
         default="atomic",
-        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft"]},
+        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
     mp_opd_fixed_span_length: int = field(default=2)
     mp_opd_partition_temperature: float = field(default=1.0)
     mp_opd_random_seed: int = field(default=43)
+    mp_opd_gbv_beta: float = field(
+        default=1.0,
+        metadata={
+            "help": "GBV-Span trade-off between observed gradient distortion and "
+            "retained estimator degrees of freedom. Lock it before a primary run."
+        },
+    )
+    mp_opd_gbv_geometry: str = field(
+        default="token_count",
+        metadata={
+            "choices": ["exact_logit", "token_count"],
+            "help": "GBV-Span atom sensitivity: token_count uses q_i=w_i (the weighted "
+            "Potts special case, no extra memory); exact_logit reads q_i from the "
+            "selected-logit softmax.",
+        },
+    )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
     mp_opd_energy_lr: float = field(default=1e-3)
@@ -252,7 +269,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -267,3 +284,9 @@ class DistillationArguments:
                 raise ValueError("mp_opd_energy_lr must be positive")
             if self.mp_opd_mode == "soft" and not self.mp_opd_energy_checkpoint:
                 raise ValueError("mp_opd_energy_checkpoint is required for soft mode")
+            if self.mp_opd_gbv_geometry not in {"exact_logit", "token_count"}:
+                raise ValueError(
+                    f"unsupported mp_opd_gbv_geometry: {self.mp_opd_gbv_geometry}"
+                )
+            if self.mp_opd_gbv_beta < 0 or not math.isfinite(self.mp_opd_gbv_beta):
+                raise ValueError("mp_opd_gbv_beta must be finite and nonnegative")
