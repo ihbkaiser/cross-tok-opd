@@ -373,6 +373,11 @@ class MetaPartitionedOPD:
                             credits.weight,
                             partition,
                             shuffle_seed=diagnostic_seed,
+                            # Atoms can leave tokens outside every atom (masked EOS), so the
+                            # probe needs the ranges instead of assuming a full cover.
+                            atom_ranges=tuple(
+                                (atom.student_start, atom.student_end) for atom in atoms
+                            ),
                         )
                     )
             return loss, metrics

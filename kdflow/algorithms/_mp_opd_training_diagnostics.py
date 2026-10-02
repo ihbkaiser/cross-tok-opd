@@ -152,23 +152,54 @@ def logit_gradient_metrics(
     partition: Sequence[tuple[int, int]],
     *,
     shuffle_seed: int = 0,
+    atom_ranges: Sequence[tuple[int, int]] | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Compare exact atomic/pooled gradients with respect to student logits."""
+    """Compare exact atomic/pooled gradients with respect to student logits.
+
+    ``atom_ranges`` are the atoms' half-open token slices. They are required whenever
+    the atoms do not cover the whole token axis, which is the normal case: the atomizer
+    leaves masked-EOS and other non-atomized tokens outside every atom. Tokens outside
+    every atom carry no credit in the production loss either, so their per-token rate is
+    zero here; that is exact, not filler. Without the ranges a non-covering atom set
+    still fails closed instead of silently comparing misaligned vectors.
+    """
     if token_nll is None:
         return {}
     if student_logits.ndim != 2 or token_nll.ndim != 1:
         raise ValueError("student_logits must be [tokens,vocab] and token_nll [tokens]")
     counts = weight.detach().round().long()
-    if counts.sum().item() != token_nll.numel():
-        raise ValueError("atom token weights do not cover token_nll")
+    tokens = int(token_nll.numel())
+    if int(counts.sum().item()) > tokens:
+        raise ValueError("atom token weights exceed token_nll")
+    if atom_ranges is None and int(counts.sum().item()) != tokens:
+        raise ValueError(
+            "atom token weights do not cover token_nll; pass atom_ranges so gaps can be placed"
+        )
+
+    def to_token_axis(values: torch.Tensor) -> torch.Tensor:
+        if atom_ranges is None:
+            return torch.repeat_interleave(values, counts)
+        out = token_nll.new_zeros(tokens)
+        cursor = 0
+        for (start, end), value, count in zip(atom_ranges, values, counts.tolist()):
+            if start < cursor or not start < end <= tokens:
+                raise ValueError(
+                    "atom ranges must be ordered, non-overlapping and inside the token axis"
+                )
+            if int(count) != end - start:
+                raise ValueError("atom token count and atom range disagree")
+            out[start:end] = value
+            cursor = end
+        return out
+
     pooled_atom_rate = partition_rate_vector(atom_rate * weight, weight, partition)
     shuffled_atom_rate = _shuffled_rate(atom_rate.detach(), shuffle_seed)
     shuffled_pooled_atom_rate = partition_rate_vector(
         shuffled_atom_rate * weight, weight, partition
     )
-    token_atomic_rate = torch.repeat_interleave(atom_rate.detach(), counts)
-    token_pooled_rate = torch.repeat_interleave(pooled_atom_rate, counts)
-    token_shuffled_rate = torch.repeat_interleave(shuffled_pooled_atom_rate, counts)
+    token_atomic_rate = to_token_axis(atom_rate.detach())
+    token_pooled_rate = to_token_axis(pooled_atom_rate)
+    token_shuffled_rate = to_token_axis(shuffled_pooled_atom_rate)
     atomic_loss = (token_atomic_rate * token_nll).sum()
     pooled_loss = (token_pooled_rate * token_nll).sum()
     shuffled_loss = (token_shuffled_rate * token_nll).sum()
