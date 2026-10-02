@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SHARE=${SHARE:-/workspace/storage-shared/nlp/tungks}
-SRC=${SRC:-$SHARE/simct-b200-portable-3f36286}
+SRC=${SRC:-$SHARE/simct-b200-portable-3998aa0}
 OUT=${OUT:-$SHARE/SimCT/runs/gbv-pilot}
 LOCKS=${LOCKS:-$SHARE/SimCT/runs/gbv-pilot-locks}
 GPU=${GPU:-0}
@@ -26,6 +26,11 @@ SEED=${SEED:-42}
 PARTITION_SEED=${PARTITION_SEED:-43}
 GEOMETRY=${GEOMETRY:-exact_logit}
 MICRO_B=${MICRO_B:-2}
+# Diagnostics sampling. EVERY=1 costs one extra autograd pass set per micro-batch but no
+# extra peak memory, and it buys four times as many samples inside the selection window:
+# a 20-update run at EVERY=1 contributes 160 sampled micro-batches to the mean-last-10,
+# where a 40-update run at EVERY=4 contributes 40.
+DIAG_EVERY=${DIAG_EVERY:-4}
 RUNS=${RUNS:-"atomic b0p1 b0p3 b1p0 b3p0"}
 VRAM_IDLE_MIB=${VRAM_IDLE_MIB:-2048}
 export MP_SHARED_ROOT=${MP_SHARED_ROOT:-$SHARE/SimCT}
@@ -114,7 +119,7 @@ run_one() {  # $1=mode $2=tag $3=beta
       MP_MAX_SPAN_LENGTH=4 MP_FIXED_SPAN_LENGTH=2 \
       MP_GBV_BETA="$beta" MP_GBV_GEOMETRY="$GEOMETRY" \
       MP_MICRO_TRAIN_BATCH_SIZE="$MICRO_B" \
-      MP_OPD_DIAGNOSTICS=1 MP_OPD_DIAGNOSTICS_LOGIT_GRAD=1 MP_OPD_DIAGNOSTICS_EVERY=4 \
+      MP_OPD_DIAGNOSTICS=1 MP_OPD_DIAGNOSTICS_LOGIT_GRAD=1 MP_OPD_DIAGNOSTICS_EVERY="$DIAG_EVERY" \
       MP_CHECKPOINT_STEPS="$UPDATES" MP_RESUME=0 MP_PREFLIGHT_ONLY=0 \
       MP_SOURCE_COMMIT="$(git rev-parse HEAD)" \
       MP_SOURCE_DIRTY="$(git status --porcelain --untracked-files=no | tr '\n' ';')" \
