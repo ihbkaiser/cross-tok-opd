@@ -23,6 +23,8 @@ LOCKS=${LOCKS:-$SHARE/SimCT/runs/gbv-pilot-locks}
 GPU=${GPU:-0}
 UPDATES=${UPDATES:-40}
 SEED=${SEED:-42}
+# SEEDS turns the pilot driver into a beta x seed matrix, e.g. SEEDS="42 43 44".
+SEEDS=${SEEDS:-$SEED}
 PARTITION_SEED=${PARTITION_SEED:-43}
 GEOMETRY=${GEOMETRY:-exact_logit}
 MICRO_B=${MICRO_B:-2}
@@ -31,6 +33,13 @@ MICRO_B=${MICRO_B:-2}
 # a 20-update run at EVERY=1 contributes 160 sampled micro-batches to the mean-last-10,
 # where a 40-update run at EVERY=4 contributes 40.
 DIAG_EVERY=${DIAG_EVERY:-4}
+# 1 keeps the mechanism telemetry (distortion/dof/logit-grad) for the whole run; measured
+# wall cost at EVERY=1 is inside the 2.1 min/update already observed, so a long run can
+# carry it without changing the loss or the update.
+DIAGNOSTICS=${DIAGNOSTICS:-1}
+# Milestones to checkpoint at; a full 312-update run needs the eight eval steps.
+CHECKPOINTS=${CHECKPOINTS:-$UPDATES}
+PREFIX=${PREFIX:-gbv-pilot}
 RUNS=${RUNS:-"atomic b0p1 b0p3 b1p0 b3p0"}
 VRAM_IDLE_MIB=${VRAM_IDLE_MIB:-2048}
 export MP_SHARED_ROOT=${MP_SHARED_ROOT:-$SHARE/SimCT}
@@ -96,15 +105,15 @@ guard() {
   LOCK_HELD=1
 }
 
-run_one() {  # $1=mode $2=tag $3=beta
-  local mode=$1 tag=$2 beta=$3
-  local RUN="$OUT/gbv-pilot-$tag-s$SEED-r1"
+run_one() {  # $1=mode $2=tag $3=beta $4=seed
+  local mode=$1 tag=$2 beta=$3 seed=$4
+  local RUN="$OUT/$PREFIX-$tag-s$seed-r1"
   local LOG="$RUN.out"
   if [ -e "$RUN" ] || [ -e "$LOG" ]; then
-    echo "REFUSE $tag: da co attempt truoc do; xem log roi quyet dinh, khong chay chong"
+    echo "REFUSE $tag-s$seed: da co attempt truoc do; xem log roi quyet dinh, khong chay chong"
     return 4
   fi
-  echo "RUN_START tag=$tag mode=$mode beta=$beta gpu=$GPU log=$LOG $(date -Is)"
+  echo "RUN_START tag=$tag seed=$seed mode=$mode beta=$beta gpu=$GPU log=$LOG $(date -Is)"
   local rc=0
   (
     cd "$SRC"
@@ -115,24 +124,25 @@ run_one() {  # $1=mode $2=tag $3=beta
       KDFLOW_ROUTER_PROMETHEUS_PORT="$PBASE" \
       PYTHONPATH="$PYTHONPATH_VALUE" \
       MP_ALGORITHM=mp_opd MP_ATTN_IMPLEMENTATION=eager \
-      MP_SEED="$SEED" MP_PARTITION_SEED="$PARTITION_SEED" \
+      MP_SEED="$seed" MP_PARTITION_SEED="$PARTITION_SEED" \
       MP_MAX_SPAN_LENGTH=4 MP_FIXED_SPAN_LENGTH=2 \
       MP_GBV_BETA="$beta" MP_GBV_GEOMETRY="$GEOMETRY" \
       MP_MICRO_TRAIN_BATCH_SIZE="$MICRO_B" \
-      MP_OPD_DIAGNOSTICS=1 MP_OPD_DIAGNOSTICS_LOGIT_GRAD=1 MP_OPD_DIAGNOSTICS_EVERY="$DIAG_EVERY" \
-      MP_CHECKPOINT_STEPS="$UPDATES" MP_RESUME=0 MP_PREFLIGHT_ONLY=0 \
+      MP_OPD_DIAGNOSTICS="$DIAGNOSTICS" MP_OPD_DIAGNOSTICS_LOGIT_GRAD="$DIAGNOSTICS" \
+      MP_OPD_DIAGNOSTICS_EVERY="$DIAG_EVERY" \
+      MP_CHECKPOINT_STEPS="$CHECKPOINTS" MP_RESUME=0 MP_PREFLIGHT_ONLY=0 \
       MP_SOURCE_COMMIT="$(git rev-parse HEAD)" \
       MP_SOURCE_DIRTY="$(git status --porcelain --untracked-files=no | tr '\n' ';')" \
-      MP_RAY_TMP="/tmp/gbv-pilot-gpu$GPU-$tag" \
+      MP_RAY_TMP="/tmp/$PREFIX-gpu$GPU-$tag-s$seed" \
       bash experiments/runai/python-b200-host.sh experiments/runai/run_single_gpu.py \
         "$mode" "$UPDATES" "$RUN"
   ) >>"$LOG" 2>&1 || rc=$?
-  echo "RUN_EXIT tag=$tag rc=$rc $(date -Is)"
+  echo "RUN_EXIT tag=$tag seed=$seed rc=$rc $(date -Is)"
   if [ "$rc" -ne 0 ] || ! grep -q 'RUN_VERIFIED' "$LOG"; then
-    echo "RUN_FAIL tag=$tag rc=$rc (khong thay RUN_VERIFIED); dung pilot, khong retry mu"
+    echo "RUN_FAIL tag=$tag seed=$seed rc=$rc (khong thay RUN_VERIFIED); dung, khong retry mu"
     return 1
   fi
-  echo "PILOT_RUN_DONE $tag rc=0"
+  echo "RUN_DONE $tag seed=$seed rc=0"
 }
 
 # Cheap fail-fast: the algorithm registry imports every algorithm, and xtoken needs the
@@ -158,22 +168,25 @@ if ! preflight_import; then
 fi
 
 {
-  echo "pilot start $(date -Is) host=$(hostname)"
-  echo "src=$SRC gpu=$GPU updates=$UPDATES seed=$SEED partition_seed=$PARTITION_SEED"
-  echo "geometry=$GEOMETRY micro_B=$MICRO_B runs=$RUNS"
+  echo "run start $(date -Is) host=$(hostname)"
+  echo "src=$SRC gpu=$GPU updates=$UPDATES seeds=$SEEDS partition_seed=$PARTITION_SEED"
+  echo "geometry=$GEOMETRY micro_B=$MICRO_B diagnostics=$DIAGNOSTICS every=$DIAG_EVERY"
+  echo "prefix=$PREFIX checkpoints=$CHECKPOINTS runs=$RUNS"
   echo "pythonpath=$PYTHONPATH_VALUE"
 } | tee -a "$SUMMARY"
 
-for tag in $RUNS; do
-  spec=$(spec_for "$tag")
-  if [ -z "$spec" ]; then
-    echo "PILOT_STOPPED unknown tag '$tag'" | tee -a "$SUMMARY"
-    exit 2
-  fi
-  set -- $spec
-  if ! run_one "$1" "$tag" "$2"; then
-    echo "PILOT_STOPPED at tag=$tag" | tee -a "$SUMMARY"
-    exit 1
-  fi
+for seed in $SEEDS; do
+  for tag in $RUNS; do
+    spec=$(spec_for "$tag")
+    if [ -z "$spec" ]; then
+      echo "STOPPED unknown tag '$tag'" | tee -a "$SUMMARY"
+      exit 2
+    fi
+    set -- $spec
+    if ! run_one "$1" "$tag" "$2" "$seed"; then
+      echo "STOPPED at tag=$tag seed=$seed" | tee -a "$SUMMARY"
+      exit 1
+    fi
+  done
 done
-echo "PILOT_DONE gpu=$GPU $(date -Is)" | tee -a "$SUMMARY"
+echo "ALL_DONE gpu=$GPU seeds=$SEEDS $(date -Is)" | tee -a "$SUMMARY"
