@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GBV-Span beta pilot: one atomic reference plus four gbv betas, sequential, one card.
+# GBV-Span beta pilot: one atomic reference plus four gbv betas, one card per driver.
 #
 # Purpose: pick one global beta and freeze it before any primary comparison. The
 # selection rule is pre-registered and lives in B200_REAL_RUN.md (kept outside this
@@ -7,21 +7,27 @@
 # the atomic reference, take the smallest mean retained_dof_fraction. This script only
 # runs the pilot and records evidence; it never picks beta and never touches a test set.
 #
-# Every long run is launched inside this script, which the operator starts with
-# `setsid nohup`. One card, one training at a time, no duplicate attempt on an existing
-# run directory: a re-run must inspect the previous log first.
+# Placement is per card, so several drivers can share one host:
+#   GPU=0 RUNS="atomic b3p0" OUT=$SH/SimCT/runs/gbv-pilot ...
+#   GPU=1 RUNS="b0p1 b1p0"   OUT=$SH/SimCT/runs/gbv-pilot ...
+#   GPU=2 RUNS="b0p3"        OUT=$SH/SimCT/runs/gbv-pilot ...
+# They write the same OUT (the selector reads one directory) but a per-card summary and
+# a per-(host,gpu) lock. One card still holds one training at a time, and an existing
+# run directory is never overwritten: inspect the previous log first.
 set -euo pipefail
 
 SHARE=${SHARE:-/workspace/storage-shared/nlp/tungks}
-SRC=${SRC:-$SHARE/simct-b200-portable-10c7c25}
+SRC=${SRC:-$SHARE/simct-b200-portable-3f36286}
 OUT=${OUT:-$SHARE/SimCT/runs/gbv-pilot}
-GPU=${GPU:-2}
+LOCKS=${LOCKS:-$SHARE/SimCT/runs/gbv-pilot-locks}
+GPU=${GPU:-0}
 UPDATES=${UPDATES:-40}
 SEED=${SEED:-42}
 PARTITION_SEED=${PARTITION_SEED:-43}
 GEOMETRY=${GEOMETRY:-exact_logit}
 MICRO_B=${MICRO_B:-2}
-BETAS=${BETAS:-"0.1 0.3 1.0 3.0"}
+RUNS=${RUNS:-"atomic b0p1 b0p3 b1p0 b3p0"}
+VRAM_IDLE_MIB=${VRAM_IDLE_MIB:-2048}
 export MP_SHARED_ROOT=${MP_SHARED_ROOT:-$SHARE/SimCT}
 
 PORT=$((15000 + 1000 * GPU))
@@ -31,20 +37,26 @@ PBASE=$((20000 + 1000 * GPU))
 # run_pending_and_eval.sh, run_single_gpu.sh): the algorithm registry imports every
 # algorithm and xtoken needs the vendored aligner, so vendor must be on the path.
 PYTHONPATH_VALUE="$SRC/experiments/modal/vendor:$SRC:$SRC/experiments/runai"
-mkdir -p "$OUT"
+SUMMARY="$OUT/pilot-summary-gpu$GPU.txt"
+LOCK="$LOCKS/$(hostname)-gpu-$GPU.lock"
+mkdir -p "$OUT" "$LOCKS"
 
-tag_of() {
+spec_for() {  # tag -> "mode beta"
   case "$1" in
-    0.1) echo b0p1 ;;
-    0.3) echo b0p3 ;;
-    1.0) echo b1p0 ;;
-    3.0) echo b3p0 ;;
-    *) echo "b$(echo "$1" | tr -d '.')" ;;
+    atomic) echo "atomic 1.0" ;;
+    b0p1) echo "gbv 0.1" ;;
+    b0p3) echo "gbv 0.3" ;;
+    b1p0) echo "gbv 1.0" ;;
+    b3p0) echo "gbv 3.0" ;;
+    *) echo "" ;;
   esac
 }
 
+release_lock() { [ -n "${LOCK_HELD:-}" ] && rm -f "$LOCK"; }
+trap release_lock EXIT
+
 guard() {
-  local used
+  local used apps pid
   if ! used=$(nvidia-smi --id="$GPU" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | tr -d ' '); then
     echo "GUARD_FAIL khong doc duoc nvidia-smi cho gpu=$GPU"
     exit 3
@@ -55,19 +67,28 @@ guard() {
       exit 3
       ;;
   esac
-  if [ "$used" -gt 2048 ]; then
+  if [ "$used" -gt "$VRAM_IDLE_MIB" ]; then
     echo "GUARD_FAIL gpu=$GPU used=${used}MiB: card khong ranh"
     exit 3
   fi
-  if pgrep -af 'run_single_gpu.py' >/dev/null 2>&1; then
-    echo "GUARD_FAIL da co run_single_gpu.py khac dang chay"
+  # Per-card check, not a host-wide pgrep: a driver on another card is legitimate.
+  apps=$(nvidia-smi --id="$GPU" --query-compute-apps=pid --format=csv,noheader 2>/dev/null | tr -d ' ')
+  if [ -n "$apps" ]; then
+    echo "GUARD_FAIL gpu=$GPU dang co tien trinh: $apps"
     exit 3
   fi
-  if ss -ltn 2>/dev/null | grep -qE ":($PORT|$RBASE|$PBASE)\b"; then
-    echo "GUARD_FAIL cong $PORT/$RBASE/$PBASE dang bi chiem"
-    exit 3
+  if [ -e "$LOCK" ]; then
+    pid=$(cat "$LOCK" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "GUARD_FAIL lock $LOCK dang giu boi pid=$pid"
+      exit 3
+    fi
+    echo "GUARD_NOTE lock cu (pid=${pid:-?} khong con song), tiep tuc"
+    rm -f "$LOCK"
   fi
-  echo "GUARD_OK gpu=$GPU used=${used}MiB ports=$PORT/$RBASE/$PBASE"
+  echo "GUARD_OK gpu=$GPU used=${used}MiB ports=$PORT/$RBASE/$PBASE lock=$LOCK"
+  echo $$ > "$LOCK"
+  LOCK_HELD=1
 }
 
 run_one() {  # $1=mode $2=tag $3=beta
@@ -78,7 +99,7 @@ run_one() {  # $1=mode $2=tag $3=beta
     echo "REFUSE $tag: da co attempt truoc do; xem log roi quyet dinh, khong chay chong"
     return 4
   fi
-  echo "RUN_START tag=$tag mode=$mode beta=$beta log=$LOG $(date -Is)"
+  echo "RUN_START tag=$tag mode=$mode beta=$beta gpu=$GPU log=$LOG $(date -Is)"
   local rc=0
   (
     cd "$SRC"
@@ -97,7 +118,7 @@ run_one() {  # $1=mode $2=tag $3=beta
       MP_CHECKPOINT_STEPS="$UPDATES" MP_RESUME=0 MP_PREFLIGHT_ONLY=0 \
       MP_SOURCE_COMMIT="$(git rev-parse HEAD)" \
       MP_SOURCE_DIRTY="$(git status --porcelain --untracked-files=no | tr '\n' ';')" \
-      MP_RAY_TMP="/tmp/gbv-pilot-$tag" \
+      MP_RAY_TMP="/tmp/gbv-pilot-gpu$GPU-$tag" \
       bash experiments/runai/python-b200-host.sh experiments/runai/run_single_gpu.py \
         "$mode" "$UPDATES" "$RUN"
   ) >>"$LOG" 2>&1 || rc=$?
@@ -127,25 +148,27 @@ preflight_import() {
 
 guard
 if ! preflight_import; then
-  echo "PILOT_STOPPED at preflight (chua chiem GPU cho run nao)" | tee "$OUT/pilot-summary.txt"
+  echo "PILOT_STOPPED at preflight (chua chiem GPU cho run nao)" | tee -a "$SUMMARY"
   exit 3
 fi
 
 {
-  echo "pilot start $(date -Is)"
+  echo "pilot start $(date -Is) host=$(hostname)"
   echo "src=$SRC gpu=$GPU updates=$UPDATES seed=$SEED partition_seed=$PARTITION_SEED"
-  echo "geometry=$GEOMETRY micro_B=$MICRO_B betas=$BETAS"
+  echo "geometry=$GEOMETRY micro_B=$MICRO_B runs=$RUNS"
   echo "pythonpath=$PYTHONPATH_VALUE"
-} | tee -a "$OUT/pilot-summary.txt"
+} | tee -a "$SUMMARY"
 
-if ! run_one atomic atomic 1.0; then
-  echo "PILOT_STOPPED at atomic" | tee -a "$OUT/pilot-summary.txt"
-  exit 1
-fi
-for b in $BETAS; do
-  if ! run_one gbv "$(tag_of "$b")" "$b"; then
-    echo "PILOT_STOPPED at beta=$b" | tee -a "$OUT/pilot-summary.txt"
+for tag in $RUNS; do
+  spec=$(spec_for "$tag")
+  if [ -z "$spec" ]; then
+    echo "PILOT_STOPPED unknown tag '$tag'" | tee -a "$SUMMARY"
+    exit 2
+  fi
+  set -- $spec
+  if ! run_one "$1" "$tag" "$2"; then
+    echo "PILOT_STOPPED at tag=$tag" | tee -a "$SUMMARY"
     exit 1
   fi
 done
-echo "PILOT_DONE $(date -Is)" | tee -a "$OUT/pilot-summary.txt"
+echo "PILOT_DONE gpu=$GPU $(date -Is)" | tee -a "$SUMMARY"
