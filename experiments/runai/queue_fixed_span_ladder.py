@@ -61,8 +61,15 @@ def slots():
     return dict(zip([name for name, _ in VARIANTS], values))
 
 
+# Run-id prefix and the scope text live in module constants so a thin per-pair
+# wrapper (queue_phi_*_ladder.py) can reuse every other part of this contract:
+# VARIANTS, DEFAULT_SLOTS, RECIPE and SCOPE are the only knobs a pair changes.
+ID_PREFIX = "FIX-"
+SCOPE = "Fixed-span ladder at the company-v2-fixed recipe; span 3, 4 and 5, training seeds 42/43/44"
+
+
 def configurations():
-    return [dict(id="FIX-" + name + "-s" + str(seed), variant=name, span=span, mode="fixed",
+    return [dict(id=ID_PREFIX + name + "-s" + str(seed), variant=name, span=span, mode="fixed",
                  train_seed=seed, student_updates=UPDATES,
                  micro_B=RECIPE["micro_train_batch_size"], train_B=RECIPE["train_batch_size"],
                  student_lr=RECIPE["learning_rate"])
@@ -106,7 +113,7 @@ def initialize(case, student, teacher, dataset, template_case):
         runs=configurations(), recipe=RECIPE, steps=list(STEPS), eval_seeds=[42, 43, 44],
         student=student, teacher=teacher, dataset=dataset,
         eval_template_source=str(template_case), created=time.time(),
-        scope="Fixed-span ladder at the company-v2-fixed recipe; span 3, 4 and 5, training seeds 42/43/44"))
+        scope=SCOPE))
     return case
 
 
