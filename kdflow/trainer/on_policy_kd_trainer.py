@@ -696,6 +696,12 @@ class OnPolicyKDTrainer:
         if isinstance(v0, torch.Tensor):
             if key.startswith("mm_"):
                 return torch.cat(values, dim=0)
+            # stu_behavior_log_probs carries NaN as its "no behavior probability" sentinel
+            # (mp_opd._behavior_parity_metrics filters on ~isnan). Padding it with 0.0 would
+            # turn padding into a claimed log-probability of 0 (p=1) and poison the parity
+            # comparison, so this key is padded with NaN, exactly like the samples themselves.
+            if key == "stu_behavior_log_probs":
+                return zero_pad_sequences(values, side="right", value=float("nan"))
             return zero_pad_sequences(values, side="right", value=0)
         if isinstance(v0, list):
             return sum(values, [])
@@ -869,6 +875,12 @@ class OnPolicyKDTrainer:
             raise RuntimeError("behavior log-prob IDs do not match sampled IDs")
         if any(not math.isfinite(float(x[0])) for x in logprobs):
             raise RuntimeError("non-finite sampled behavior log-probability")
+        if any(float(x[0]) == 0.0 for x in logprobs):
+            raise RuntimeError(
+                "engine returned a zero sampled behavior log-probability (p=1) for some generated "
+                "token; a log-probability of exactly 0 is not valid for a sampled token, so the "
+                "rollout engine did not report logprobs for the whole trajectory"
+            )
         behavior = torch.full((len(stu_ids),), float("nan"))
         start = len(expected_prompt) - 1
         behavior[start:start + len(sampled)] = torch.tensor([float(x[0]) for x in logprobs])
