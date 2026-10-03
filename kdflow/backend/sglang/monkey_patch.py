@@ -123,6 +123,28 @@ def process_batch_result_prefill_patched(
                             num_input_logprobs,
                             logits_output,
                         )
+                    # logprob_pt is a shared offset: this prefill advance decides where the
+                    # (unpatched) decode path writes output_token_logprobs. If the advance
+                    # disagrees with the number of slots SGLang actually fills, decode writes
+                    # at wrong offsets and the leftover slots keep SGLang's 0.0 default, which
+                    # the parity path then reads as a log-probability of 0 (p=1). Gated by env
+                    # so production runs stay quiet.
+                    if os.environ.get("MP_LOGPROB_ACCOUNTING", "0") == "1":
+                        print(
+                            "[logprob-accounting] rid=%s pt_before=%d start_len=%d input_len=%d "
+                            "num_input=%d pt_after=%d chunked=%d finished=%d"
+                            % (
+                                getattr(req, "rid", "?"),
+                                logprob_pt - num_input_logprobs,
+                                extend_logprob_start_len,
+                                extend_input_len,
+                                num_input_logprobs,
+                                logprob_pt,
+                                getattr(req, "is_chunked", -1),
+                                req.finished(),
+                            ),
+                            flush=True,
+                        )
                     logprob_pt += num_input_logprobs
 
                 # === KEY CHANGE: Use .numpy() instead of .tolist() ===
