@@ -11,6 +11,42 @@ from kdflow.utils import get_tokenizer
 from kdflow.models.ring_attn_utils import gather_and_pad_tensor, unpad_and_slice_tensor
 
 
+def forward_position_ids(attention_mask: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+    """Position ids for the non-packing forward path.
+
+    HF's eager attention takes a different path when ``position_ids`` is passed, and
+    on a right-padded batch that path moves the longest row's logits by up to 15.5
+    relative to the same row forwarded alone. Measured on the MP-OPD parity capture
+    ``failure-zusi05xj``: that capture's longest row is 4096 tokens = the full padded
+    width, so its mask is all ones and its ``cumsum - 1`` *is* ``arange``; passing it
+    is therefore meant to be a no-op, yet it changed the logits. The same capture
+    showed the padded forward reproducing the trainer's stored logprobs bit-for-bit
+    while a per-row forward reproduced SGLang's, i.e. this path is what made the
+    behaviour/trainer parity guard fire.
+
+    Right-padding needs no explicit positions: HF's default ``cache_position``
+    already numbers each row ``0..n-1`` over its real tokens and the padded tail is
+    masked. So return None, which reproduces the per-row (and SGLang) result. Keep
+    the explicit form only for masks that are not a plain prefix, where HF's default
+    would be wrong.
+    """
+    if attention_mask is None:
+        return None
+    mask = attention_mask.long()
+    # Right padding means the ones are exactly a prefix of each row. Comparing the
+    # mask against a prefix template built from its own row sums tests that directly.
+    # A cumsum-based test does not work: cumsum keeps increasing through the padded
+    # tail, and clamping it to 1 yields all ones, which never equals the mask. The
+    # regression tests caught exactly that mistake.
+    ones = mask.sum(-1, keepdim=True)
+    template = (torch.arange(mask.shape[1], device=mask.device).unsqueeze(0) < ones).long()
+    if bool(template.eq(mask).all()):
+        return None
+    position_ids = mask.cumsum(-1) - 1
+    position_ids.masked_fill_(mask == 0, 1)
+    return position_ids
+
+
 class DistillModel(nn.Module):
     """
     Base class for student models in knowledge distillation (modified from OpenRLHF/openrlhf/models/actor.py).
@@ -104,8 +140,7 @@ class DistillModel(nn.Module):
             )
             foward_attention_mask = None
         else:
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
+            position_ids = forward_position_ids(attention_mask)
 
         output = self.model(sequences, attention_mask=foward_attention_mask, position_ids=position_ids, output_hidden_states=output_hidden_states, **kwargs)
         
