@@ -148,8 +148,9 @@ def _behavior_parity_metrics(
     real = ~torch.isnan(behavior_log_probs)
     if not real.any():
         return {}
+    logits = student_logits.detach().float()
     actual = (
-        (student_logits.detach().float() / temperature)
+        (logits / temperature)
         .log_softmax(dim=-1)
         .gather(-1, labels.unsqueeze(-1))
         .squeeze(-1)
@@ -158,21 +159,49 @@ def _behavior_parity_metrics(
     if not torch.isfinite(delta).all():
         raise RuntimeError("behavior/trainer logprob parity produced non-finite deltas")
 
+    # Diagnostic-only: SGLang's standard sampler divides the logits by the request
+    # temperature in place and returns log(softmax(...)). If `temperatures` is 1.0
+    # for a stretch of decode steps that division is a no-op and the stored logprob
+    # is the RAW one, which is the 2026-09 temperature bug in a partial form. The
+    # fraction below is the calibrated detector for exactly that: it reads ~0.99 on
+    # a B200 when the engine genuinely returns raw logprobs, and 0.004-0.037 when it
+    # scales correctly (measured over 123k tokens, google/gemma-2-2b-it). It changes
+    # nothing about the pass/fail decision; it makes the failure self-describing.
+    # With temperature == 1 the two references coincide and the statistic carries no
+    # information, so it is reported as NaN rather than a misleading 0.
+    if abs(temperature - 1.0) < 1e-9:
+        closer_to_raw = torch.tensor(float("nan"))
+    else:
+        raw = logits.log_softmax(dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+        closer_to_raw = (
+            (behavior_log_probs[real] - raw[real]).abs()
+            < (behavior_log_probs[real] - actual[real]).abs()
+        ).float().mean()
+
     mean = delta.mean()
     maximum = delta.max()
     p99 = torch.quantile(delta, 0.99)
     # Backend/precision tails can contain isolated finite outliers. Fail on a
     # distributional mismatch while preserving the tail as diagnostics.
     if mean > 0.1 or p99 > 0.5:
+        diagnosis = ""
+        if torch.isfinite(closer_to_raw) and closer_to_raw.item() > 0.1:
+            diagnosis = (
+                "; closer_to_raw="
+                f"{closer_to_raw.item():.4f} means the engine returned RAW, unscaled "
+                "logprobs for part or all of the trajectory (expected <= 0.04)"
+            )
         raise RuntimeError(
             "behavior/trainer logprob parity failed: "
             f"mean={mean.item():.6f}, p99={p99.item():.6f}, max={maximum.item():.6f}"
+            + diagnosis
         )
     return {
         "trajectory_logprob_abs_mean": mean,
         "trajectory_logprob_abs_p99": p99,
         "trajectory_logprob_abs_max": maximum,
         "trajectory_logprob_above_0p5_fraction": (delta > 0.5).float().mean(),
+        "trajectory_logprob_closer_to_raw_fraction": closer_to_raw,
     }
 
 

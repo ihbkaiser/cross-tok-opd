@@ -118,6 +118,50 @@ def test_behavior_parity_masks_nan_sentinel_but_rejects_infinity():
         _behavior_parity_metrics(logits, labels, expected, 1.0)
 
 
+def test_behavior_parity_raw_detector_is_nan_at_unit_temperature():
+    """At T=1 the raw and scaled references coincide, so the detector is undefined."""
+    logits = torch.zeros(4, 2)
+    labels = torch.zeros(4, dtype=torch.long)
+    metrics = _behavior_parity_metrics(logits, labels, logits.log_softmax(-1)[:, 0], 1.0)
+    assert torch.isnan(metrics["trajectory_logprob_closer_to_raw_fraction"])
+
+
+def test_behavior_parity_raw_detector_flags_unscaled_behavior():
+    """Behavior computed without the rollout temperature must read ~1.0.
+
+    This is the partial form of the 2026-09 temperature bug: the stored logprobs
+    are raw while the guard compares at T. Small logits keep the raw-vs-scaled gap
+    under the guard's threshold, so this asserts the *telemetry*, not the failure.
+    """
+    torch.manual_seed(0)
+    logits = torch.randn(64, 8) * 0.05
+    labels = torch.randint(0, 8, (64,))
+    raw = logits.log_softmax(-1).gather(-1, labels[:, None]).squeeze(-1)
+
+    metrics = _behavior_parity_metrics(logits, labels, raw, 0.6)
+    assert metrics["trajectory_logprob_closer_to_raw_fraction"].item() == 1.0
+
+
+def test_behavior_parity_raw_detector_is_low_when_behavior_is_scaled():
+    torch.manual_seed(0)
+    logits = torch.randn(64, 8) * 0.05
+    labels = torch.randint(0, 8, (64,))
+    scaled = (logits / 0.6).log_softmax(-1).gather(-1, labels[:, None]).squeeze(-1)
+
+    metrics = _behavior_parity_metrics(logits, labels, scaled, 0.6)
+    assert metrics["trajectory_logprob_closer_to_raw_fraction"].item() == 0.0
+
+
+def test_behavior_parity_failure_names_the_raw_logprob_cause():
+    torch.manual_seed(0)
+    logits = torch.randn(64, 8) * 3.0
+    labels = torch.randint(0, 8, (64,))
+    raw = logits.log_softmax(-1).gather(-1, labels[:, None]).squeeze(-1)
+
+    with pytest.raises(RuntimeError, match="closer_to_raw"):
+        _behavior_parity_metrics(logits, labels, raw, 0.6)
+
+
 class FakeTokenizer:
     def __init__(self, pieces, eos):
         self.pieces = pieces
