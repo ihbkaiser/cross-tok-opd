@@ -228,7 +228,7 @@ def summarize(rows: list[dict], arm: str, concurrency: int) -> dict:
         "rows_missing_output_logprobs": missing,
     }
     print(
-        "[probe] arm={arm} rows={rows} tokens={tokens} zeros={zeros} frac={frac} "
+        "[probe] arm={arm} rows={rows} tokens={tokens} zeros={zeros} frac={zero_fraction} "
         "first_zero={first_zero} min={min_logprob} max={max_logprob} missing={rows_missing_output_logprobs}"
         .format(**report),
         flush=True,
