@@ -65,7 +65,10 @@ def load_prompt_ids(dataset: Path, rows: int, max_len: int) -> list[list[int]]:
     from transformers import AutoTokenizer
 
     frame = pd.read_parquet(dataset)
-    column = next((name for name in ("prompt", "question", "text", "input") if name in frame.columns), None)
+    # The phi dataset ships as chat rows (source, messages); other datasets ship a
+    # flat text column. Accept both so the probe runs against whatever the campaign
+    # case points at instead of dying on a column name.
+    column = next((name for name in ("prompt", "question", "text", "input", "messages") if name in frame.columns), None)
     if column is None:
         raise SystemExit("no prompt-like column in dataset: " + ", ".join(map(str, frame.columns)))
     print(f"PROBE_PROMPT_COLUMN={column}", flush=True)
@@ -73,10 +76,20 @@ def load_prompt_ids(dataset: Path, rows: int, max_len: int) -> list[list[int]]:
     tokenizer = AutoTokenizer.from_pretrained(os.environ["MP_STUDENT_PATH"])
     encoded: list[list[int]] = []
     for value in frame[column].head(rows).tolist():
-        text = value if isinstance(value, str) else str(value)
+        if column == "messages":
+            turns = [turn.get("content", "") for turn in value if turn.get("role") == "user"]
+            if not turns:
+                continue
+            text = turns[0]
+        else:
+            text = value if isinstance(value, str) else str(value)
+        if not text.strip():
+            continue
         ids = tokenizer.apply_chat_template(
             [{"role": "user", "content": text}], add_generation_prompt=True, tokenize=True)
         encoded.append(list(ids)[:max_len])
+    if not encoded:
+        raise SystemExit("dataset produced no usable prompts")
     return encoded
 
 
