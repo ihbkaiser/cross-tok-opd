@@ -86,8 +86,12 @@ def load_prompt_ids(dataset: Path, rows: int, max_len: int) -> list[list[int]]:
         if not text.strip():
             continue
         ids = tokenizer.apply_chat_template(
-            [{"role": "user", "content": text}], add_generation_prompt=True, tokenize=True)
-        encoded.append(list(ids)[:max_len])
+            [{"role": "user", "content": text}], add_generation_prompt=True,
+            tokenize=True, return_dict=False)
+        # return_dict=False can still yield a nested list for batched templates.
+        if len(ids) and isinstance(ids[0], (list, tuple)):
+            ids = ids[0]
+        encoded.append([int(token) for token in ids][:max_len])
     if not encoded:
         raise SystemExit("dataset produced no usable prompts")
     return encoded
