@@ -29,7 +29,10 @@ VARIANTS=(('every4',1e-3,4),('lowLR',1e-4,1),('main',1e-3,1))
 # single-GPU full queue. The two-host split queue would place the first seed on the
 # one-GPU owner and the rest on the many-GPU extras, so a single-seed campaign has no
 # extras plan at all and must not be submitted there.
-TRAIN_SEEDS=(43,)
+# Overridable so a new seed extends this campaign without invalidating an existing
+# case: with MP_TRAIN_SEEDS unset the definition is exactly what the pinned s43 case
+# was created against, so its contract check still passes.
+TRAIN_SEEDS=tuple(int(part) for part in os.environ.get('MP_TRAIN_SEEDS','43').split(',') if part.strip())
 OWNER_SEEDS=TRAIN_SEEDS[:1]
 EXTRA_SEEDS=TRAIN_SEEDS[1:]
 WRAPPER=Path('/workspace/storage-shared/nlp/tungks/SimCT/python-b200.sh')
