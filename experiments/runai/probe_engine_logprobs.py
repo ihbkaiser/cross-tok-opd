@@ -110,7 +110,24 @@ def start_engine(model: Path, port: int, extra: dict) -> subprocess.Popen:
     raise SystemExit("engine never became healthy")
 
 
-def summarize(rows: list[dict], arm: str) -> dict:
+def one_request(ids: list[int], overrides: dict, port: int, max_new_tokens: int) -> dict:
+    """Send exactly the payload rollout_group._generate_one sends, one field changed."""
+    payload = {
+        "input_ids": ids,
+        "sampling_params": {"max_new_tokens": max_new_tokens, "temperature": 0.6, "top_p": 0.95},
+        "return_logprob": True,
+        "logprob_start_len": -1,
+    }
+    payload["sampling_params"].update(
+        {k: v for k, v in overrides.items() if k in {"temperature", "top_p", "logprobs"}})
+    payload["logprob_start_len"] = overrides.get("logprob_start_len", -1)
+    payload["return_logprob"] = overrides.get("return_logprob", True)
+    response = requests.post(f"http://127.0.0.1:{port}/generate", json=payload, timeout=900)
+    response.raise_for_status()
+    return response.json()
+
+
+def summarize(rows: list[dict], arm: str, concurrency: int) -> dict:
     tokens = zeros = 0
     first_zero = None
     lowest = 0.0
@@ -135,7 +152,8 @@ def summarize(rows: list[dict], arm: str) -> dict:
             lowest = min(lowest, value)
             highest = max(highest, value)
     report = {
-        "arm": arm, "rows": len(rows), "tokens": tokens, "zeros": zeros,
+        "arm": arm, "rows": len(rows), "concurrency": concurrency,
+        "tokens": tokens, "zeros": zeros,
         "zero_fraction": round(zeros / tokens, 4) if tokens else None,
         "first_zero": first_zero, "min_logprob": lowest, "max_logprob": highest,
         "rows_missing_output_logprobs": missing,
@@ -155,6 +173,7 @@ def main() -> int:
     parser.add_argument("--rows", type=int, default=8)
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--max-prompt-len", type=int, default=1024)
+    parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--port", type=int, default=24800)
     parser.add_argument("--arms", default="baseline,logprob_start_len0,sampling_logprobs0,greedy")
     parser.add_argument("--out", required=True)
@@ -175,27 +194,15 @@ def main() -> int:
             if arm not in ARMS:
                 raise SystemExit("unknown arm " + arm)
             overrides = ARMS[arm]
-            outputs = []
-            for ids in prompts:
-                payload = {
-                    "input_ids": ids,
-                    "sampling_params": {
-                        "max_new_tokens": args.max_new_tokens,
-                        "temperature": 0.6,
-                        "top_p": 0.95,
-                    },
-                    "return_logprob": True,
-                    "logprob_start_len": -1,
-                }
-                payload["sampling_params"].update(
-                    {k: v for k, v in overrides.items() if k in {"temperature", "top_p", "logprobs"}})
-                payload["logprob_start_len"] = overrides.get("logprob_start_len", -1)
-                payload["return_logprob"] = overrides.get("return_logprob", True)
-                response = requests.post(
-                    f"http://127.0.0.1:{args.port}/generate", json=payload, timeout=900)
-                response.raise_for_status()
-                outputs.append(response.json())
-            result["arms"].append(summarize(outputs, arm))
+            # The trainer drives the router with a whole batch at once, and SGLang's
+            # shared logprob offset advances per forward batch. Probe in parallel so a
+            # batch-dependent fault cannot hide behind one request at a time.
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+                outputs = list(pool.map(
+                    lambda ids: one_request(ids, overrides, args.port, args.max_new_tokens), prompts))
+            result["arms"].append(summarize(outputs, arm, args.concurrency))
     finally:
         engine.send_signal(signal.SIGTERM)
         try:
