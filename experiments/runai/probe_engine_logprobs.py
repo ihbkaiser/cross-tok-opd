@@ -123,20 +123,45 @@ def start_engine(model: Path, port: int, extra: dict) -> subprocess.Popen:
     raise SystemExit("engine never became healthy")
 
 
-def one_request(ids: list[int], overrides: dict, port: int, max_new_tokens: int) -> dict:
-    """Send exactly the payload rollout_group._generate_one sends, one field changed."""
-    payload = {
-        "input_ids": ids,
-        "sampling_params": {"max_new_tokens": max_new_tokens, "temperature": 0.6, "top_p": 0.95},
-        "return_logprob": True,
-        "logprob_start_len": -1,
-    }
-    payload["sampling_params"].update(
-        {k: v for k, v in overrides.items() if k in {"temperature", "top_p", "logprobs"}})
-    payload["logprob_start_len"] = overrides.get("logprob_start_len", -1)
+def make_payload(shape: str, ids: list[int], text: str, overrides: dict, max_new_tokens: int) -> dict:
+    """Build one request; `shape` picks which optional field is present."""
+    sampling = {"max_new_tokens": max_new_tokens, "temperature": 0.6, "top_p": 0.95}
+    sampling.update({k: v for k, v in overrides.items() if k in {"temperature", "top_p", "logprobs"}})
+    if shape == "text_form":
+        payload: dict = {"text": text}
+    else:
+        payload = {"input_ids": ids}
+        if shape == "logprobs_field":
+            sampling.setdefault("logprobs", 0)
+    payload["sampling_params"] = sampling
     payload["return_logprob"] = overrides.get("return_logprob", True)
+    if shape != "no_start_len":
+        payload["logprob_start_len"] = overrides.get("logprob_start_len", -1)
+    return payload
+
+
+# Ordered most-faithful first. The native /generate endpoint rejected the production
+# shape outright, so the probe must report which shape the server accepts instead of
+# dying on raise_for_status() with the server's explanation discarded.
+SHAPES = ("production", "no_start_len", "logprobs_field", "text_form")
+
+
+def negotiate_shape(ids: list[int], text: str, port: int) -> str:
+    for shape in SHAPES:
+        payload = make_payload(shape, ids, text, {}, 8)
+        response = requests.post(f"http://127.0.0.1:{port}/generate", json=payload, timeout=300)
+        print(f"PROBE_SHAPE {shape} http={response.status_code} {response.text[:240]}", flush=True)
+        if response.status_code == 200:
+            print(f"PROBE_SHAPE_ACCEPTED={shape}", flush=True)
+            return shape
+    raise SystemExit("engine rejected every payload shape")
+
+
+def one_request(ids: list[int], text: str, overrides: dict, port: int, shape: str, max_new_tokens: int) -> dict:
+    payload = make_payload(shape, ids, text, overrides, max_new_tokens)
     response = requests.post(f"http://127.0.0.1:{port}/generate", json=payload, timeout=900)
-    response.raise_for_status()
+    if response.status_code != 200:
+        raise SystemExit(f"engine rejected {shape}: {response.status_code} {response.text[:400]}")
     return response.json()
 
 
@@ -200,7 +225,12 @@ def main() -> int:
     print("PROBE_SERVING_ARGS=" + json.dumps(extra, sort_keys=True), flush=True)
 
     engine = start_engine(model, args.port, extra)
-    result = {"serving_args": extra, "rows": len(prompts), "arms": []}
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(os.environ["MP_STUDENT_PATH"])
+    texts = [tokenizer.decode(ids) for ids in prompts]
+    shape = negotiate_shape(prompts[0], texts[0], args.port)
+    result = {"serving_args": extra, "rows": len(prompts), "shape": shape, "arms": []}
     try:
         for arm in args.arms.split(","):
             arm = arm.strip()
@@ -214,7 +244,8 @@ def main() -> int:
 
             with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
                 outputs = list(pool.map(
-                    lambda ids: one_request(ids, overrides, args.port, args.max_new_tokens), prompts))
+                    lambda pair: one_request(pair[0], pair[1], overrides, args.port, shape, args.max_new_tokens),
+                    list(zip(prompts, texts))))
             result["arms"].append(summarize(outputs, arm, args.concurrency))
     finally:
         engine.send_signal(signal.SIGTERM)
