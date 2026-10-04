@@ -109,7 +109,11 @@ def start_engine(model: Path, port: int, extra: dict) -> subprocess.Popen:
         flag = name.replace("_", "-")
         command += [f"--{flag}"] + ([] if isinstance(value, bool) and value else [str(value)])
     print("PROBE_ENGINE_CMD=" + " ".join(command), flush=True)
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Own process group: SGLang spawns worker children, and signalling only the
+    # launcher leaves them holding GPU memory, which then blocks the next probe.
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        start_new_session=True)
     for _ in range(180):
         if process.poll() is not None:
             raise SystemExit("engine exited early with code " + str(process.returncode))
@@ -121,6 +125,28 @@ def start_engine(model: Path, port: int, extra: dict) -> subprocess.Popen:
             pass
         time.sleep(2)
     raise SystemExit("engine never became healthy")
+
+
+def stop_engine(process: subprocess.Popen) -> None:
+    """Terminate the engine and every child it spawned, then confirm it released VRAM."""
+    if process.poll() is not None:
+        return
+    try:
+        group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        group = None
+    for sig, grace in ((signal.SIGTERM, 90), (signal.SIGKILL, 60)):
+        if process.poll() is not None:
+            break
+        if group is not None:
+            os.killpg(group, sig)
+        else:
+            process.send_signal(sig)
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            continue
+    print("PROBE_ENGINE_STOPPED", flush=True)
 
 
 def make_payload(shape: str, ids: list[int], text: str, overrides: dict, max_new_tokens: int) -> dict:
@@ -248,11 +274,7 @@ def main() -> int:
                     list(zip(prompts, texts))))
             result["arms"].append(summarize(outputs, arm, args.concurrency))
     finally:
-        engine.send_signal(signal.SIGTERM)
-        try:
-            engine.wait(timeout=90)
-        except subprocess.TimeoutExpired:
-            engine.kill()
+        stop_engine(engine)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
