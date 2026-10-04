@@ -202,7 +202,8 @@ def summarize(rows: list[dict], arm: str, concurrency: int) -> dict:
     highest = 0.0
     missing = 0
     for row_index, output in enumerate(rows):
-        sampled = list(output.get("meta_info", {}).get("output_token_ids") or [])
+        # SGLang puts the sampled ids at the top level; only the logprobs live in meta_info.
+        sampled = list(output.get("output_ids") or output.get("meta_info", {}).get("output_token_ids") or [])
         series = output.get("meta_info", {}).get("output_token_logprobs")
         if series is None:
             missing += 1
