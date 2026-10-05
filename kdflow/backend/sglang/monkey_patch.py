@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from pathlib import Path
 
 import torch
 
@@ -285,6 +286,28 @@ def process_batch_result_prefill_patched(
         )
 
 
+def _audit_emit(line: str) -> None:
+    """Emit one audit line to stdout *and* to a file on shared storage.
+
+    stdout from an engine scheduler subprocess has repeatedly failed to reach any
+    log we can grep (attempt log, ray session log), so the file is the source of
+    truth; the print stays for whoever is tailing the console.  Capped in size so
+    a pathological run cannot fill the mount.
+    """
+    print(line, flush=True)
+    path = os.environ.get("MP_LOGPROB_AUDIT_FILE")
+    if not path:
+        return
+    try:
+        p = Path(path)
+        if p.exists() and p.stat().st_size > 5 * 1024 * 1024:
+            return
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception as exc:  # never let diagnostics kill the engine
+        print("[logprob-audit] write failed: %r" % (exc,), flush=True)
+
+
 def _audit_stream_output_logprobs(
     reqs,
     return_logprob: bool,
@@ -313,16 +336,16 @@ def _audit_stream_output_logprobs(
         first_zero = next((i for i, v in enumerate(vals) if v == 0.0), -1)
         if (ids != len(vals) or first_zero >= 0) and _AUDIT_LINES < _AUDIT_MAX_LINES:
             _AUDIT_LINES += 1
-            print(
-                "[logprob-audit] rid=%s ids=%d vals=%d mismatch=%d first_zero=%d"
+            _audit_emit(
+                "[logprob-audit] pid=%d rid=%s ids=%d vals=%d mismatch=%d first_zero=%d"
                 % (
+                    os.getpid(),
                     getattr(req, "rid", "?"),
                     ids,
                     len(vals),
                     ids - len(vals),
                     first_zero,
-                ),
-                flush=True,
+                )
             )
 
 
