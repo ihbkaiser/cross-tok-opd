@@ -30,6 +30,10 @@ _PATCH_APPLIED = False
 # Upstream stream_output_generation, kept so the audit wrapper never forks it.
 _ORIG_STREAM_OUTPUT_GENERATION = None
 
+# Cap on audit lines per process: enough to see a pattern, not enough to flood.
+_AUDIT_MAX_LINES = 20
+_AUDIT_LINES = 0
+
 
 def process_batch_result_prefill_patched(
     self: "Scheduler",
@@ -291,9 +295,14 @@ def _audit_stream_output_logprobs(
     ``stream_output_generation`` cuts the outgoing slice with an independent
     counter (``logprob_end = max(len(output_ids_), 1)``) from the one that fills
     ``req.output_token_logprobs_val``.  If those two ever disagree, the client
-    reads a log-probability that belongs to a different position.  Enabled with
-    ``MP_LOGPROB_ZERO_PROBE=1``; silent otherwise.
+    reads a log-probability that belongs to a different position.
+
+    Always on, but it prints only when it actually finds a disagreement or a
+    literal ``0.0``, and at most ``_AUDIT_MAX_LINES`` lines per process.  It is
+    deliberately not gated by an env var: the engine runs as a separate Ray
+    actor, so an ``MP_*`` flag never reaches this process.
     """
+    global _AUDIT_LINES
     for req in reqs:
         if req is skip_req or not getattr(req, "return_logprob", False):
             continue
@@ -302,7 +311,8 @@ def _audit_stream_output_logprobs(
             continue
         ids = len(req.output_ids_through_stop)
         first_zero = next((i for i, v in enumerate(vals) if v == 0.0), -1)
-        if ids != len(vals) or first_zero >= 0:
+        if (ids != len(vals) or first_zero >= 0) and _AUDIT_LINES < _AUDIT_MAX_LINES:
+            _AUDIT_LINES += 1
             print(
                 "[logprob-audit] rid=%s ids=%d vals=%d mismatch=%d first_zero=%d"
                 % (
@@ -324,7 +334,7 @@ def stream_output_generation_patched(
     is_idle_batch: bool = False,
 ):
     """Wrapper that audits log-prob alignment before delegating to SGLang."""
-    if return_logprob and os.environ.get("MP_LOGPROB_ZERO_PROBE", "0") == "1":
+    if return_logprob:
         _audit_stream_output_logprobs(reqs, return_logprob, skip_req)
     return _ORIG_STREAM_OUTPUT_GENERATION(
         self, reqs, return_logprob, skip_req, is_idle_batch
