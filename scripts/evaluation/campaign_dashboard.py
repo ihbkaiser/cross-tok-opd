@@ -7,8 +7,8 @@ def render(data, output):
     for name,r in payload['runs'].items():
         r['expected_steps']=([40,80,120,156,200,240,280,312] if r['primary'] and r['method']!='sft'
                              else sorted({p['step'] for p in data['points'] if p['run']==name}))
-    template=Path(__file__).with_name('campaign_dashboard.html').read_text()
-    output.write_text(template.replace('__DATA__',json.dumps(payload).replace('</','<\\/')))
+    template=Path(__file__).with_name('campaign_dashboard.html').read_text(encoding='utf-8')
+    output.write_text(template.replace('__DATA__',json.dumps(payload).replace('</','<\\/')),encoding='utf-8')
 
 if __name__=='__main__':
     import sys
