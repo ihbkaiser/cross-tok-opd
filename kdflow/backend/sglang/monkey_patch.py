@@ -27,6 +27,9 @@ logger = init_logger(__name__)
 # Flag to prevent multiple patch applications
 _PATCH_APPLIED = False
 
+# Upstream stream_output_generation, kept so the audit wrapper never forks it.
+_ORIG_STREAM_OUTPUT_GENERATION = None
+
 
 def process_batch_result_prefill_patched(
     self: "Scheduler",
@@ -278,6 +281,56 @@ def process_batch_result_prefill_patched(
         )
 
 
+def _audit_stream_output_logprobs(
+    reqs,
+    return_logprob: bool,
+    skip_req=None,
+) -> None:
+    """Report, per request, whether token count and collected log-probs disagree.
+
+    ``stream_output_generation`` cuts the outgoing slice with an independent
+    counter (``logprob_end = max(len(output_ids_), 1)``) from the one that fills
+    ``req.output_token_logprobs_val``.  If those two ever disagree, the client
+    reads a log-probability that belongs to a different position.  Enabled with
+    ``MP_LOGPROB_ZERO_PROBE=1``; silent otherwise.
+    """
+    for req in reqs:
+        if req is skip_req or not getattr(req, "return_logprob", False):
+            continue
+        vals = getattr(req, "output_token_logprobs_val", None) or []
+        if not vals:
+            continue
+        ids = len(req.output_ids_through_stop)
+        first_zero = next((i for i, v in enumerate(vals) if v == 0.0), -1)
+        if ids != len(vals) or first_zero >= 0:
+            print(
+                "[logprob-audit] rid=%s ids=%d vals=%d mismatch=%d first_zero=%d"
+                % (
+                    getattr(req, "rid", "?"),
+                    ids,
+                    len(vals),
+                    ids - len(vals),
+                    first_zero,
+                ),
+                flush=True,
+            )
+
+
+def stream_output_generation_patched(
+    self: "Scheduler",
+    reqs: List["Req"],
+    return_logprob: bool,
+    skip_req: Optional["Req"] = None,
+    is_idle_batch: bool = False,
+):
+    """Wrapper that audits log-prob alignment before delegating to SGLang."""
+    if return_logprob and os.environ.get("MP_LOGPROB_ZERO_PROBE", "0") == "1":
+        _audit_stream_output_logprobs(reqs, return_logprob, skip_req)
+    return _ORIG_STREAM_OUTPUT_GENERATION(
+        self, reqs, return_logprob, skip_req, is_idle_batch
+    )
+
+
 def apply_patch():
     """
     Apply the monkey patch to SGLang's SchedulerOutputProcessorMixin.
@@ -285,7 +338,7 @@ def apply_patch():
     This function is idempotent - calling it multiple times is safe.
     Returns True if patch was applied (or already applied), False otherwise.
     """
-    global _PATCH_APPLIED
+    global _PATCH_APPLIED, _ORIG_STREAM_OUTPUT_GENERATION
     
     if _PATCH_APPLIED:
         return True
@@ -307,9 +360,21 @@ def apply_patch():
         
         # Apply patch
         SchedulerOutputProcessorMixin.process_batch_result_prefill = process_batch_result_prefill_patched
+
+        # Audit wrapper: keep the upstream method and probe it instead of forking it.
+        _ORIG_STREAM_OUTPUT_GENERATION = (
+            SchedulerOutputProcessorMixin.stream_output_generation
+        )
+        stream_output_generation_patched._kdflow_patched = True
+        SchedulerOutputProcessorMixin.stream_output_generation = (
+            stream_output_generation_patched
+        )
+        print(
+            f"[monkey_patch] SUCCESS: prefill + stream_output_generation patched! PID={os.getpid()}",
+            flush=True,
+        )
         
         _PATCH_APPLIED = True
-        print(f"[monkey_patch] SUCCESS: process_batch_result_prefill patched! PID={os.getpid()}", flush=True)
         return True
         
     except ImportError as e:
