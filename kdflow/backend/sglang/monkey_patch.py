@@ -295,9 +295,11 @@ def _audit_emit(line: str) -> None:
     a pathological run cannot fill the mount.
     """
     print(line, flush=True)
-    path = os.environ.get("MP_LOGPROB_AUDIT_FILE")
-    if not path:
-        return
+    # Deliberately not an MP_* variable: run_command strips those, so an MP_ name
+    # would never reach the engine process. Defaults to a shared-storage sink.
+    path = os.environ.get("SIMCT_LOGPROB_AUDIT_FILE") or os.environ.get(
+        "MP_LOGPROB_AUDIT_FILE"
+    ) or "/workspace/storage-shared/nlp/tungks/_simct_logprob_audit.log"
     try:
         p = Path(path)
         if p.exists() and p.stat().st_size > 5 * 1024 * 1024:
