@@ -238,7 +238,15 @@ def test_closed_form_matches_an_explicit_matrix_computation():
         pooling = torch.ones(end - start, 1, dtype=block.dtype) @ (w / w.sum()).unsqueeze(0)
         a = torch.eye(end - start, dtype=block.dtype) - pooling
         expected_v = float(torch.trace(block @ a @ sigma))
+        # Each half is asserted on its own so a failure names the term that is wrong
+        # rather than only the difference of two of them.
+        expected_trace = sigma2 * float((torch.diagonal(block) / w).sum())
+        expected_cross = sigma2 * float(block.sum()) / float(w.sum())
         assert float(tables.distortion[index]) == pytest.approx(expected_d, rel=1e-10)
+        assert float(tables.trace[index]) == pytest.approx(expected_trace, rel=1e-10)
+        assert float(tables.variance[index]) == pytest.approx(
+            expected_trace - expected_cross, rel=1e-10
+        )
         assert float(tables.variance[index]) == pytest.approx(expected_v, rel=1e-10)
 
 

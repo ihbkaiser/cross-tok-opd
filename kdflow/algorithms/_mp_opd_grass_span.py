@@ -738,12 +738,6 @@ def grass_span_costs(
     row_sum_prefix = torch.cat((h.new_zeros(1), h.sum(dim=1).cumsum(0)))
     weight_prefix = torch.cat((h.new_zeros(1), w.cumsum(0)))
     weighted_rate_prefix = torch.cat((h.new_zeros(1), (w * r).cumsum(0)))
-    # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
-    # expands to sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_i (H_c w)_i]: the second term
-    # is the Gram against the *weights*, not against the ones vector. The two agree
-    # only for equal weights, so using 1^T H_c 1 here silently reports the wrong
-    # variance for every span whose atoms do not share a token count.
-    weighted_row_prefix = torch.cat((h.new_zeros(1), (h @ w).cumsum(0)))
 
     costs = r.new_full((n, length), float("inf"))
     alpha_table = r.new_zeros((n, length))
@@ -770,7 +764,11 @@ def grass_span_costs(
             dim=(1, 2)
         )
         trace = sigma2 * (diagonal[span_index] / w[span_index]).sum(dim=1)
-        cross = weighted_row_prefix[span_index[:, -1] + 1] - weighted_row_prefix[span_index[:, 0]]
+        # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
+        # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij]. The second term is the
+        # *unweighted* entry sum: the weights cancel against the diagonal Sigma
+        # before the row sums are taken, so contracting H against w instead is wrong.
+        cross = row_sum_prefix[span_index[:, -1] + 1] - row_sum_prefix[span_index[:, 0]]
         variance = trace - sigma2 * cross / span_weight.sum(dim=1)
         strength = _shrunk_strength(distortion, variance, eps_d)
         # Section 14: the cost is built from the *zeroed* D, not the raw one, so
@@ -1264,9 +1262,15 @@ def grass_gram_diagnostics(gram: torch.Tensor, max_span_length: int) -> dict[str
         # arbitrary width; narrower spans are a sub-block of one of these by
         # principal submatrix ordering.
         rows = torch.arange(n - length + 1, device=gram.device)
-        columns = rows + (length - 1)
-        block = gram[rows.unsqueeze(-1) + torch.arange(length, device=gram.device),
-                     rows.unsqueeze(0) + torch.arange(length, device=gram.device)].to(torch.float64)
+        offsets = torch.arange(length, device=gram.device)
+        # Two [starts, length] index grids, one per axis, broadcast against each
+        # other into a [starts, length, length] stack of contiguous blocks. Indexing
+        # both axes with the same grid builds an [starts, length] matrix instead,
+        # which eigvalsh rejects rather than answering.
+        block = gram[
+            rows.view(-1, 1) + offsets.view(1, -1),
+            rows.view(1, -1) + offsets.view(-1, 1),
+        ].to(torch.float64)
         smallest = torch.linalg.eigvalsh(block).min(dim=1).values
         metrics["mp_opd_grass_gram_max_span_min_eigenvalue"] = smallest.min()
         metrics["mp_opd_grass_gram_max_span_negative_fraction"] = (

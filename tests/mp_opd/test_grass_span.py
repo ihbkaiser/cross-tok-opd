@@ -117,7 +117,7 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     "atom_ranges",
     [
         ((0, 1), (1, 3), (3, 4), (4, 6)),
-        ((0, 2), (2, 4), (4, 5)),
+        ((0, 2), (2, 4), (4, 5), (5, 6)),
         ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),
     ],
 )
@@ -137,7 +137,10 @@ def test_weighted_gram_matches_the_explicit_head_gradient(atom_ranges):
     weight = torch.tensor([1.0, 2.0, 2.0, 0.5, 1.5, 3.0], dtype=torch.float64)
     result = atom_head_gram(logits, hidden, labels, atom_ranges, 4, token_weight=weight)
     expected = _brute_force_gram(logits, hidden, labels, atom_ranges, None, weight)
-    assert torch.allclose(result.gram.to(torch.float64), expected, atol=1e-9, rtol=1e-9)
+    # The routine accumulates in float32, so the reference is matched at fp32
+    # resolution rather than at the float64 exactness of the inputs.
+    tolerance = max(float(expected.abs().max()), 1.0) * 1e-5
+    assert torch.allclose(result.gram.to(torch.float64), expected, atol=tolerance)
     assert result.symmetry_error < 1e-6
 
 
@@ -415,14 +418,22 @@ def test_margin_is_best_minus_second_best():
     rate, weight = _credits(n, seed=34)
     gram = torch.eye(n, dtype=torch.float64)
     tables = grass_span_costs(rate, weight, gram, 0.1, 3)
-    _partition, _cost, margins = grass_partition(tables)
+    partition, cost, margins = grass_partition(tables)
     assert margins.shape == (n + 1,)
     assert float(margins[0]) == 0.0
     # Positions with a single admissible predecessor have no margin to report;
     # they stay +inf so the near-tie fraction is not inflated by construction.
     assert float(margins[1]) == float("inf")
-    assert float(margins[-1]) >= 0.0
-    assert float(margins[-1]) < float("inf")
+    # The margin is best - second best, so it is non-positive by construction: a
+    # negative value is the ordinary case, not a sign failure, and a zero one is the
+    # exact tie the metric is looking for. Asserting >= 0 asked for something the
+    # definition cannot produce.
+    decidable = margins[torch.isfinite(margins)]
+    assert bool((decidable <= 0.0).all())
+    assert float(decidable.min()) < 0.0
+    # Whatever the margin says, the reported cost must still be the chosen path's.
+    chosen = float(sum(float(tables.costs[start, end - start - 1]) for start, end in partition))
+    assert float(cost) == pytest.approx(chosen, rel=1e-12)
 
 
 @pytest.mark.parametrize("n,seed", [(8, 41), (13, 42), (21, 43)])
@@ -527,20 +538,31 @@ def test_noise_estimator_state_round_trips():
         GrassNoiseEstimator(rho=0.5).load_state_dict(estimator.state_dict())
 
 
-def test_negative_variance_is_reported_not_hidden():
-    """An indefinite Gram must surface through the pathology counters."""
+def test_negative_statistics_are_reported_not_hidden():
+    """An indefinite Gram must surface through the pathology counters.
+
+    The credits are chosen so the sign is provable rather than sampled: with equal
+    weights, ``r = (1, -1, 0, 0, 0)`` makes the (0, 2) span deviate by
+    ``(+1/2, -1/2)``, and against ``H = [[1, 3], [3, 1]]`` that block gives
+    ``1/4 - 3/2 + 1/4 = -1``, an order of magnitude below any plausible tolerance.
+    """
     n = 5
-    rate, weight = _credits(n, seed=71)
+    rate = torch.tensor([1.0, -1.0, 0.0, 0.0, 0.0], dtype=torch.float64)
+    weight = torch.ones(n, dtype=torch.float64)
     # Strongly positive off-diagonal with a small diagonal is the shape that makes
     # tr(H A Sigma) negative while D stays positive - the exact failure the
     # counters exist to expose.
     indefinite = torch.eye(n, dtype=torch.float64)
     indefinite[0, 1] = indefinite[1, 0] = 3.0
     tables = grass_span_costs(rate, weight, indefinite, 1.0, 3)
+    assert float(tables.distortion[0, 1]) == pytest.approx(-1.0, rel=1e-12)
     metrics = grass_candidate_metrics(tables)
     assert float(metrics["mp_opd_grass_pathology_negative_d_fraction"]) > 0.0
     assert float(metrics["mp_opd_grass_pathology_negative_v_fraction"]) > 0.0
     assert tables.negative_tol >= 0.0
+    # The clamping to zero happens on the value used for alpha, never on the value
+    # the counter reads: a negative D must still be visible in the reported table.
+    assert float(tables.distortion[0, 1]) < 0.0
 
 
 def test_candidate_and_gram_metrics_are_detached_and_finite():
@@ -588,10 +610,20 @@ def test_head_update_energy_masks_pairs_outside_the_span():
     assert float(grass_update_energy(gram, coarse_ids, rate, rate)) == pytest.approx(
         float(coarse), rel=1e-12
     )
-    # A different span choice is a genuinely different head-space update.
+    # A different span choice is a genuinely different head-space update: it drops
+    # every cross-span pair. Whether that raises or lowers the energy depends on the
+    # sign of those terms, so the claim under test is the masked value itself, not an
+    # ordering the quadratic form does not guarantee.
     partial_ids = grass_span_ids(((0, 3), (3, 6)), n, rate.device)
     partial = grass_update_energy(gram, partial_ids, rate)
-    assert 0.0 < float(partial) < float(coarse) + 1e-12
+    blocked = 0.0
+    for start, end in ((0, 3), (3, 6)):
+        piece = rate[start:end]
+        blocked += float(piece @ gram[start:end, start:end] @ piece)
+    assert float(partial) == pytest.approx(blocked, rel=1e-12)
+    # Dropping the cross-span pairs is the whole point: the masked value differs from
+    # the unmasked one unless those pairs happen to contribute nothing.
+    assert float(partial) != pytest.approx(float(coarse), rel=1e-6)
     cross = grass_update_energy(gram, partial_ids, rate, rate * 0.5)
     assert float(grass_cosine(cross, partial, partial * 0.25)) == pytest.approx(
         1.0, rel=1e-10
