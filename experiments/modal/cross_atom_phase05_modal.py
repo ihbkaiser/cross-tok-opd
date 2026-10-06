@@ -111,12 +111,22 @@ def ensure_teacher(tokenizer_only: bool) -> dict:
     The file list comes from the pinned revision rather than from a hard-coded list,
     because a repo does not necessarily contain every optional tokenizer file (the
     first attempt 404'd on ``special_tokens_map.json``).
+
+    Offline flags must be cleared *before* huggingface_hub is first imported:
+    ``transformers`` pulls it in, and it freezes ``HF_HUB_OFFLINE`` into a module
+    constant at import time, so setting the variable later has no effect.
     """
-    teacher = Path('/assets/teacher')
-    teacher.mkdir(parents=True, exist_ok=True)
     os.environ['HF_HOME'] = '/assets/hf'
     os.environ['HF_HUB_OFFLINE'] = '0'
+    os.environ['HF_DATASETS_OFFLINE'] = '0'
+    os.environ['TRANSFORMERS_OFFLINE'] = '0'
+    teacher = Path('/assets/teacher')
+    teacher.mkdir(parents=True, exist_ok=True)
     from huggingface_hub import HfApi, hf_hub_download, snapshot_download
+    import huggingface_hub.constants as hf_constants
+
+    if getattr(hf_constants, 'HF_HUB_OFFLINE', False):
+        hf_constants.HF_HUB_OFFLINE = False
 
     available = sorted(HfApi().list_repo_files(TEACHER_REPO, revision=TEACHER_REVISION))
     tokenizer_files = [name for name in available if name in TEACHER_TOKENIZER_FILES]
@@ -206,6 +216,11 @@ def tokenizer_tests(commit: str):
               volumes={'/assets': assets, STAGED_MOUNT: staged, '/runs': outputs})
 def cross_tokenizer_probe(commit: str):
     """Identity vs historical Atomic on the real Gemma<->Qwen tokenizer mismatch."""
+    # Before any import that pulls in huggingface_hub: it caches the offline flags.
+    os.environ['HF_HOME'] = '/assets/hf'
+    os.environ['HF_HUB_OFFLINE'] = '0'
+    os.environ['HF_DATASETS_OFFLINE'] = '0'
+    os.environ['TRANSFORMERS_OFFLINE'] = '0'
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
