@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk"}
 limit = int(limit)
 assert 0 <= limit <= 312
 
@@ -88,6 +88,42 @@ opts.update(
     rollout_attention_backend=os.environ.get("MP_ROLLOUT_ATTENTION_BACKEND", ""),
     rollout_disable_radix_cache=os.environ.get("MP_ROLLOUT_DISABLE_RADIX_CACHE", "0") == "1",
 )
+
+# GRASS-Chunk reads the chunk from upstream alignment or from a fixed run; the
+# dataclass default is the native 'xtoken' source, which fails closed without an
+# audited projection. A run that cannot name its chunk source would therefore
+# refuse to start for a reason that looks like a bug, so the choice is explicit
+# here and echoed to the log rather than left to a default.
+if mode == "grass_chunk":
+    opts.update(
+        mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "run"),
+        mp_opd_grass_chunk_run_length=int(os.environ.get("MP_GRASS_CHUNK_RUN_LENGTH", "2")),
+        mp_opd_grass_chunk_straddle=os.environ.get("MP_GRASS_CHUNK_STRADDLE", "singleton"),
+        mp_opd_grass_chunk_shadow=os.environ.get("MP_GRASS_CHUNK_SHADOW", "0") == "1",
+    )
+    if opts["mp_opd_grass_chunk_source"] == "xtoken":
+        projection = os.environ.get("MP_XTOKEN_PROJECTION_PATH")
+        expected = os.environ.get("MP_XTOKEN_PROJECTION_SHA256")
+        if not projection or not expected:
+            raise ValueError(
+                "MP_GRASS_CHUNK_SOURCE=xtoken needs MP_XTOKEN_PROJECTION_PATH and "
+                "MP_XTOKEN_PROJECTION_SHA256; set MP_GRASS_CHUNK_SOURCE=run for the "
+                "fixed-run baseline, which is not an alignment chunk"
+            )
+        if hashlib.sha256(Path(projection).read_bytes()).hexdigest() != expected:
+            raise ValueError("MP_XTOKEN_PROJECTION_SHA256 does not match the file on disk")
+        opts.update(xtoken_projection_path=projection, xtoken_projection_sha256=expected)
+    print(
+        "GRASS_CHUNK_SOURCE="
+        + opts["mp_opd_grass_chunk_source"]
+        + " run_length="
+        + str(opts["mp_opd_grass_chunk_run_length"])
+        + " straddle="
+        + opts["mp_opd_grass_chunk_straddle"]
+        + " shadow="
+        + str(opts["mp_opd_grass_chunk_shadow"]),
+        flush=True,
+    )
 
 if os.environ.get("MP_OFFLOAD_ADAM_MOMENTS", "0") not in {"0", "1"}:
     raise ValueError("MP_OFFLOAD_ADAM_MOMENTS must be 0 or 1")
