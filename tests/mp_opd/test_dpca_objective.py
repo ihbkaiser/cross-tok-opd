@@ -177,4 +177,6 @@ def test_counts_that_do_not_cover_the_prior_fail_closed():
 
 def test_mismatched_shapes_fail_closed():
     with pytest.raises(ValueError):
-        dpca_target_log_probs(torch.zeros(4), torch.zeros(5), torch.ones(4), torch.zeros(4))
+        dpca_atom_advantages(
+            torch.zeros(4), torch.zeros(5), torch.tensor([1, 1, 1, 1]), torch.zeros(4), None
+        )

@@ -104,9 +104,16 @@ def dpca_atom_advantages(
     safe_prior_chunk = torch.where(degenerate, torch.ones_like(prior_chunk), prior_chunk)
     ratio = teacher_chunk / safe_prior_chunk
 
-    scaled = torch.repeat_interleave(ratio * prior_log_probs, counts)
-    uniform = torch.repeat_interleave(teacher_chunk / counts.clamp_min(1).float(), counts)
-    target = torch.where(torch.repeat_interleave(degenerate, counts), uniform, scaled)
+    # The ratio must be expanded to token resolution BEFORE it is combined with
+    # prior_log_probs. Multiplying a per-atom vector by a per-token vector
+    # broadcasts instead of failing: it errors when the atom count differs from
+    # the token count, and silently produces an atom-count-times-too-long tensor
+    # when there is exactly one atom.
+    per_token_ratio = torch.repeat_interleave(ratio, counts)
+    uniform_share = torch.repeat_interleave(teacher_chunk / counts.clamp_min(1).float(), counts)
+    target = torch.where(
+        torch.repeat_interleave(degenerate, counts), uniform_share, per_token_ratio * prior_log_probs
+    )
 
     advantages = target - prior_log_probs
     if adv_clamp is not None:
