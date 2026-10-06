@@ -372,11 +372,18 @@ def train_smoke(commit: str, source: str, geometry: str, updates: int):
 
 @app.local_entrypoint()
 def main(updates: int = UPDATES, sources: str = ','.join(SOURCES), geometry: str = GEOMETRY):
+    # core.autocrlf=true is forced because this repository has no .gitattributes:
+    # the tree was checked out with CRLF by a Windows git whose *global* config sets
+    # it, so a git run under a different HOME (WSL) sees every file as modified and
+    # the gate below would refuse to launch on 531 phantom diffs. Forcing it makes
+    # the check mean the same thing from either host.
+    git = ['git', '-c', 'core.autocrlf=true']
     dirty = subprocess.check_output(
-        ['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip()
+        git + ['status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip()
     if dirty:
-        raise RuntimeError('Commit tracked changes first')
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        raise RuntimeError('Commit tracked changes first:\n' + dirty[:2000])
+    commit = subprocess.check_output(
+        git + ['rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     print('SMOKE_SOURCE_COMMIT=' + commit, flush=True)
     unit_tests.remote(commit)
     results = []
