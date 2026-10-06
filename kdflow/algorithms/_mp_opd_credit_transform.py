@@ -630,6 +630,11 @@ class CreditTransformSpec:
     parameters: Mapping[str, float]
     transform: CreditTransform
 
+    def __call__(
+        self, batch: AtomCreditBatch, *, training: bool = False
+    ) -> CreditTransformOutput:
+        return self.transform(batch, training=training)
+
     def invocation_record(self) -> dict[str, Any]:
         return {
             "credit_transform": self.name,

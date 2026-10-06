@@ -579,10 +579,18 @@ def test_batch_validation_is_fail_closed():
 
 
 def test_factory_covers_every_registered_choice_and_satisfies_the_protocol():
+    rate = draw(8, seed=73)
     for name in CREDIT_TRANSFORM_CHOICES:
         spec = build_credit_transform(name, lam=0.25, horizon=3, shuffle_seed=5)
         assert spec.name == name
         assert isinstance(spec.transform, CreditTransform)
+        # The resolved spec is itself callable, so callers cannot confuse the two.
+        assert isinstance(spec, CreditTransform)
+        batch = batch_of(rate.tolist(), advantage=(rate - rate.mean()).tolist())
+        assert torch.allclose(
+            spec(batch, training=True).effective_credit,
+            spec.transform(batch, training=True).effective_credit,
+        )
         record = spec.invocation_record()
         assert record["credit_transform"] == name
         assert record["credit_transform_code"] == spec.code
