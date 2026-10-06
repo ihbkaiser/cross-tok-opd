@@ -146,6 +146,13 @@ def main(argv: list[str] | None = None) -> int:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    # ``kdflow.algorithms.__init__`` imports every algorithm module unless this flag is
+    # set, and ``xtoken.py`` needs ``xtoken_upstream_token_aligner``, which is vendored
+    # only for the Modal images. The unit tests get this from ``tests/mp_opd/conftest.py``
+    #; a script run does not. Set it the same way ``experiments/mp_opd/real_oracle.py``
+    # and ``toy_oracle.py`` do, before the first ``kdflow`` import.
+    os.environ.setdefault('KDFLOW_LIGHTWEIGHT_ALGORITHM_IMPORT', '1')
+
     from kdflow.algorithms._mp_opd_atoms import SimCTAtomizer
     from kdflow.algorithms._mp_opd_credit import build_atom_credits, hard_partition_loss
     from kdflow.algorithms._mp_opd_credit_transform import (
