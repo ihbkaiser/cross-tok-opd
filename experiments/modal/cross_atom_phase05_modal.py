@@ -42,6 +42,11 @@ RUN = 'cross-atom-phase05-20261006-r1'
 STAGED_VOLUME = 'simct-qwen7b-gemma2-assets-20260915'
 STAGED_MOUNT = '/staged'
 STUDENT_DIR = STAGED_MOUNT + '/student'
+# The staged student is the public base, so the campaign SFT checkpoint (and, for
+# Phase 1, the mid/step312 training checkpoints) has to be pointed at explicitly once
+# it is reachable. Everything below resolves through this override rather than
+# hard-coding the staged path, so swapping in the real checkpoint is one argument.
+STUDENT_OVERRIDE = ''
 TEACHER_REPO = 'Qwen/Qwen2.5-7B-Instruct'
 # Revision pinned by the campaign's own model-manifest.json, so the teacher is the
 # same weights the campaign used rather than whatever main resolves to today.
@@ -147,6 +152,12 @@ def ensure_teacher(tokenizer_only: bool) -> dict:
             'weight_files': weights}
 
 
+def resolve_student_dir(override: str) -> str:
+    """Where the student weights come from: the caller's path, or the staged base."""
+    chosen = (override or STUDENT_OVERRIDE or '').strip()
+    return chosen or STUDENT_DIR
+
+
 def file_digest(path: Path, chunk: int = 1 << 20) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as handle:
@@ -158,8 +169,8 @@ def file_digest(path: Path, chunk: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
-def student_lineage() -> dict:
-    """Provenance for the staged student, including the campaign's own label for it."""
+def student_lineage(student_dir: str) -> dict:
+    """Provenance for the student, including the campaign's own label for it."""
     manifest_path = Path(STAGED_MOUNT) / 'model-manifest.json'
     declared = {}
     if manifest_path.is_file():
@@ -172,7 +183,7 @@ def student_lineage() -> dict:
             'campaign_manifest_student_lineage': manifest.get('student_lineage'),
             'campaign_manifest_image': manifest.get('image'),
         }
-    student = Path(STUDENT_DIR)
+    student = Path(student_dir)
     local = {}
     for name in ('config.json', 'model.safetensors.index.json', 'tokenizer.model',
                  'tokenizer.json', 'tokenizer_config.json'):
@@ -182,18 +193,21 @@ def student_lineage() -> dict:
                            'sha256': file_digest(candidate)}
     total = sum(p.stat().st_size for p in student.glob('*.safetensors'))
     local['safetensors_total_bytes'] = total
-    return {'declared': declared, 'student_dir': STUDENT_DIR, 'staged_files': local}
+    return {'declared': declared, 'student_dir': student_dir, 'staged_files': local,
+            'is_staged_public_base': os.path.realpath(student_dir)
+            == os.path.realpath(STUDENT_DIR)}
 
 
 @app.function(image=image, cpu=8, memory=32768, timeout=2400,
               volumes={'/assets': assets, STAGED_MOUNT: staged, '/runs': outputs})
-def tokenizer_tests(commit: str):
+def tokenizer_tests(commit: str, student_dir: str = ''):
     """Cross-tokenizer assertions that need no weights: tokenizers plus real text."""
     root = Path('/runs')
     root.mkdir(exist_ok=True)
+    resolved = resolve_student_dir(student_dir)
     ensure_teacher(tokenizer_only=True)
     e = env(online=False)
-    e['CA_STUDENT_DIR'] = STUDENT_DIR
+    e['CA_STUDENT_DIR'] = resolved
     e['CA_TEACHER_DIR'] = '/assets/teacher'
     command = [PYTHON, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
                'tests/mp_opd/test_cross_atom_phase05.py',
@@ -214,7 +228,7 @@ def tokenizer_tests(commit: str):
 @app.function(image=image, gpu='B200', cpu=16, memory=131072, timeout=3600, retries=0,
               max_containers=1,
               volumes={'/assets': assets, STAGED_MOUNT: staged, '/runs': outputs})
-def cross_tokenizer_probe(commit: str):
+def cross_tokenizer_probe(commit: str, student_dir: str = ''):
     """Identity vs historical Atomic on the real Gemma<->Qwen tokenizer mismatch."""
     # Before any import that pulls in huggingface_hub: it caches the offline flags.
     os.environ['HF_HOME'] = '/assets/hf'
@@ -233,17 +247,18 @@ def cross_tokenizer_probe(commit: str):
 
     root = Path('/runs')
     root.mkdir(exist_ok=True)
+    resolved_student = resolve_student_dir(student_dir)
     teacher_files = ensure_teacher(tokenizer_only=False)
     corpus = json.loads(Path('/opt/overlay/experiments/mp_opd/cross_atom_phase05_texts.json').read_text())
 
-    lineage = student_lineage()
+    lineage = student_lineage(resolved_student)
     print('PHASE05_LINEAGE=' + json.dumps(lineage), flush=True)
 
     device = 'cuda'
-    student_tok = AutoTokenizer.from_pretrained(STUDENT_DIR)
+    student_tok = AutoTokenizer.from_pretrained(resolved_student)
     teacher_tok = AutoTokenizer.from_pretrained('/assets/teacher')
     student = AutoModelForCausalLM.from_pretrained(
-        STUDENT_DIR, torch_dtype=torch.bfloat16, attn_implementation='sdpa'
+        resolved_student, torch_dtype=torch.bfloat16, attn_implementation='sdpa'
     ).to(device).eval()
     teacher = AutoModelForCausalLM.from_pretrained(
         '/assets/teacher', torch_dtype=torch.bfloat16, attn_implementation='sdpa'
@@ -425,11 +440,12 @@ def cross_tokenizer_probe(commit: str):
             'identity_relative_tolerance': IDENTITY_RELATIVE_TOLERANCE,
         },
         'pair': {
-            'student_dir': STUDENT_DIR,
+            'student_dir': resolved_student,
+            'student_is_staged_public_base': lineage['is_staged_public_base'],
             'student_repo_declared': lineage['declared'].get('campaign_manifest_student_repo'),
             'student_revision_declared': lineage['declared'].get('campaign_manifest_student_revision'),
             'student_lineage_declared': lineage['declared'].get('campaign_manifest_student_lineage'),
-            'student_is_campaign_checkpoint': False,
+            'student_is_campaign_checkpoint': not lineage['is_staged_public_base'],
             'teacher_repo': TEACHER_REPO,
             'teacher_revision': TEACHER_REVISION,
             'teacher_is_campaign_teacher': True,
@@ -456,7 +472,7 @@ def cross_tokenizer_probe(commit: str):
 
 
 @app.local_entrypoint()
-def main(phases: str = 'tokens,probe'):
+def main(phases: str = 'tokens,probe', student_dir: str = ''):
     git = ['git', '-c', 'core.autocrlf=true']
     dirty = subprocess.check_output(
         git + ['status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip()
@@ -464,14 +480,15 @@ def main(phases: str = 'tokens,probe'):
         raise RuntimeError('Commit tracked changes first:\n' + dirty)
     commit = subprocess.check_output(git + ['rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     print('PHASE05_SOURCE_COMMIT=' + commit, flush=True)
+    print('PHASE05_STUDENT_DIR=' + resolve_student_dir(student_dir), flush=True)
     selected = [item.strip() for item in phases.split(',') if item.strip()]
     unknown = [item for item in selected if item not in {'tokens', 'probe'}]
     if unknown:
         raise ValueError('unknown phases ' + ','.join(unknown))
     if 'tokens' in selected:
-        tokenizer_tests.remote(commit)
+        tokenizer_tests.remote(commit, student_dir)
     if 'probe' in selected:
-        result = cross_tokenizer_probe.remote(commit)
+        result = cross_tokenizer_probe.remote(commit, student_dir)
         print('PHASE05_GATE=' + json.dumps({'gate': result['gate'],
                                             'checks': result['checks'],
                                             'w_distribution': result['w_distribution']}),
