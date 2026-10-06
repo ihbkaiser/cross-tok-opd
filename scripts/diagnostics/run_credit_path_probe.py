@@ -114,7 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--prompt-column', default=None,
                         help='prompt column name; auto-detected when omitted')
     parser.add_argument('--launch-config', default=None,
-                        help='campaign launch-config.json, read for sampling parity (--prompts)')
+                        help='campaign launch-config.json, read for sampling parity (--prompts); '
+                             'when given it wins over --temperature/--top-p/--max-context-tokens')
+    parser.add_argument('--temperature', type=float, default=0.6)
+    parser.add_argument('--top-p', type=float, default=0.95)
+    parser.add_argument('--top-k', type=int, default=0)
+    parser.add_argument('--max-context-tokens', type=int, default=4096)
     parser.add_argument('--response-tokens', type=int, default=256,
                         help='tokens to sample per prompt when --prompts is used (0 = no sampling)')
     parser.add_argument('--seed', type=int, default=43)
@@ -161,10 +166,22 @@ def main(argv: list[str] | None = None) -> int:
 
     student_tok = AutoTokenizer.from_pretrained(args.student_tokenizer or str(student_path))
     teacher_tok = AutoTokenizer.from_pretrained(args.teacher_tokenizer or str(teacher_path))
-    student = AutoModelForCausalLM.from_pretrained(
-        str(student_path), torch_dtype=dtype, attn_implementation=args.attn).to(args.device).eval()
-    teacher = AutoModelForCausalLM.from_pretrained(
-        str(teacher_path), torch_dtype=dtype, attn_implementation=args.attn).to(args.device).eval()
+
+    def load_model(path: str):
+        """``torch_dtype`` is the 4.x name and was renamed to ``dtype`` in 5.x.
+
+        The 4.x name is tried first because on some versions ``dtype`` is swallowed
+        as a config kwarg instead of raising, which would silently load fp32.
+        """
+        try:
+            return AutoModelForCausalLM.from_pretrained(
+                path, torch_dtype=dtype, attn_implementation=args.attn)
+        except TypeError:
+            return AutoModelForCausalLM.from_pretrained(
+                path, dtype=dtype, attn_implementation=args.attn)
+
+    student = load_model(str(student_path)).to(args.device).eval()
+    teacher = load_model(str(teacher_path)).to(args.device).eval()
     atomizer = SimCTAtomizer(student_tok, teacher_tok)
 
     if args.texts:
@@ -183,11 +200,16 @@ def main(argv: list[str] | None = None) -> int:
         campaign = (sampling_config_from_launch_config(
             args.launch_config, stop_token_ids=() if eos is None else (eos,))
             if args.launch_config else SamplingConfig())
-        config = SamplingConfig(temperature=campaign.temperature, top_p=campaign.top_p,
-                                top_k=campaign.top_k, max_new_tokens=args.response_tokens,
-                                stop_strings=campaign.stop_strings,
-                                stop_token_ids=campaign.stop_token_ids,
-                                max_context_tokens=campaign.max_context_tokens)
+        config = SamplingConfig(
+            temperature=campaign.temperature if args.launch_config else args.temperature,
+            top_p=campaign.top_p if args.launch_config else args.top_p,
+            top_k=campaign.top_k if args.launch_config else args.top_k,
+            max_new_tokens=args.response_tokens,
+            stop_strings=campaign.stop_strings,
+            stop_token_ids=campaign.stop_token_ids,
+            max_context_tokens=(campaign.max_context_tokens if args.launch_config
+                                else args.max_context_tokens),
+        )
         sampler = HFFrozenPolicySampler(student, student_tok, config,
                                         student_revision=git_revision(root), device=args.device)
         samples = []
