@@ -930,6 +930,81 @@ class MetaPartitionedOPD:
         )
         return metrics
 
+    def _dpca_loss(self, credits, atoms, micro_batch, sample_index: int):
+        """DPCA: semantic-prior advantage on the rollout behaviour likelihood ratio.
+
+        Unlike every other mode this does not consume a partition. The gradient is
+        ``sum_i A_i * d(-log p(sampled_i))/d(theta)``, so the differentiable input
+        is ``credits.student_token_nll`` and not ``credits.current_nll``.
+
+        ``L_T`` and ``L_S`` are already per-atom sums inside ``AtomCreditTensors``
+        (``teacher_log_score`` / ``student_old_log_score``); they are expanded back
+        to token resolution because the advantage is per token.
+        """
+        from ._mp_opd_dpca import DPCAConfig, dpca_advantages, dpca_policy_loss, dpca_target_log_probs
+
+        kd = self.args.kd
+        config = DPCAConfig(
+            clip_ratio_low=float(kd.mp_opd_dpca_clip_ratio_low),
+            clip_ratio_high=float(kd.mp_opd_dpca_clip_ratio_high),
+            clip_ratio_c=float(kd.mp_opd_dpca_clip_ratio_c),
+            adv_clamp=float(kd.mp_opd_dpca_adv_clamp),
+        )
+
+        behaviour = micro_batch.get("stu_behavior_log_probs")
+        if behaviour is None:
+            if kd.mp_opd_dpca_require_behavior:
+                raise RuntimeError(
+                    "mp_opd dpca needs the rollout engine's behaviour log-probabilities as the "
+                    "denominator of its likelihood ratio, but stu_behavior_log_probs is absent. "
+                    "That happens whenever rollout.exact_token_trajectory is False. DPCA without "
+                    "the ratio is not DPCA, so this fails closed instead of assuming ratio == 1."
+                )
+            raise RuntimeError(
+                "mp_opd dpca has no behaviour log-probabilities and "
+                "mp_opd_dpca_require_behavior is False, which leaves no loss to compute"
+            )
+
+        loss_mask = micro_batch["stu_loss_mask"][sample_index]
+        prior = behaviour[sample_index][loss_mask]
+        if prior.numel() != credits.student_token_nll.numel():
+            raise ValueError(
+                f"behaviour log-prob cardinality {prior.numel()} does not match the "
+                f"{credits.student_token_nll.numel()} student loss tokens"
+            )
+        prior = prior.detach()
+        if not torch.isfinite(prior).all():
+            raise RuntimeError(
+                "mp_opd dpca received non-finite behaviour log-probabilities inside the loss "
+                "mask; the engine did not report logprobs for the whole generated span"
+            )
+        prior = prior.float()
+
+        counts = credits.weight.long()
+        if int(counts.sum().item()) != prior.numel():
+            raise ValueError("atom student token counts do not cover the loss-masked response")
+        teacher_chunk = torch.repeat_interleave(credits.teacher_log_score, counts).float()
+        per_token_weight = torch.ones_like(prior)
+
+        target = dpca_target_log_probs(prior, teacher_chunk, per_token_weight, teacher_chunk)
+        advantages = dpca_advantages(target, prior, config.adv_clamp)
+
+        loss, metrics = dpca_policy_loss(
+            prior,
+            -credits.student_token_nll,
+            advantages,
+            torch.ones_like(prior),
+            config,
+        )
+        metrics = {key: torch.as_tensor(value) for key, value in metrics.items()}
+        metrics["mp_opd_dpca_advantage_mean"] = advantages.detach().mean()
+        metrics["mp_opd_dpca_advantage_abs_max"] = advantages.detach().abs().max()
+        metrics["mp_opd_dpca_advantage_clamped_frac"] = (
+            (advantages.detach().abs() >= config.adv_clamp).float().mean()
+        )
+        metrics["mp_opd_dpca_atoms"] = torch.as_tensor(float(len(atoms)))
+        return loss, metrics
+
     def _partition_loss(
         self,
         credits,
@@ -1091,6 +1166,9 @@ class MetaPartitionedOPD:
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
         )
+        if self.mode == "dpca":
+            return self._dpca_loss(credits, atoms, micro_batch, sample_index)
+
         if self.mode == "oracle":
             supplied = micro_batch.get("mp_opd_atom_directional_scores")
             if supplied is None:

@@ -196,7 +196,7 @@ class DistillationArguments:
     mp_opd_mode: str = field(
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
-                              "kernel", "grass", "grass_chunk"]},
+                              "kernel", "grass", "grass_chunk", "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -217,6 +217,44 @@ class DistillationArguments:
             "help": "GBV-Span atom sensitivity: token_count uses q_i=w_i (the weighted "
             "Potts special case, no extra memory); exact_logit reads q_i from the "
             "selected-logit softmax.",
+        },
+    )
+    # DPCA: per-atom policy gradient on the teacher-minus-student advantage, not a
+    # partition loss. Defaults are the paper's on-policy distillation values
+    # (dpca_paper8b.json), so the objective is qualified before it is tuned.
+    mp_opd_dpca_clip_ratio_low: float = field(
+        default=0.2,
+        metadata={"help": "DPCA lower clip ratio on the student/behavior likelihood ratio."},
+    )
+    mp_opd_dpca_clip_ratio_high: float = field(
+        default=0.28,
+        metadata={"help": "DPCA upper clip ratio on the student/behavior likelihood ratio."},
+    )
+    mp_opd_dpca_clip_ratio_c: float = field(
+        default=10.0,
+        metadata={
+            "help": "DPCA dual-clip threshold: the likelihood ratio is clipped to "
+            "[-c, c] before the asymmetric policy-gradient clip. Paper value is 10."
+        },
+    )
+    mp_opd_dpca_adv_clamp: float = field(
+        default=10.0,
+        metadata={"help": "Symmetric clamp on the per-atom advantage (paper loss_max_clamp)."},
+    )
+    mp_opd_dpca_agg: str = field(
+        default="token-mean",
+        metadata={
+            "choices": ["token-mean"],
+            "help": "DPCA advantage aggregation. Only the paper's token-mean is admitted; "
+            "other verl aggregations are not qualified and must not be selected silently.",
+        },
+    )
+    mp_opd_dpca_require_behavior: bool = field(
+        default=True,
+        metadata={
+            "help": "Fail closed when the rollout engine did not report behavior "
+            "log-probabilities (exact_token_trajectory=False), instead of silently "
+            "computing a DPCA loss whose likelihood ratio is missing."
         },
     )
     # GRASS: gradient-risk adaptive span shrinkage. Unlike GBV there is no
@@ -395,7 +433,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -416,6 +454,24 @@ class DistillationArguments:
                 )
             if self.mp_opd_gbv_beta < 0 or not math.isfinite(self.mp_opd_gbv_beta):
                 raise ValueError("mp_opd_gbv_beta must be finite and nonnegative")
+            if self.mp_opd_mode == "dpca":
+                if not math.isfinite(self.mp_opd_dpca_clip_ratio_low) or self.mp_opd_dpca_clip_ratio_low <= 0:
+                    raise ValueError("mp_opd_dpca_clip_ratio_low must be finite and positive")
+                if not math.isfinite(self.mp_opd_dpca_clip_ratio_high) or self.mp_opd_dpca_clip_ratio_high <= 0:
+                    raise ValueError("mp_opd_dpca_clip_ratio_high must be finite and positive")
+                if self.mp_opd_dpca_clip_ratio_high < self.mp_opd_dpca_clip_ratio_low:
+                    raise ValueError(
+                        "mp_opd_dpca_clip_ratio_high must be >= mp_opd_dpca_clip_ratio_low"
+                    )
+                if not math.isfinite(self.mp_opd_dpca_clip_ratio_c) or self.mp_opd_dpca_clip_ratio_c < 1.0:
+                    raise ValueError("mp_opd_dpca_clip_ratio_c must be finite and >= 1")
+                if not math.isfinite(self.mp_opd_dpca_adv_clamp) or self.mp_opd_dpca_adv_clamp <= 0:
+                    raise ValueError("mp_opd_dpca_adv_clamp must be finite and positive")
+                if self.mp_opd_dpca_agg != "token-mean":
+                    raise ValueError(
+                        f"unsupported mp_opd_dpca_agg: {self.mp_opd_dpca_agg!r}; only the "
+                        "qualified paper aggregation 'token-mean' is admitted"
+                    )
             if self.mp_opd_grass_geometry not in {"exact_head", "diag"}:
                 raise ValueError(
                     f"unsupported mp_opd_grass_geometry: {self.mp_opd_grass_geometry}"
