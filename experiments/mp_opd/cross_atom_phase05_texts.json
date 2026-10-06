@@ -1,0 +1,120 @@
+{
+  "note": "Fixed, hand-written text set for the Phase 0.5 cross-tokenizer identity probe. It is NOT policy output: the rollout engine is blocked (SGLang 0.5.11 zero sampled logprob), and phase 0.5 is an engineering equivalence test, so fixed text is sufficient and is labelled as such in the report. Structurally diverse on purpose: arithmetic reasoning, symbolic math, Python code with indentation and punctuation, longer prose, and multi-byte Unicode.",
+  "version": 1,
+  "items": [
+    {
+      "id": "gsm8k-01",
+      "task": "gsm8k",
+      "prompt": "Natalia sold clips to 48 friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+      "response": "In April Natalia sold 48 clips. In May she sold half as many, which is 48 / 2 = 24 clips. Altogether she sold 48 + 24 = 72 clips.\n\nThe answer is 72."
+    },
+    {
+      "id": "gsm8k-02",
+      "task": "gsm8k",
+      "prompt": "A tank can be filled by pipe A in 6 hours and by pipe B in 12 hours. If both pipes are opened together, how long will it take to fill the tank?",
+      "response": "Pipe A fills 1/6 of the tank per hour, and pipe B fills 1/12 per hour. Together they fill 1/6 + 1/12 = 2/12 + 1/12 = 3/12 = 1/4 of the tank per hour. So the tank is full after 4 hours.\n\nThe answer is 4 hours."
+    },
+    {
+      "id": "gsm8k-03",
+      "task": "gsm8k",
+      "prompt": "A shop sells notebooks at 3 for $5. How much do 21 notebooks cost?",
+      "response": "21 notebooks is 21 / 3 = 7 groups of three. Each group costs $5, so the total is 7 * 5 = 35 dollars.\n\nThe answer is $35."
+    },
+    {
+      "id": "gsm8k-04",
+      "task": "gsm8k",
+      "prompt": "If 3x + 7 = 25, what is the value of x?",
+      "response": "Subtracting 7 from both sides gives 3x = 18. Dividing by 3 gives x = 6.\n\nThe answer is 6."
+    },
+    {
+      "id": "math500-01",
+      "task": "math500",
+      "prompt": "Simplify the expression (x^2 - 9)/(x - 3) for x != 3.",
+      "response": "The numerator factors as a difference of squares: x^2 - 9 = (x - 3)(x + 3). Cancelling the common factor (x - 3) leaves x + 3, valid for all x != 3.\n\n\\boxed{x + 3}"
+    },
+    {
+      "id": "math500-02",
+      "task": "math500",
+      "prompt": "Evaluate the definite integral of 2x from x = 0 to x = 3.",
+      "response": "The antiderivative of 2x is x^2. Evaluating from 0 to 3 gives 3^2 - 0^2 = 9.\n\n\\boxed{9}"
+    },
+    {
+      "id": "math500-03",
+      "task": "math500",
+      "prompt": "Find all real roots of the equation x^2 - 5x + 6 = 0.",
+      "response": "The quadratic factors as (x - 2)(x - 3) = 0, so the roots are x = 2 and x = 3.\n\n\\boxed{2, 3}"
+    },
+    {
+      "id": "math500-04",
+      "task": "math500",
+      "prompt": "What is the sum of the first 20 positive integers?",
+      "response": "Using n(n+1)/2 with n = 20 gives 20 * 21 / 2 = 210.\n\n\\boxed{210}"
+    },
+    {
+      "id": "mbpp-01",
+      "task": "mbpp",
+      "prompt": "Write a Python function that returns the greatest common divisor of two integers.",
+      "response": "```python\ndef gcd(a, b):\n    while b:\n        a, b = b, a % b\n    return abs(a)\n```\n\nThis uses the Euclidean algorithm and returns a non-negative result."
+    },
+    {
+      "id": "mbpp-02",
+      "task": "mbpp",
+      "prompt": "Write a Python function that reverses the words in a sentence.",
+      "response": "```python\ndef reverse_words(sentence):\n    return \" \".join(reversed(sentence.split()))\n```\n\nSplitting on whitespace and rejoining in reverse order preserves the individual words."
+    },
+    {
+      "id": "mbpp-03",
+      "task": "mbpp",
+      "prompt": "Write a Python function that counts the vowels in a string.",
+      "response": "```python\ndef count_vowels(text):\n    vowels = set(\"aeiouAEIOU\")\n    return sum(1 for ch in text if ch in vowels)\n```\n\nA set membership test keeps the loop O(1) per character."
+    },
+    {
+      "id": "lcb-01",
+      "task": "lcb_v6_raw",
+      "prompt": "Implement a function that, given a list of integers, returns the length of the longest strictly increasing subsequence.",
+      "response": "```python\nimport bisect\n\n\ndef longest_increasing_subsequence(nums):\n    tails = []\n    for value in nums:\n        position = bisect.bisect_left(tails, value)\n        if position == len(tails):\n            tails.append(value)\n        else:\n            tails[position] = value\n    return len(tails)\n```\n\n`tails[k]` holds the smallest possible tail of an increasing subsequence of length `k + 1`, so the answer is `len(tails)` and the running time is O(n log n)."
+    },
+    {
+      "id": "lcb-02",
+      "task": "lcb_v6_raw",
+      "prompt": "Implement a stack with push, pop, and a constant-time minimum query.",
+      "response": "```python\nclass MinStack:\n    def __init__(self):\n        self._data = []\n        self._mins = []\n\n    def push(self, value):\n        self._data.append(value)\n        current = self._mins[-1] if self._mins else value\n        self._mins.append(min(value, current))\n\n    def pop(self):\n        self._mins.pop()\n        return self._data.pop()\n\n    def minimum(self):\n        return self._mins[-1]\n```\n\nThe auxiliary stack stores the running minimum, so `minimum()` is O(1) and every operation stays amortised O(1)."
+    },
+    {
+      "id": "nl-01",
+      "task": "natural",
+      "prompt": "Explain in one sentence why the sky appears blue.",
+      "response": "Air molecules scatter short wavelengths far more strongly than long ones, so blue light from the Sun reaches your eyes from every direction of the sky."
+    },
+    {
+      "id": "nl-02",
+      "task": "natural",
+      "prompt": "Name two differences between a list and a tuple in Python.",
+      "response": "A list is mutable while a tuple is immutable, and a tuple can therefore be used as a dictionary key while a list cannot."
+    },
+    {
+      "id": "nl-03",
+      "task": "natural",
+      "prompt": "What does the word \"idempotent\" mean in software engineering?",
+      "response": "An operation is idempotent when applying it more than once has the same effect as applying it once, which is why retrying an idempotent request is safe."
+    },
+    {
+      "id": "unicode-01",
+      "task": "unicode",
+      "prompt": "Compute the area of a circle of radius 3, using the usual symbol for pi.",
+      "response": "The area is \u03c0 \u00b7 r\u00b2 = \u03c0 \u00b7 9 \u2248 28.2743338823 square units."
+    },
+    {
+      "id": "unicode-02",
+      "task": "unicode",
+      "prompt": "D\u1ecbch c\u00e2u sau sang ti\u1ebfng Anh: \"H\u00f4m nay tr\u1eddi \u0111\u1eb9p v\u00e0 ch\u00fang t\u00f4i \u0111i d\u1ea1o.\"",
+      "response": "The sentence translates to: \"Today the weather is beautiful and we went for a walk.\" \u2014 ch\u00fa \u00fd r\u1eb1ng th\u00ec qu\u00e1 kh\u1ee9 \u0111\u01a1n \u0111\u01b0\u1ee3c d\u00f9ng cho c\u1ea3 hai m\u1ec7nh \u0111\u1ec1."
+    },
+    {
+      "id": "unicode-03",
+      "task": "unicode",
+      "prompt": "List the first few digits of Euler's number and mark the approximation.",
+      "response": "e \u2248 2.718281828\u2026, and a common rational approximation is 2721/1001 \u2248 2.7182817. Note \u2260 2.718 exactly."
+    }
+  ]
+}
