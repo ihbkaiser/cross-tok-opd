@@ -141,6 +141,9 @@ boundary must not call MP-OPD.
   degrees of freedom — and the exact minimum-cost full-cover partition is found by
   the same `O(nL)` dynamic program as `oracle`. No extra parameters, no auxiliary
   checkpoint. See the section below.
+- `kernel`: **not a partition.** It leaves the partition at length one and re-weights
+  the atomic credits with a cross-atom operator `A = K r`. `mp_opd_mode=atomic` is the
+  same path with `K = I`. See the cross-atom credit section below.
 
 No mode splits a SimCT atom.
 
@@ -188,6 +191,90 @@ geometry and the dynamic program. The token-noise covariance model, the claim th
 the logit-space optimum is also a parameter-space optimum, and any claim that GBV
 reduces training variance or beats fixed span 3 are **not** established by this
 implementation and must not be reported as results.
+
+## Cross-atom credit operators (`mp_opd_mode=kernel`)
+
+GBV replaced the atomic credit by a pooled one (`A = P r`). This mode keeps the atomic
+scalar interface intact and instead re-weights it with an operator that pulls credit
+*across* atoms:
+
+```text
+L_K = sum_i stopgrad(A_i) * NLL_i ,     A_i = (K r)_i
+```
+
+`mp_opd_mode=atomic` is this same code path with `K = I`, so no special-case atomic loss
+remains. `b_i`, `w_i` and `r_i = b_i / w_i` are not redefined, and this mode selects no
+span, runs no dynamic program, and reads no gradient.
+
+### Two families, deliberately distinct
+
+`mix` — a normalized redistribution of a fixed credit mass. Boundary fallback to atomic
+is correct, and reachable-neighbour renormalization is allowed.
+
+| `mp_opd_credit_transform` | operator |
+|---|---|
+| `identity` | `A_i = r_i` (Atomic) |
+| `forward` | `(1-lam) r_i + lam r_{i+1}` |
+| `backward` | `(1-lam) r_i + lam r_{i-1}` — matched anti-causal control |
+| `shuffle` | `(1-lam) r_i + lam r_{pi(i)}`, `pi` a seeded bijection within the sequence |
+| `causal_kernel` | static kernel `sum_k lambda_k r_{i + s*k}`; `uniform` or `exponential`, `direction` forward/backward/symmetric |
+
+`future_return` — additive accumulation, **not implemented and not trained here**:
+`A_i = r_i + lam r_{i+1} + lam^2 r_{i+2} + ...` is not normalized, so a short sequence
+simply has fewer future terms. Do not call the normalized `causal_kernel` a future
+return: the two have different scale behaviour and need separate namespaces.
+
+### Mask and boundary rules
+
+- A masked atom is neither a source nor a destination: it keeps its own atomic credit,
+  and its neighbours fall back to atomic for that direction.
+- No operator transfers credit across a sequence boundary; reachability requires the
+  whole chain `i -> i+k` to stay inside one sequence and entirely on valid atoms.
+- A kernel window truncated by a boundary is renormalized by the weights actually
+  reachable, so boundary atoms fall back to atomic instead of shrinking toward zero.
+- Terminal handling is unchanged: the masked EOS stays outside every atom.
+- `symmetric` is the mean of the forward and backward kernels with identical weights,
+  so the three directions carry the same kernel mass and the comparison isolates
+  temporal direction rather than kernel mass.
+
+### Scale discipline
+
+Convex mixtures, permutation sources and normalized kernels are weighted means of the
+same atomic credits, so they preserve the credit mean and cannot inflate its RMS.
+`mp_opd_credit_scale_match=rms` rescales the additive `external` operator to the atomic
+RMS, so an apparent effect cannot come from a larger credit or gradient magnitude.
+
+### Knobs
+
+`mp_opd_credit_{transform,lambda,convex,horizon,kernel,decay,direction,shuffle_seed,alpha,scale_match}`,
+validated fail-closed in `kdflow/arguments/distillation_args.py`; `mp_opd_mode=atomic`
+rejects a non-identity transform rather than silently ignoring it.
+
+### Telemetry
+
+Fifteen `mp_opd_credit_*` fields (transform code, valid atom count, mean/std/rms of the
+atomic and the effective credit, correlation between them, mean absolute delta, transfer
+fraction, sign-flip fraction, neighbour product mean, neighbour sign agreement, neighbour
+pair count) plus the operator's own parameters. All values are finite by construction,
+including empty and zero-variance draws, because the trainer aborts on a non-finite
+metric.
+
+### Regression gate
+
+`MP_OPD_CREDIT_IDENTITY_CHECK=1` recomputes the historical pooled Atomic loss beside the
+identity-operator loss for every sample and raises when the relative drift exceeds
+`1e-5`, logging both the absolute and the relative drift.
+
+### Evidence boundary
+
+Phase 0 (identity equivalence on the credit path) and Phase 0.5 (the real Gemma<->Qwen
+tokenizer mismatch, where `w_i > 1` atoms actually occur) are closed; the artifacts are
+`CROSS_ATOM_CREDIT_STATUS.md` and `CROSS_ATOM_PHASE05_REPORT.md`. Operator loss
+magnitudes are **not** evidence that any operator is better: they differ because the
+operator attaches a different weight to the same `NLL`. Whether Atomic leaves useful
+future credit on the table, and whether direction matters, require the same-prefix branch
+probe and its gated follow-ups — none of which has run yet, and none of which may be
+reported as a result before it does.
 
 ## Semi-Markov dynamic program
 
