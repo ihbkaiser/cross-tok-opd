@@ -261,9 +261,20 @@ class GrassNoiseEstimator:
             state.get("initial_variance", self.initial_variance)
         )
 
-    def observe(self, rate: torch.Tensor, weight: torch.Tensor) -> dict[str, float]:
-        """Batch diagnostics of section 17.3 for one response, without updating."""
-        z = self._standardized_differences(rate, weight)
+    def observe(
+        self,
+        rate: torch.Tensor,
+        weight: torch.Tensor,
+        same_group: torch.Tensor | None = None,
+    ) -> dict[str, float]:
+        """Batch diagnostics of section 17.3 for one response, without updating.
+
+        ``same_group[i]`` marks the adjacency pair ``(i, i+1)`` as staying inside one
+        statistical group. GRASS-DP has no such grouping; GRASS-Chunk must exclude
+        every pair that crosses an alignment chunk boundary, because a chunk
+        boundary is exactly where the latent credit is allowed to jump.
+        """
+        z = self._standardized_differences(rate, weight, same_group)
         if z.numel() == 0:
             return {
                 "valid_pairs": 0.0,
@@ -281,14 +292,19 @@ class GrassNoiseEstimator:
             "z_abs_quantile": float(z.abs().quantile(0.99)),
         }
 
-    def update(self, rate: torch.Tensor, weight: torch.Tensor) -> dict[str, float]:
+    def update(
+        self,
+        rate: torch.Tensor,
+        weight: torch.Tensor,
+        same_group: torch.Tensor | None = None,
+    ) -> dict[str, float]:
         """Fold one response's adjacent differences into the running scale.
 
         Returns the batch-level diagnostics of section 17.3. A batch with too few
         valid adjacent pairs cannot identify a scale, so the previous estimate is
         retained instead of folding sampling noise into the EMA.
         """
-        diagnostics = self.observe(rate, weight)
+        diagnostics = self.observe(rate, weight, same_group)
         if int(diagnostics["valid_pairs"]) < self.min_adjacent_pairs:
             return diagnostics
         batch_variance = float(diagnostics["sigma_batch_variance"])
@@ -299,7 +315,11 @@ class GrassNoiseEstimator:
         return diagnostics
 
     @staticmethod
-    def _standardized_differences(rate: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    def _standardized_differences(
+        rate: torch.Tensor,
+        weight: torch.Tensor,
+        same_group: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         r = _as_vector("rate", rate).detach().to(torch.float64)
         w = _as_vector("weight", weight).detach().to(torch.float64)
         if r.numel() != w.numel() or r.numel() < 2:
@@ -308,6 +328,10 @@ class GrassNoiseEstimator:
             raise ValueError("rate and weight must be finite with positive weights")
         scale = (1.0 / w[:-1] + 1.0 / w[1:]).clamp_min(1e-300).sqrt()
         z = (r[1:] - r[:-1]) / scale
+        if same_group is not None:
+            if same_group.numel() != z.numel():
+                raise ValueError("same_group must mark one flag per adjacent pair")
+            z = z[same_group.detach().to(torch.bool)]
         return z[torch.isfinite(z)]
 
 

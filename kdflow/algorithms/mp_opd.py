@@ -56,6 +56,18 @@ from ._mp_opd_grass_span import (
     grass_update_energy,
     hard_pooled_credits,
 )
+from ._mp_opd_grass_chunk import (
+    atom_chunk_ids_from_tokens,
+    apply_chunk_shrinkage,
+    chunk_boundary_diagnostics,
+    chunk_gram_diagnostics,
+    chunk_head_gram,
+    chunk_partition,
+    chunk_shadow_metrics,
+    grass_chunk_metrics,
+    grass_chunk_tables,
+    run_chunk_assignment,
+)
 from ._mp_opd_grass_span import grass_cosine
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
@@ -63,6 +75,12 @@ from ._mp_opd_training_diagnostics import (
     logit_gradient_metrics,
     partition_metrics,
 )
+
+
+# Modes that shrink credit with the shared SURE geometry. GRASS-DP searches for
+# the partition; GRASS-Chunk takes it from the upstream alignment. Both need the
+# same logits, the same head-input hidden states and the same noise-scale state.
+_GRASS_MODES = frozenset({"grass", "grass_chunk"})
 
 
 def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
@@ -273,24 +291,48 @@ class MetaPartitionedOPD:
         # token-count proxy: it needs the logits *and* the hidden state that the
         # LM head actually consumes.
         self.grass_geometry = str(getattr(self.args.kd, "mp_opd_grass_geometry", "exact_head"))
-        if self.mode == "grass" and self.grass_geometry not in {"exact_head", "diag"}:
+        if self.mode in _GRASS_MODES and self.grass_geometry not in {"exact_head", "diag"}:
             raise ValueError(f"unsupported mp_opd_grass_geometry: {self.grass_geometry}")
         self.grass_eps_d = float(getattr(self.args.kd, "mp_opd_grass_eps_d", 0.0))
         self.grass_negative_tol_rel = float(
             getattr(self.args.kd, "mp_opd_grass_negative_tol_rel", 1e-6)
         )
         self.grass_shadow = bool(getattr(self.args.kd, "mp_opd_grass_shadow", False))
-        self.grass_needs_logits = self.mode == "grass"
-        # Both geometries need the head input: GRASS-Diag drops the off-diagonal
-        # *band*, but a multi-token atom's diagonal block still mixes its own
-        # tokens through h_t, so the hidden states are not optional there either.
-        self.grass_needs_hidden = self.mode == "grass"
+        # GRASS-Chunk shares the statistic with GRASS-DP and differs only in where
+        # the partition comes from, so it needs the same logits and the same head
+        # input hidden states, and the same noise-scale state.
+        self.grass_chunk_source = str(
+            getattr(self.args.kd, "mp_opd_grass_chunk_source", "xtoken")
+        )
+        self.grass_chunk_run_length = int(
+            getattr(self.args.kd, "mp_opd_grass_chunk_run_length", 2)
+        )
+        self.grass_chunk_straddle = str(
+            getattr(self.args.kd, "mp_opd_grass_chunk_straddle", "singleton")
+        )
+        self.grass_chunk_shadow = bool(
+            getattr(self.args.kd, "mp_opd_grass_chunk_shadow", False)
+        )
+        # The native synchronized chunk of section 2.1 is produced by the audited
+        # cross-tokenizer aligner, the same one kd_algorithm='xtoken' uses. It is
+        # built once here, and the projection is re-verified by digest here rather
+        # than trusted, because a run whose chunks came from a different
+        # projection is not the run the recipe names.
+        self.grass_aligner = (
+            self._build_grass_aligner() if self.grass_chunk_source == "xtoken" else None
+        )
+        self._grass_modes = _GRASS_MODES
+        self.grass_needs_logits = self.mode in _GRASS_MODES
+        # Both geometries need the head input: the diag ablation drops the
+        # off-diagonal band, but a multi-token atom's diagonal block still mixes
+        # its own tokens through h_t, so the hidden states are not optional there.
+        self.grass_needs_hidden = self.mode in _GRASS_MODES
         self.grass_noise = (
             GrassNoiseEstimator(
                 rho=float(getattr(self.args.kd, "mp_opd_grass_sigma_rho", 0.99)),
                 min_adjacent_pairs=int(getattr(self.args.kd, "mp_opd_grass_sigma_min_pairs", 8)),
             )
-            if self.mode == "grass"
+            if self.mode in _GRASS_MODES
             else None
         )
         self.grass_softcap = self._detect_final_logit_softcap()
@@ -346,6 +388,42 @@ class MetaPartitionedOPD:
                 # Same initial energy weights as frozen, fresh meta optimizer.
                 self.energy_optimizer = torch.optim.AdamW(self.energy.parameters(),
                     lr=self.args.kd.mp_opd_energy_lr, weight_decay=0.)
+
+    def _build_grass_aligner(self):
+        """The native cross-tokenizer synchronized chunker of section 2.1.
+
+        The digest is re-verified here instead of trusting the args layer: a run
+        whose chunks came from a different projection than the one the recipe
+        names is a different experiment, and nothing downstream would notice.
+        """
+        projection_path = Path(self.args.kd.xtoken_projection_path)
+        if not projection_path.is_file():
+            raise FileNotFoundError(
+                f"GRASS-Chunk X-Token projection not found: {projection_path}"
+            )
+        digest = hashlib.sha256(projection_path.read_bytes()).hexdigest()
+        expected = str(self.args.kd.xtoken_projection_sha256).lower()
+        if digest != expected:
+            raise RuntimeError(
+                "GRASS-Chunk X-Token projection SHA mismatch: expected "
+                f"{expected}, got {digest}"
+            )
+        try:
+            from xtoken_upstream_token_aligner import TokenAligner
+        except ImportError as error:
+            raise RuntimeError(
+                "mp_opd_grass_chunk_source='xtoken' needs the vendored "
+                "xtoken_upstream_token_aligner on PYTHONPATH "
+                "(experiments/modal/vendor), the same dependency "
+                "kd_algorithm='xtoken' has. Use "
+                "mp_opd_grass_chunk_source='run' for the fixed-run baseline."
+            ) from error
+        return TokenAligner(
+            self.student_tokenizer,
+            self.teacher_tokenizer,
+            str(projection_path),
+            max_comb_len=int(self.args.kd.xtoken_max_comb_len),
+        )
 
     def _detect_final_logit_softcap(self):
         """Final-logit softcapping of the student head, or ``None``.
@@ -625,6 +703,179 @@ class MetaPartitionedOPD:
             )
         return soft_partition_loss(credits.current_nll, effective), metrics
 
+    def _grass_chunk_assignment(self, atoms, student_ids, teacher_ids):
+        """Map this response's atoms onto the upstream alignment chunks.
+
+        With ``source='xtoken'`` the aligner is run on the same loss-masked token
+        axis the atomizer used, so a chunk boundary and an atom boundary live in
+        the same coordinates and their disagreement is directly measurable.
+        """
+        n = len(atoms)
+        if self.grass_chunk_source == "run":
+            return run_chunk_assignment(n, self.grass_chunk_run_length)
+        alignment = self.grass_aligner.align(
+            torch.tensor([list(student_ids)], dtype=torch.long),
+            torch.tensor([list(teacher_ids)], dtype=torch.long),
+        )
+        token_chunk_ids = alignment.student_chunk_id[0].tolist()
+        atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
+        return atom_chunk_ids_from_tokens(
+            token_chunk_ids, atom_ranges, policy=self.grass_chunk_straddle
+        )
+
+    def _grass_chunk_loss(
+        self,
+        credits,
+        atoms,
+        *,
+        student_logits: torch.Tensor | None,
+        student_labels: torch.Tensor | None,
+        student_hidden: torch.Tensor | None,
+        student_ids: list[int] | None = None,
+        teacher_ids: list[int] | None = None,
+    ):
+        """GRASS-Chunk: shrink inside alignment chunks, never search for them.
+
+        The statistic, the Gram and the conservation invariant are the GRASS ones,
+        reused unchanged. What is removed is the whole decision layer: no
+        candidate spans, no maximum span length, no dynamic program, no
+        selection cost. The partition is the upstream alignment's, and the SURE
+        gain is reported without ever being allowed to move a boundary.
+        """
+        if student_logits is None or student_labels is None:
+            raise RuntimeError(
+                "mp_opd grass_chunk mode requires the student logits and labels"
+            )
+        if student_hidden is None:
+            raise RuntimeError(
+                "mp_opd grass_chunk mode requires the student LM-head hidden states"
+            )
+        if credits.student_token_nll is None:
+            raise RuntimeError(
+                "mp_opd grass_chunk mode requires per-token student NLL"
+            )
+        if credits.student_token_nll.numel() != student_logits.shape[0]:
+            raise ValueError(
+                "per-token student NLL and student logits disagree on token count"
+            )
+        if self.grass_chunk_source == "xtoken" and (
+            student_ids is None or teacher_ids is None
+        ):
+            raise RuntimeError(
+                "mp_opd grass_chunk_source='xtoken' needs the sampled student and "
+                "teacher token ids for the alignment"
+            )
+
+        atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
+        covered = atom_ranges[-1][1]
+        assignment = self._grass_chunk_assignment(atoms, student_ids, teacher_ids)
+        partition, noncontiguous = chunk_partition(assignment)
+        span_ids = grass_span_ids(partition, len(atoms), credits.rate.device)
+        # Section 11: a pair that crosses an alignment chunk boundary is exactly
+        # where the latent credit is allowed to jump, so it must not inform the
+        # noise scale. Every response here is single-chunked, so all pairs whose
+        # two atoms fall in different chunks are excluded.
+        within_pair = span_ids[:-1] == span_ids[1:] if span_ids.numel() > 1 else None
+        noise = self.grass_noise.update(
+            credits.rate, credits.weight, same_group=within_pair
+        )
+        head = chunk_head_gram(
+            student_logits[:covered],
+            student_hidden[:covered],
+            student_labels[:covered],
+            atom_ranges,
+            partition,
+            selected_log_prob=-credits.student_token_nll[:covered],
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=self.grass_geometry == "diag",
+        )
+        tables = grass_chunk_tables(
+            credits.rate,
+            credits.weight,
+            head.gram,
+            partition,
+            self.grass_noise.sigma2,
+            eps_d=self.grass_eps_d,
+            negative_tol_rel=self.grass_negative_tol_rel,
+        )
+        shrunk, _exact_residual = apply_chunk_shrinkage(
+            credits.rate, credits.weight, tables
+        )
+        effective = shrunk.to(credits.rate.dtype)
+        residual = grass_credit_residual(credits.rate, credits.weight, effective)
+        magnitude = float((credits.weight * credits.rate).abs().sum())
+        tolerance = CREDIT_CONSERVATION_REL_TOL * max(magnitude, 1.0)
+        if float(residual) > tolerance:
+            raise RuntimeError(
+                "GRASS-Chunk violated weighted credit conservation: max response "
+                f"residual {float(residual):.6g} exceeds {tolerance:.6g}; the "
+                "shrinkage is not credit-preserving and the run is not comparable"
+            )
+
+        metrics = grass_chunk_metrics(
+            tables,
+            credits.rate,
+            credits.weight,
+            head.gram,
+            effective,
+            residual,
+            assignment=assignment,
+            noncontiguous_splits=noncontiguous,
+            source=self.grass_chunk_source,
+        )
+        metrics.update(chunk_gram_diagnostics(head.gram, tables))
+        for key, value in chunk_boundary_diagnostics(
+            credits.rate, credits.weight, head.gram, partition
+        ).items():
+            metrics[f"mp_opd_grass_chunk_boundary_{key}"] = credits.rate.new_tensor(
+                float(value)
+            )
+        metrics.update(
+            {
+                "mp_opd_grass_chunk_exact_geometry": credits.rate.new_tensor(
+                    float(self.grass_geometry == "exact_head")
+                ),
+                "mp_opd_grass_chunk_gram_symmetry_error": credits.rate.new_tensor(
+                    head.symmetry_error
+                ),
+                "mp_opd_grass_chunk_atom_token_count": credits.rate.new_tensor(
+                    float(head.token_count)
+                ),
+                "mp_opd_grass_chunk_sigma_batch": credits.rate.new_tensor(
+                    noise["sigma_batch"]
+                ),
+                "mp_opd_grass_chunk_sigma_batch_variance": credits.rate.new_tensor(
+                    noise["sigma_batch_variance"]
+                ),
+                "mp_opd_grass_chunk_noise_valid_pairs": credits.rate.new_tensor(
+                    noise["valid_pairs"]
+                ),
+                "mp_opd_grass_chunk_noise_pairs_excluded": credits.rate.new_tensor(
+                    float(max(span_ids.numel() - 1, 0) - int(noise["valid_pairs"]))
+                ),
+                "mp_opd_grass_chunk_noise_z_abs_mean": credits.rate.new_tensor(
+                    noise["z_abs_mean"]
+                ),
+                "mp_opd_grass_chunk_noise_z_abs_p99": credits.rate.new_tensor(
+                    noise["z_abs_quantile"]
+                ),
+                "mp_opd_grass_chunk_softcap": credits.rate.new_tensor(
+                    float(self.grass_softcap or 0.0)
+                ),
+                "mp_opd_grass_chunk_head_bias": credits.rate.new_tensor(
+                    float(self.grass_head_bias)
+                ),
+            }
+        )
+        if self.grass_chunk_shadow:
+            metrics.update(
+                chunk_shadow_metrics(
+                    head.gram, credits.rate, credits.weight, partition, effective
+                )
+            )
+        return soft_partition_loss(credits.current_nll, effective), metrics
+
     def _grass_shadow(self, credits, partition, gram, shrunk):
         """Section 17.12: what the alternative selectors would have done here.
 
@@ -691,6 +942,8 @@ class MetaPartitionedOPD:
         student_logits: torch.Tensor | None = None,
         student_labels: torch.Tensor | None = None,
         student_hidden: torch.Tensor | None = None,
+        student_ids: list[int] | None = None,
+        teacher_ids: list[int] | None = None,
     ):
         n = len(atoms)
         metrics = {}
@@ -822,6 +1075,17 @@ class MetaPartitionedOPD:
                 student_logits=student_logits,
                 student_labels=student_labels,
                 student_hidden=student_hidden,
+            )
+
+        if self.mode == "grass_chunk":
+            return self._grass_chunk_loss(
+                credits,
+                atoms,
+                student_logits=student_logits,
+                student_labels=student_labels,
+                student_hidden=student_hidden,
+                student_ids=student_ids,
+                teacher_ids=teacher_ids,
             )
 
         _b, _w, rates, valid = span_tables(
@@ -1022,6 +1286,8 @@ class MetaPartitionedOPD:
                     if student_hiddens_flat is None
                     else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count]
                 ),
+                student_ids=stu_ids if self.mode == "grass_chunk" else None,
+                teacher_ids=tea_ids if self.mode == "grass_chunk" else None,
             )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():

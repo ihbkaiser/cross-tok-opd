@@ -195,7 +195,8 @@ class DistillationArguments:
     # MP-OPD scalar canonical-path credit and contiguous atom partitioning.
     mp_opd_mode: str = field(
         default="atomic",
-        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv", "grass"]},
+        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
+                              "kernel", "grass", "grass_chunk"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -255,6 +256,41 @@ class DistillationArguments:
         default=False,
         metadata={"help": "Diagnostic-only: also report the atomic, fixed-2, fixed-3 "
                           "and GBV decisions for the same batch. Never changes the update."},
+    )
+    # GRASS-Chunk: the same SURE shrinkage, but the partition comes from the
+    # upstream cross-tokenizer alignment instead of a dynamic program. That
+    # removes the boundary-search hypothesis, so a difference against GRASS-DP
+    # is attributable to the search rather than to the shrinkage.
+    mp_opd_grass_chunk_source: str = field(
+        default="xtoken",
+        metadata={
+            "choices": ["xtoken", "run"],
+            "help": "Chunk source. 'xtoken' is the native synchronized chunk produced "
+            "by the audited cross-tokenizer aligner and is the method's intended "
+            "definition; it requires xtoken_projection_path/sha256. 'run' is the "
+            "fixed-run baseline for hosts without an audited projection - it is NOT "
+            "an alignment chunk and every metric emitted from it is tagged as such.",
+        },
+    )
+    mp_opd_grass_chunk_run_length: int = field(
+        default=2,
+        metadata={"help": "Atoms per chunk when mp_opd_grass_chunk_source='run'. "
+                          "Baseline only."},
+    )
+    mp_opd_grass_chunk_straddle: str = field(
+        default="singleton",
+        metadata={
+            "choices": ["singleton", "majority"],
+            "help": "What to do with an atom the alignment leaves unaligned or that "
+            "straddles a chunk boundary. 'singleton' leaves its credit untouched; "
+            "'majority' assigns it to the chunk holding most of its tokens. Both are "
+            "counted in mp_opd_grass_chunk_mapping_* so the choice is never silent.",
+        },
+    )
+    mp_opd_grass_chunk_shadow: bool = field(
+        default=False,
+        metadata={"help": "Diagnostic-only: also report hard chunk pooling and atomic "
+                          "on the same batches. Never changes the update."},
     )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
@@ -359,7 +395,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -397,6 +433,34 @@ class DistillationArguments:
                 raise ValueError(
                     "mp_opd_grass_negative_tol_rel must be finite and nonnegative"
                 )
+            if self.mp_opd_grass_chunk_source not in {"xtoken", "run"}:
+                raise ValueError(
+                    f"unsupported mp_opd_grass_chunk_source: {self.mp_opd_grass_chunk_source}"
+                )
+            if self.mp_opd_grass_chunk_straddle not in {"singleton", "majority"}:
+                raise ValueError(
+                    f"unsupported mp_opd_grass_chunk_straddle: {self.mp_opd_grass_chunk_straddle}"
+                )
+            if self.mp_opd_grass_chunk_run_length < 1:
+                raise ValueError("mp_opd_grass_chunk_run_length must be positive")
+            if (
+                self.mp_opd_mode == "grass_chunk"
+                and self.mp_opd_grass_chunk_source == "xtoken"
+            ):
+                # The native chunk is the method's definition, so a run that asks
+                # for it without the audited projection must fail closed rather
+                # than quietly fall back to fixed runs.
+                if not self.xtoken_projection_path:
+                    raise ValueError(
+                        "mp_opd_grass_chunk_source='xtoken' requires "
+                        "xtoken_projection_path; use mp_opd_grass_chunk_source='run' "
+                        "to run the fixed-run baseline instead"
+                    )
+                if not self.xtoken_projection_sha256 or len(self.xtoken_projection_sha256) != 64:
+                    raise ValueError(
+                        "mp_opd_grass_chunk_source='xtoken' requires a 64-character "
+                        "xtoken_projection_sha256 for the audited projection."
+                    )
             if self.mp_opd_credit_transform not in {
                 "identity", "forward", "backward", "shuffle", "causal_kernel", "external",
             }:
@@ -437,4 +501,14 @@ class DistillationArguments:
                     "mp_opd_mode='grass' requires mp_opd_credit_transform='identity'; "
                     "the span-local shrinkage is not composed with a cross-atom "
                     "operator, and no such composition is defined"
+                )
+            if (
+                self.mp_opd_mode == "grass_chunk"
+                and self.mp_opd_credit_transform != "identity"
+            ):
+                # Same reasoning as GRASS-DP, applied to chunk-local shrinkage.
+                raise ValueError(
+                    "mp_opd_mode='grass_chunk' requires "
+                    "mp_opd_credit_transform='identity'; the chunk-local shrinkage is "
+                    "not composed with a cross-atom operator"
                 )

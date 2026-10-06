@@ -7,7 +7,7 @@ branch:
 
 ```text
 --kd_algorithm mp_opd
---mp_opd_mode atomic|fixed|random|oracle|soft|gbv|grass
+--mp_opd_mode atomic|fixed|random|oracle|soft|gbv|kernel|grass|grass_chunk
 ```
 
 The isolated worktree used during development protects the completed SimCT and
@@ -281,6 +281,94 @@ Claimed but unproven here: that the local update-MSE surrogate predicts downstre
 benchmark behaviour, that SURE stays unbiased after searching over candidate partitions,
 and that output-head geometry is predictive of full-model dynamics. Report them as
 limitations, not results.
+
+## GRASS-Chunk (`mp_opd_mode=grass_chunk`)
+
+Same statistic as GRASS, one hypothesis removed. GRASS-DP bundles two claims: that
+risk-adaptive shrinkage helps, and that SURE-driven *boundary search* helps. A win for
+GRASS over a pooled baseline cannot say which one carried it. GRASS-Chunk keeps the first
+and deletes the second — the partition arrives from the upstream cross-tokenizer
+alignment, and the SURE machinery only decides how hard to shrink inside each chunk.
+
+```text
+chunk    = upstream alignment (or a fixed-run baseline)
+D_c, V_c = the GRASS closed forms, computed on chunk c
+alpha_c  = clip(V_c / D_c, 0, 1)          singleton chunk => 0
+r~_i     = r_i - alpha_c (r_i - rbar_c)   for i in chunk c
+```
+
+### What is deliberately absent
+
+| removed | why |
+|---|---|
+| candidate-span enumeration | nothing to search over |
+| `mp_opd_max_span_length` | a native chunk is used exactly as delivered; §6.3 measures its cost instead of truncating it |
+| dynamic program | no partition to optimise |
+| partition-selection cost | no selection means no selection bias and no SURE-after-search caveat |
+
+`tests/mp_opd/test_grass_chunk.py` asserts these structurally: a chunk mode that quietly
+grew a search back would still pass every numerical test.
+
+### The gain is reported, never obeyed
+
+`G_c = 2*alpha_c*V_c - alpha_c^2*D_c` is computed and logged
+(`mp_opd_grass_chunk_sure_gain_*`) because it is the natural diagnostic, but §10 forbids
+letting it accept, reject, split, merge or reorder a chunk. A test asserts that the only
+function which decides the update never reads it.
+
+### Chunk source
+
+| `mp_opd_grass_chunk_source` | meaning |
+|---|---|
+| `xtoken` (default) | the native synchronized chunk from the audited aligner used by `kd_algorithm='xtoken'`, re-verified by digest here. The method's intended definition. Requires `xtoken_projection_path` + a 64-char `xtoken_projection_sha256`, or the run **fails closed**. |
+| `run` | fixed runs of `mp_opd_grass_chunk_run_length` atoms. A baseline for hosts without an audited projection — **not** an alignment chunk. Every metric carries `mp_opd_grass_chunk_source = 0`. |
+
+The aligner labels *tokens* and credit is carried by *atoms*, so a chunk boundary can fall
+inside an atom. `mp_opd_grass_chunk_straddle` decides that case explicitly —
+`singleton` (default) leaves the atom's credit untouched, `majority` joins it to the chunk
+holding most of its tokens — and both cases are counted in
+`mp_opd_grass_chunk_mapping_straddling_atoms` / `_unaligned_atoms` rather than smoothed
+over. A chunk id that reappears later cannot form one group; it is split and counted in
+`mp_opd_grass_chunk_mapping_noncontiguous_splits`.
+
+### Reuse, not duplication
+
+`GrassNoiseEstimator`, the exact head Gram, `grass_shrink` and the conservation assertion
+all come from `_mp_opd_grass_span`. The per-chunk strengths are laid out in that module's
+`[start, length - 1]` table shape, so GRASS-Chunk trains through the *same* shrink and the
+*same* invariant rather than a second copy that could drift.
+
+Two deliberate differences:
+
+* **Within-chunk adjacency only** (§11). A pair crossing an alignment boundary is exactly
+  where the latent credit may jump, so it must not inform `sigma^2`; the noise estimator
+  takes a per-adjacent-pair group mask and `mp_opd_grass_chunk_noise_pairs_excluded`
+  reports how many pairs were dropped.
+* **Blockwise Gram** (§6.2). One band wide enough for the longest chunk would evaluate
+  every atom pair within that distance regardless of chunk; computing chunk by chunk is
+  the same exact routine on the chunk's own slice.
+
+### Telemetry
+
+§18.2–18.8, with `mp_opd_grass_chunk_boundary_*` for §18.7: within-chunk and cross-chunk
+adjacent pairs are compared on absolute rate difference, variance-normalized difference
+and neighbour gradient cosine. If those two populations are indistinguishable, the fixed
+chunk structure is a weak inductive bias for credit shrinkage — worth knowing *before*
+attributing a result to the method. §18.8 conservation is asserted on the float32
+coefficients the loss multiplies by, exactly as in GRASS-DP.
+
+With `mp_opd_grass_chunk_shadow`, `mp_opd_grass_chunk_shadow_*` reports hard chunk pooling
+(`alpha = 1`, §15.2) and atomic on the same batches: same boundaries, different shrinkage.
+That is the single most diagnostic comparison in the method note (§20).
+
+### Evidence boundary
+
+Implemented: the chunk projection, the straddle policies, the per-chunk exact Gram, the
+shared SURE shrinkage and its conservation assertion, and the §18 telemetry.
+**Not** implemented: exact full-Transformer gradient geometry, and a global risk optimum —
+this is a local, chunk-wise rule and must be reported as such. Claimed but unproven: that
+upstream alignment chunks are the right inductive bias for credit shrinkage at all. The
+§18.7 diagnostics exist to test that claim rather than to assume it.
 
 ## Cross-atom credit operators (`mp_opd_mode=kernel`)
 
