@@ -62,10 +62,13 @@ class StubModel:
         self.with_cache = with_cache
         self.calls = 0
 
-    def __call__(self, input_ids, use_cache=False, past_key_values=None):
+    def __call__(self, input_ids, use_cache=False, past_logits=None, past_key_values=None):
         self.calls += 1
         last = int(input_ids[0, -1].item())
-        logits = self.logits_fn(last).view(1, 1, VOCAB)
+        logits = self.logits_fn(last)
+        # Shape from the vector itself: the same stub is used with the real 256k-vocab
+        # tokenizers, where a hard-coded stub vocab would not fit.
+        logits = logits.view(1, 1, logits.numel())
         cache = (self.calls,) if self.with_cache else None
         return SimpleNamespace(logits=logits, past_key_values=cache)
 
