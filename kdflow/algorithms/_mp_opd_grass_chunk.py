@@ -412,13 +412,19 @@ def grass_chunk_tables(
     block = h[index.unsqueeze(-1), index.unsqueeze(-2)]
     distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
     trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
-    # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
-    # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij], and that entry sum runs
-    # over the chunk on *both* axes. A prefix sum over rows alone would fold in the
-    # entries pointing at atoms outside the chunk - zero for the chunked Gram, but
-    # not for a Gram whose off-diagonal is dense.
-    cross = block.sum(dim=(1, 2))
-    variance = trace - sigma2 * cross / chunk_weight
+    # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w):
+    # Sigma_c has diagonal 1/w_i - 1/W_c and off-diagonal -1/W_c, so
+    #   V_c = sigma^2 / W_c [ sum_i H_ii (W_c/w_i - 1) - sum_{i != j} H_ij ].
+    # Expanding it this way keeps the two cancelling terms at the scale of the Gram
+    # rather than at sigma^2 times that scale. Subtracting a sigma^2-scaled trace
+    # from a sigma^2-scaled entry sum is exact in principle, but once the block is
+    # close to rank one it returns the sign of round-off - and that is exactly the
+    # regime where the sign of V_c is the question being asked.
+    block_trace = (diagonal[index] * inside).sum(dim=1)
+    own_weight_share = chunk_weight.unsqueeze(-1) / w[index] - 1.0
+    scaled_trace = (diagonal[index] * own_weight_share * inside).sum(dim=1)
+    off_diagonal = block.sum(dim=(1, 2)) - block_trace
+    variance = sigma2 * (scaled_trace - off_diagonal) / chunk_weight
 
     non_singleton = lengths > 1
     # Section 4 / 13.5: a singleton chunk is pinned to alpha = 0 and reported as

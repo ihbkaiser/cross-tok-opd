@@ -763,13 +763,19 @@ def grass_span_costs(
             dim=(1, 2)
         )
         trace = sigma2 * (diagonal[span_index] / w[span_index]).sum(dim=1)
-        # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
-        # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij], and that entry sum runs
-        # over the span on *both* axes. Summing the rows alone folds in the entries
-        # pointing at atoms outside the span, which a candidate Gram leaves nonzero
-        # whenever its band reaches past the span.
-        cross = block.sum(dim=(1, 2))
-        variance = trace - sigma2 * cross / span_weight.sum(dim=1)
+        # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w):
+        # Sigma_c has diagonal 1/w_i - 1/W_c and off-diagonal -1/W_c, so
+        #   V_c = sigma^2 / W_c [ sum_i H_ii (W_c/w_i - 1) - sum_{i != j} H_ij ].
+        # Expanding it this way keeps the two cancelling terms at the scale of the
+        # Gram instead of at sigma^2 times that scale, and the off-diagonal sum runs
+        # over the span on *both* axes rather than over whole rows.
+        total_weight = span_weight.sum(dim=1)
+        block_trace = diagonal[span_index].sum(dim=1)
+        scaled_trace = (
+            diagonal[span_index] * (total_weight.unsqueeze(-1) / w[span_index] - 1.0)
+        ).sum(dim=1)
+        off_diagonal = block.sum(dim=(1, 2)) - block_trace
+        variance = sigma2 * (scaled_trace - off_diagonal) / total_weight
         strength = _shrunk_strength(distortion, variance, eps_d)
         # Section 14: the cost is built from the *zeroed* D, not the raw one, so
         # costs are reproducible from the reported table. A D that is negative or

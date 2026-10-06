@@ -55,9 +55,15 @@ def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None, token_w
     rows = logits.to(torch.float64)
     log_partition = torch.logsumexp(rows, dim=-1)
     probabilities = torch.exp(rows - log_partition.unsqueeze(-1))
+    label_scale = torch.ones(logits.shape[0], dtype=torch.float64)
     if softcap is not None:
         normalized = (rows / float(softcap)).clamp(-1.0, 1.0)
-        probabilities = probabilities * (1.0 - normalized * normalized)
+        jacobian = (1.0 - normalized * normalized).clamp_min(0.0)
+        probabilities = probabilities * jacobian
+        # The e_y term is scaled by the same head Jacobian, at the label: writing
+        # it as a bare 1 leaves out s[y], which is not a constant - it is what makes
+        # the softcap a genuine reparametrisation rather than a rescaling of p.
+        label_scale = jacobian.gather(1, labels.unsqueeze(1)).squeeze(1)
     if token_weight is not None:
         probabilities = probabilities * token_weight.to(torch.float64).unsqueeze(-1)
     delta = probabilities.clone()
@@ -66,9 +72,9 @@ def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None, token_w
     # here gives w_t p_t - e_y, which is not any real gradient and disagrees with
     # the routine by exactly w_t - 1 on the label component.
     label_term = (
-        torch.ones(labels.numel(), dtype=torch.float64)
+        torch.ones(labels.numel(), dtype=torch.float64) * label_scale
         if token_weight is None
-        else token_weight.to(torch.float64)
+        else token_weight.to(torch.float64) * label_scale
     )
     delta[torch.arange(labels.numel()), labels.long()] -= label_term
     grads = [
@@ -137,7 +143,7 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     [
         ((0, 1), (1, 3), (3, 4), (4, 6)),
         ((0, 2), (2, 4), (4, 5), (5, 6)),
-        ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),
+        ((0, 2), (2, 3), (3, 5), (5, 6)),
     ],
 )
 def test_weighted_gram_matches_the_explicit_head_gradient(atom_ranges):
@@ -147,6 +153,9 @@ def test_weighted_gram_matches_the_explicit_head_gradient(atom_ranges):
     each half. Equal weights cancel the mistake, so every unweighted case passed;
     only a weight that differs between two atoms exposes it. The reference below
     carries the same weights through explicit head gradients.
+    The last case stays inside the routine's candidate band. The reference builds the
+    full Gram with no band, so a partition wider than the band compares a banded
+    matrix against an unbanded one and the zeros alone would fail the comparison.
     """
     torch.manual_seed(19)
     tokens, vocab, hidden_size = 6, 17, 4
