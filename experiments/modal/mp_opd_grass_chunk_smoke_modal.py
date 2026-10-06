@@ -275,7 +275,10 @@ def _ensure_placeholder(path: Path) -> str:
             'import torch;'
             f'torch.save({{"indices": torch.zeros((4,4), dtype=torch.long),'
             ' "likelihoods": torch.zeros((4,4), dtype=torch.float32),'
-            ' "__note__": "GRASS-Chunk plumbing placeholder; not a usable projection"}}, '
+            # A single closing brace, and no f-prefix: this line is not an f-string,
+            # so `}}` would reach the interpreter as two closing braces and leave
+            # torch.save with an unclosed dict argument.
+            ' "__note__": "GRASS-Chunk plumbing placeholder; not a usable projection"}, '
             f'"{path}")'
         )
         done = subprocess.run([PYTHON, '-c', script], capture_output=True, text=True)
