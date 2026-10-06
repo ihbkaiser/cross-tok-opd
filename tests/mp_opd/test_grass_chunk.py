@@ -126,6 +126,14 @@ def test_a_reappearing_chunk_id_splits_rather_than_merging():
     assert splits == 1
 
 
+def test_a_multi_atom_chunk_is_not_counted_as_splits():
+    """Regression: the counter used to count repeated *positions*, not repeated ids."""
+    assignment = run_chunk_assignment(6, 4)
+    partition, splits = chunk_partition(assignment)
+    assert partition == ((0, 4), (4, 6))
+    assert splits == 0
+
+
 def test_run_assignment_is_the_documented_baseline():
     assignment = run_chunk_assignment(5, 2)
     assert assignment.ids == (0, 0, 1, 1, 2)

@@ -402,7 +402,11 @@ def _window_quantities(
         jacobian = (1.0 - normalized * normalized).clamp_min(0.0)
         probabilities = probabilities * jacobian
     else:
-        jacobian = torch.ones_like(weight)
+        # Same 2-D shape as the squashing branch on purpose: the label half below
+        # gathers along the vocabulary axis, and a 1-D placeholder made that gather
+        # raise IndexError on every unsquashed head - which is every head except
+        # Gemma-2's. Probabilities are not multiplied by it, so nothing is paid.
+        jacobian = torch.ones_like(window)
     probabilities = probabilities * weight.unsqueeze(-1)
     label_scale = weight * jacobian.gather(1, labels.unsqueeze(1)).squeeze(1)
     return probabilities, label_scale

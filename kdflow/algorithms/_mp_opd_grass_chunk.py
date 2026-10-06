@@ -181,33 +181,40 @@ def run_chunk_assignment(n: int, run_length: int) -> AtomChunkAssignment:
     )
 
 
-def chunk_partition(assignment: AtomChunkAssignment) -> tuple[tuple[tuple[int, int], ...], int]:
-    """``(full-cover partition, non-contiguous split count)`` over atom indices.
+def chunk_partition(
+    assignment: AtomChunkAssignment,
+) -> tuple[tuple[tuple[int, int], ...], int]:
+    """``(full-cover partition, non-contiguous chunk id count)`` over atom indices.
 
     The downstream shrink is written against a *contiguous* partition, and
     rewriting it for an arbitrary grouping would create a second, untested credit
     path. A chunk id that reappears after a different id therefore cannot form one
-    group: the run is split at the change and the split is counted, because merging
+    group: the run is split at the change and the id is counted, because merging
     across the gap would silently reorder which atoms count as neighbours.
+
+    The count is over *ids with more than one run*, not over repeated positions: a
+    three-atom chunk is one chunk, and counting its second and third atom as splits
+    would make the ordinary case look pathological.
     """
     ids = assignment.ids
     n = len(ids)
     if n == 0:
         raise ValueError("at least one atom is required")
     spans: list[tuple[int, int]] = []
-    seen: set[int] = set()
-    noncontiguous = 0
-    cursor = 0
+    runs_of: dict[int, int] = {}
+    current = ids[0]
+    run_index = 0
+    runs_of[current] = 1
     for index in range(1, n + 1):
-        if index < n and ids[index] == ids[cursor]:
+        if index < n and ids[index] == current:
             continue
-        spans.append((cursor, index))
-        cursor = index
-    for value in ids:
-        if value in seen:
-            noncontiguous += 1
-        seen.add(value)
-    return tuple(spans), noncontiguous
+        spans.append((run_index, index))
+        run_index = index
+        if index < n:
+            current = ids[index]
+            runs_of[current] = runs_of.get(current, 0) + 1
+    split_ids = sum(1 for count in runs_of.values() if count > 1)
+    return tuple(spans), split_ids
 
 
 # ---------------------------------------------------------------------------
