@@ -7,7 +7,7 @@ branch:
 
 ```text
 --kd_algorithm mp_opd
---mp_opd_mode atomic|fixed|random|oracle|soft|gbv
+--mp_opd_mode atomic|fixed|random|oracle|soft|gbv|grass
 ```
 
 The isolated worktree used during development protects the completed SimCT and
@@ -191,6 +191,96 @@ geometry and the dynamic program. The token-noise covariance model, the claim th
 the logit-space optimum is also a parameter-space optimum, and any claim that GBV
 reduces training variance or beats fixed span 3 are **not** established by this
 implementation and must not be reported as results.
+
+## GRASS (`mp_opd_mode=grass`)
+
+Gradient-Risk Adaptive Span Shrinkage, from the method note *GRASS: Gradient-Risk
+Adaptive Span Shrinkage*. It keeps the SimCT atoms and the same `O(nL)` contiguous
+dynamic program as GBV, and changes two things: **how a candidate span is scored**, and
+**what happens inside the selected span**.
+
+Scoring is the SURE estimate of a local update-MSE risk in the exact output-head
+gradient geometry:
+
+```text
+D_c     = (r - rbar_c*1)^T H_c (r - rbar_c*1)          observed heterogeneity
+V_c     = tr(H_c Sigma_c) = sigma^2*( sum_i H_ii/w_i - (1^T H_c 1)/W_c )
+alpha_c = clip(V_c / D_c, 0, 1)                       SURE-optimal shrinkage strength
+C(c)    = alpha_c^2 D_c - 2 alpha_c V_c               excess cost over a singleton
+r~_i    = (1 - alpha_c) r_i + alpha_c rbar_c
+```
+
+The DP minimises `sum_pi C(pi)`. Because `tr(H_c Sigma_c)` is constant in `pi`, using
+the excess cost leaves every singleton at exactly zero, so the selected partition never
+has to pay a positive price for splitting. `H_c` is the local band of the exact atom
+Gram `H_ij = <grad_W l_i, grad_W l_j>_F`, which is what makes `alpha` *estimated*
+rather than a second hand-tuned trade-off knob like GBV's `beta`.
+
+| `mp_opd_grass_geometry` | `H_c` | Cost |
+|---|---|---|
+| `exact_head` (default) | full local band of the output-head atom Gram | one chunked pass over the student logits and the head-input hidden states per sample; no `autograd.grad` |
+| `diag` | only `diag(H_c)`; the off-diagonal band is zeroed | same pass; this is the section 15 GRASS-Diag ablation |
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `mp_opd_grass_sigma_rho` | 0.99 | bias-corrected EMA decay of the credit-noise scale |
+| `mp_opd_grass_sigma_min_pairs` | 8 | valid adjacent atom pairs needed to update that scale |
+| `mp_opd_grass_eps_d` | 0.0 | floor under `D_c` for the no-heterogeneity branch |
+| `mp_opd_grass_negative_tol_rel` | 1e-6 | relative tolerance that turns a negative `D_c`/`V_c` into a counter instead of silence |
+| `mp_opd_grass_shadow` | false | report what Atomic / Fixed-2 / Fixed-3 / GBV would have done on the same batch; never changes the update |
+
+`MP_OPD_GRASS_ROW_CHUNK` (default 32) is a memory/latency knob for the Gram pass and
+changes how `H` is computed, never which `H`. `MP_OPD_GRASS_SOFTCAP` overrides the
+head's `final_logit_softcapping` when the model config is not reachable.
+
+### The geometry is exact, including the softcapped head
+
+`delta_t = m_t * (p_t - e_{y_t}) * (1 - (z_t/sc)^2)`, where `m_t` is the per-token unit
+credit coefficient (1 in the current OPD loss) and the last factor is
+`d/du [sc*tanh(u/sc)]` read straight off the returned logits — no second
+`[tokens, vocab] x [vocab, hidden]` matmul through the head weight is needed. The `e_y`
+half of `delta_t` is scaled by `s_t[y_t]`, **not** by `q_t[y_t]`; conflating the two puts
+`p_t[y_t]` where `1` belongs and shifts every diagonal block by `-2 p_t[y_t] + 1`.
+Getting this wrong is invisible in the Gram's positive definiteness and fatal to `alpha`.
+
+The Gram is accumulated in fp32 with `torch.backends.cuda.matmul.allow_tf32` disabled
+for the duration of the pass (restored afterwards, override with
+`MP_OPD_GRASS_EXACT_FP32=0`): at ~1e-3 relative error TF32 is larger than the fp32
+round-off `D_c` and `V_c` are supposed to resolve, and an exactly PSD head Gram starts
+producing materially negative `D_c`.
+
+### Numerical contract
+
+Cost tables are float64, invalid cells are `+inf` behind an explicit validity mask, and
+`V_c >= 0` holds by construction because `A_c Sigma_c = sigma^2 (diag(1/w) - 11^T/W)` is
+PSD by Cauchy-Schwarz. A materially negative `D_c`/`V_c` is therefore an implementation
+fault, not a tunable: it is counted and reported, never clipped away. Ties fall to the
+shortest admissible span. The Gram is computed under `torch.no_grad()` — it is a
+selector input, and letting it carry a graph would backpropagate the variance estimate
+into the student.
+
+### Credit conservation is asserted, not assumed
+
+`sum_i w_i r~_i == sum_i b_i` is exact for every partition because the shrink only
+redistributes a span's credit. The mode checks this on the float32 coefficients the
+loss actually multiplies by, against `CREDIT_CONSERVATION_REL_TOL * max(total, 1)`, and
+raises rather than training on a run that is not comparable with Atomic/Fixed/GBV. The
+noise-scale state is checkpointed with the trainer state, so a resume does not restart
+GRASS from a deflated `sigma^2` (the collapse-to-atomic failure signature).
+
+### Evidence boundary
+
+Implemented: the exact head Gram, the SURE statistics, the dynamic program, the soft
+shrinkage, the conservation assertion, and the Tier-A/Tier-B scalar telemetry. **Not**
+implemented: the Tier-C artifacts of the method note (`span_samples.jsonl`,
+`matrix_samples_stepXXXX.npz`, full-Transformer Gram calibration) — `gram_local_blocks()`
+and `grass_gram_diagnostics()` already return exactly the objects those files would
+contain, so adding the writers needs no algorithm change.
+
+Claimed but unproven here: that the local update-MSE surrogate predicts downstream
+benchmark behaviour, that SURE stays unbiased after searching over candidate partitions,
+and that output-head geometry is predictive of full-model dynamics. Report them as
+limitations, not results.
 
 ## Cross-atom credit operators (`mp_opd_mode=kernel`)
 

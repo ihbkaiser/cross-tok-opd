@@ -41,6 +41,22 @@ from ._mp_opd_gbv_span import (
     gbv_partition_metrics,
     gbv_span_costs,
 )
+from ._mp_opd_grass_span import (
+    CREDIT_CONSERVATION_REL_TOL,
+    GrassNoiseEstimator,
+    atom_head_gram,
+    grass_candidate_metrics,
+    grass_credit_residual,
+    grass_gram_diagnostics,
+    grass_partition,
+    grass_partition_metrics,
+    grass_span_costs,
+    grass_span_ids,
+    grass_shrink,
+    grass_update_energy,
+    hard_pooled_credits,
+)
+from ._mp_opd_grass_span import grass_cosine
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -252,6 +268,33 @@ class MetaPartitionedOPD:
         if self.mode == "gbv" and self.gbv_geometry not in {"exact_logit", "token_count"}:
             raise ValueError(f"unsupported mp_opd_gbv_geometry: {self.gbv_geometry}")
         self.gbv_needs_logits = self.mode == "gbv" and self.gbv_geometry == "exact_logit"
+        # GRASS shrinks credits with a SURE-optimal strength derived from the
+        # exact output-head atom Gram, so unlike GBV it cannot be reduced to a
+        # token-count proxy: it needs the logits *and* the hidden state that the
+        # LM head actually consumes.
+        self.grass_geometry = str(getattr(self.args.kd, "mp_opd_grass_geometry", "exact_head"))
+        if self.mode == "grass" and self.grass_geometry not in {"exact_head", "diag"}:
+            raise ValueError(f"unsupported mp_opd_grass_geometry: {self.grass_geometry}")
+        self.grass_eps_d = float(getattr(self.args.kd, "mp_opd_grass_eps_d", 0.0))
+        self.grass_negative_tol_rel = float(
+            getattr(self.args.kd, "mp_opd_grass_negative_tol_rel", 1e-6)
+        )
+        self.grass_shadow = bool(getattr(self.args.kd, "mp_opd_grass_shadow", False))
+        self.grass_needs_logits = self.mode == "grass"
+        # Both geometries need the head input: GRASS-Diag drops the off-diagonal
+        # *band*, but a multi-token atom's diagonal block still mixes its own
+        # tokens through h_t, so the hidden states are not optional there either.
+        self.grass_needs_hidden = self.mode == "grass"
+        self.grass_noise = (
+            GrassNoiseEstimator(
+                rho=float(getattr(self.args.kd, "mp_opd_grass_sigma_rho", 0.99)),
+                min_adjacent_pairs=int(getattr(self.args.kd, "mp_opd_grass_sigma_min_pairs", 8)),
+            )
+            if self.mode == "grass"
+            else None
+        )
+        self.grass_softcap = self._detect_final_logit_softcap()
+        self.grass_head_bias = self._detect_head_bias()
         # Cross-atom credit operator. Atomic *is* the identity operator here, so
         # mode 'atomic' and mode 'kernel' with transform 'identity' share one path.
         self.credit_spec: CreditTransformSpec = credit_transform_from_args(self.args.kd)
@@ -304,12 +347,64 @@ class MetaPartitionedOPD:
                 self.energy_optimizer = torch.optim.AdamW(self.energy.parameters(),
                     lr=self.args.kd.mp_opd_energy_lr, weight_decay=0.)
 
+    def _detect_final_logit_softcap(self):
+        """Final-logit softcapping of the student head, or ``None``.
+
+        GRASS needs the *actual* head Jacobian. Gemma-2 squashes its final logits
+        with ``sc * tanh(u/sc)``, so the returned logits are not ``W h + b`` and an
+        unsquashed ``delta_t`` would describe a head the model does not have. The
+        value is read from the model config rather than assumed, and
+        ``MP_OPD_GRASS_SOFTCAP`` overrides it for hosts where the config is not
+        reachable (``none``/``0`` to force an unsquashed head).
+        """
+        config = getattr(self.student, "model_config", None)
+        softcap = getattr(config, "final_logit_softcapping", None) if config is not None else None
+        if softcap is None and config is not None:
+            # Some wrappers nest the decoder config. Missing this silently
+            # describes an unsquashed head the student does not have, which changes
+            # every entry of H and is exactly the section 17.23 failure signature,
+            # so both spellings are consulted before giving up.
+            text_config = getattr(config, "text_config", None)
+            softcap = getattr(text_config, "final_logit_softcapping", None)
+        override = os.environ.get("MP_OPD_GRASS_SOFTCAP", "").strip().lower()
+        if override:
+            if override in {"none", "0", "null", "off"}:
+                return None
+            try:
+                return float(override)
+            except ValueError as error:
+                raise ValueError(
+                    f"MP_OPD_GRASS_SOFTCAP={override!r} must be a number, 'none' or '0'"
+                ) from error
+        return None if softcap is None else float(softcap)
+
+    def _detect_head_bias(self) -> bool:
+        """Whether the student output head carries a trainable bias.
+
+        A bias adds ``<sum_t delta_t, sum_s delta_s>`` to every Gram block. None of
+        the student models this repo trains has one, but silently dropping the
+        term would make ``H`` only approximately exact, so it is detected.
+        """
+        try:
+            head = self.student.model.get_output_embeddings()
+        except (AttributeError, NotImplementedError):
+            head = None
+        return getattr(head, "bias", None) is not None
+
     def training_state_dict(self):
-        return {"student_updates":self.student_updates,"energy_updates":self.energy_updates}
+        state = {"student_updates": self.student_updates, "energy_updates": self.energy_updates}
+        # The GRASS noise scale is a running estimate, not a parameter, but losing
+        # it on resume silently restarts GRASS from a deflated sigma and makes the
+        # early steps of a resumed run look like the atomic failure signature.
+        if self.grass_noise is not None:
+            state["mp_opd_grass_noise"] = self.grass_noise.state_dict()
+        return state
 
     def load_training_state_dict(self, state):
         self.student_updates=state["student_updates"]
         self.energy_updates=state["energy_updates"]
+        if self.grass_noise is not None and "mp_opd_grass_noise" in state:
+            self.grass_noise.load_state_dict(state["mp_opd_grass_noise"])
 
     def note_optimizer_updates(self, count):
         self.student_updates += count
@@ -402,6 +497,188 @@ class MetaPartitionedOPD:
         output = self.credit_spec.transform(batch, training=True)
         return output.effective_credit, output.diagnostics
 
+    def _grass_loss(
+        self,
+        credits,
+        atoms,
+        *,
+        student_logits: torch.Tensor | None,
+        student_labels: torch.Tensor | None,
+        student_hidden: torch.Tensor | None,
+    ):
+        """GRASS: pick spans and a shrinkage strength by local output-head risk.
+
+        Everything the selector needs is already on the batch - atomic credits,
+        student logits and the hidden state the LM head consumes - so the mode
+        costs one ``output_hidden_states`` flag and no extra forward pass. The
+        rest of the OPD loss, clipping and optimizer pipeline is untouched.
+        """
+        if student_logits is None or student_labels is None:
+            raise RuntimeError("mp_opd grass mode requires the student logits and labels")
+        if student_hidden is None:
+            raise RuntimeError(
+                "mp_opd grass mode requires the student LM-head hidden states"
+            )
+        if credits.student_token_nll is None:
+            raise RuntimeError("mp_opd grass mode requires per-token student NLL")
+        if credits.student_token_nll.numel() != student_logits.shape[0]:
+            raise ValueError(
+                "per-token student NLL and student logits disagree on token count"
+            )
+
+        atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
+        covered = atom_ranges[-1][1]
+        # One noise-scale update per valid response; the estimator is training-level
+        # so the EMA survives across steps and across a resume.
+        noise = self.grass_noise.update(credits.rate, credits.weight)
+        head = atom_head_gram(
+            student_logits[:covered],
+            student_hidden[:covered],
+            student_labels[:covered],
+            atom_ranges,
+            self.max_span_length,
+            selected_log_prob=-credits.student_token_nll[:covered],
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=self.grass_geometry == "diag",
+        )
+        tables = grass_span_costs(
+            credits.rate,
+            credits.weight,
+            head.gram,
+            self.grass_noise.sigma2,
+            self.max_span_length,
+            eps_d=self.grass_eps_d,
+            negative_tol_rel=self.grass_negative_tol_rel,
+        )
+        partition, _cost, margins = grass_partition(tables)
+        shrunk, _exact_residual = grass_shrink(
+            credits.rate, credits.weight, partition, tables.alpha
+        )
+        # The assertion runs on the coefficients the loss really multiplies by, not
+        # on the float64 intermediate: section 18.1 is about the update, and the
+        # update sees float32 rates.
+        effective = shrunk.to(credits.rate.dtype)
+        residual = grass_credit_residual(credits.rate, credits.weight, effective)
+        # The tolerance is scaled by sum |w_i r_i|, not |sum w_i r_i|. The signed
+        # sum is conserved exactly and can cancel to ~0 on a response with mixed-sign
+        # atoms, while the float32 round-off of `effective` is proportional to the
+        # unsigned magnitude. Scaling on the signed value would abort a healthy run
+        # over rounding.
+        magnitude = float((credits.weight * credits.rate).abs().sum())
+        tolerance = CREDIT_CONSERVATION_REL_TOL * max(magnitude, 1.0)
+        if float(residual) > tolerance:
+            raise RuntimeError(
+                "GRASS violated weighted credit conservation: max response residual "
+                f"{float(residual):.6g} exceeds {tolerance:.6g}; the shrinkage is "
+                "not credit-preserving and the run is not comparable"
+            )
+
+        metrics = grass_partition_metrics(
+            tables,
+            partition,
+            credits.rate,
+            credits.weight,
+            head.gram,
+            effective,
+            margins,
+            self.max_span_length,
+            conservation_error=residual,
+        )
+        metrics.update(grass_candidate_metrics(tables, partition))
+        metrics.update(grass_gram_diagnostics(head.gram, self.max_span_length))
+        metrics.update(
+            {
+                "mp_opd_grass_exact_geometry": credits.rate.new_tensor(
+                    float(self.grass_geometry == "exact_head")
+                ),
+                "mp_opd_grass_gram_symmetry_error": credits.rate.new_tensor(
+                    head.symmetry_error
+                ),
+                "mp_opd_grass_atom_token_count": credits.rate.new_tensor(
+                    float(head.token_count)
+                ),
+                "mp_opd_grass_sigma_batch": credits.rate.new_tensor(noise["sigma_batch"]),
+                "mp_opd_grass_sigma_batch_variance": credits.rate.new_tensor(
+                    noise["sigma_batch_variance"]
+                ),
+                "mp_opd_grass_noise_valid_pairs": credits.rate.new_tensor(
+                    noise["valid_pairs"]
+                ),
+                "mp_opd_grass_noise_z_abs_mean": credits.rate.new_tensor(
+                    noise["z_abs_mean"]
+                ),
+                "mp_opd_grass_noise_z_abs_p99": credits.rate.new_tensor(
+                    noise["z_abs_quantile"]
+                ),
+                "mp_opd_grass_softcap": credits.rate.new_tensor(
+                    float(self.grass_softcap or 0.0)
+                ),
+                "mp_opd_grass_head_bias": credits.rate.new_tensor(
+                    float(self.grass_head_bias)
+                ),
+            }
+        )
+        if self.grass_shadow:
+            metrics.update(
+                self._grass_shadow(credits, partition, head.gram, effective)
+            )
+        return soft_partition_loss(credits.current_nll, effective), metrics
+
+    def _grass_shadow(self, credits, partition, gram, shrunk):
+        """Section 17.12: what the alternative selectors would have done here.
+
+        Pure read-out on the observed batch - no alternative changes the update -
+        but it is the only way, after the run, to tell a genuinely different GRASS
+        apart from one that merely reproduced a fixed-k tiling.
+        """
+        rate = credits.rate
+        n = rate.numel()
+        alternatives = {
+            "atomic": fixed_partition(n, 1),
+            "fixed2": fixed_partition(n, 2),
+            "fixed3": fixed_partition(n, 3),
+        }
+        # The GBV comparator uses the token-count geometry and the same beta the run
+        # was configured with, so the shadow answers "would GBV have done this?"
+        # rather than introducing a second hand-tuned beta.
+        alternatives["gbv"] = gbv_partition(
+            gbv_span_costs(
+                rate, credits.weight, credits.weight, self.max_span_length, self.gbv_beta
+            )
+        )
+        atomic_ids = torch.arange(n, device=rate.device)
+        grass_ids = grass_span_ids(partition, n, rate.device)
+        atomic_energy = grass_update_energy(gram, atomic_ids, rate)
+        grass_energy = grass_update_energy(gram, grass_ids, shrunk)
+        metrics = {}
+        for name, candidate in alternatives.items():
+            pooled = hard_pooled_credits(credits.base_credit, credits.weight, candidate)
+            candidate_ids = grass_span_ids(candidate, n, rate.device)
+            candidate_energy = grass_update_energy(gram, candidate_ids, pooled)
+            cross = grass_update_energy(gram, candidate_ids, pooled, rate)
+            cross_grass = grass_update_energy(gram, candidate_ids, pooled, shrunk)
+            prefix = f"mp_opd_grass_shadow_{name}"
+            metrics[f"{prefix}_span_count"] = rate.new_tensor(float(len(candidate)))
+            metrics[f"{prefix}_span_length_mean"] = rate.new_tensor(
+                n / max(len(candidate), 1)
+            )
+            metrics[f"{prefix}_credit_l2_change"] = (pooled - rate).to(torch.float64).norm()
+            metrics[f"{prefix}_head_energy_ratio"] = (
+                candidate_energy / atomic_energy.clamp_min(1e-300)
+            )
+            metrics[f"{prefix}_head_cosine_to_atomic"] = grass_cosine(
+                cross, atomic_energy, candidate_energy
+            )
+            metrics[f"{prefix}_head_cosine_to_grass"] = grass_cosine(
+                cross_grass, grass_energy, candidate_energy
+            )
+        metrics["mp_opd_grass_shadow_grass_span_count"] = rate.new_tensor(float(len(partition)))
+        metrics["mp_opd_grass_shadow_grass_span_length_mean"] = rate.new_tensor(
+            n / max(len(partition), 1)
+        )
+        return metrics
+
     def _partition_loss(
         self,
         credits,
@@ -413,6 +690,7 @@ class MetaPartitionedOPD:
         diagnostic_seed: int = 0,
         student_logits: torch.Tensor | None = None,
         student_labels: torch.Tensor | None = None,
+        student_hidden: torch.Tensor | None = None,
     ):
         n = len(atoms)
         metrics = {}
@@ -537,6 +815,15 @@ class MetaPartitionedOPD:
             )
             return hard_loss_with_metrics(gbv_selected)
 
+        if self.mode == "grass":
+            return self._grass_loss(
+                credits,
+                atoms,
+                student_logits=student_logits,
+                student_labels=student_labels,
+                student_hidden=student_hidden,
+            )
+
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
         )
@@ -628,9 +915,23 @@ class MetaPartitionedOPD:
             attention_mask=student_attn_mask,
             allgather_logits=True,
             ring_attn_group=self.strategy.ring_attn_group,
+            # GRASS needs the state the LM head actually consumes, so the last
+            # decoder hidden state is retained instead of reconstructed. Off for
+            # every other mode: it costs a full [batch, seq, hidden] tensor.
+            output_hidden_states=self.grass_needs_hidden,
             **mm_kwargs,
         )
         student_logits_flat = output["logits"][student_loss_mask]
+        if self.grass_needs_hidden:
+            # The hidden state is the input of the head at the position that produced
+            # each logit row, so it is masked with exactly the same index as the
+            # logits. Only the last entry is the head input; the per-layer stack is
+            # dropped immediately because it is [layers, batch, seq, hidden] of
+            # memory nobody downstream reads.
+            student_hiddens_flat = output["hidden_states"][-1][student_loss_mask]
+            output["hidden_states"] = ()
+        else:
+            student_hiddens_flat = None
         student_labels = student_input_ids.roll(shifts=-1, dims=1)
         teacher_labels = teacher_input_ids.roll(shifts=-1, dims=1)
         parity_metrics = {}
@@ -683,6 +984,7 @@ class MetaPartitionedOPD:
             tea_count = int(tea_mask.sum().item())
             stu_logits = student_logits_flat[stu_offset : stu_offset + stu_count]
             tea_logits = teacher_logits_flat[tea_offset : tea_offset + tea_count]
+            stu_offset_before = stu_offset
             stu_offset += stu_count
             tea_offset += tea_count
             stu_ids = student_labels[batch_index][stu_mask].detach().cpu().tolist()
@@ -713,8 +1015,13 @@ class MetaPartitionedOPD:
                 batch_index,
                 diagnostics=diagnostics_due,
                 diagnostic_seed=int(sample_key, 16),
-                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits) else None,
+                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits or self.grass_needs_logits) else None,
                 student_labels=stu_label_tensor,
+                student_hidden=(
+                    None
+                    if student_hiddens_flat is None
+                    else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count]
+                ),
             )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():

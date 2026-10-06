@@ -195,7 +195,7 @@ class DistillationArguments:
     # MP-OPD scalar canonical-path credit and contiguous atom partitioning.
     mp_opd_mode: str = field(
         default="atomic",
-        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv"]},
+        metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv", "grass"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -217,6 +217,44 @@ class DistillationArguments:
             "Potts special case, no extra memory); exact_logit reads q_i from the "
             "selected-logit softmax.",
         },
+    )
+    # GRASS: gradient-risk adaptive span shrinkage. Unlike GBV there is no
+    # hand-tuned bias-variance coefficient; the pooling strength of every
+    # selected span is the closed-form SURE optimum of an estimated local
+    # output-head gradient risk.
+    mp_opd_grass_geometry: str = field(
+        default="exact_head",
+        metadata={
+            "choices": ["exact_head", "diag"],
+            "help": "GRASS candidate-span metric. exact_head uses the full local "
+            "LM-head atom Gram; diag zeroes the off-diagonal band and is the "
+            "GRASS-Diag ablation of the method note, which isolates the value of "
+            "off-diagonal update geometry.",
+        },
+    )
+    mp_opd_grass_sigma_rho: float = field(
+        default=0.99,
+        metadata={"help": "EMA decay of the MAD credit-noise scale used by GRASS."},
+    )
+    mp_opd_grass_sigma_min_pairs: int = field(
+        default=8,
+        metadata={"help": "Below this many valid adjacent atom pairs a response "
+                          "cannot update the GRASS noise scale; the previous one is kept."},
+    )
+    mp_opd_grass_eps_d: float = field(
+        default=0.0,
+        metadata={"help": "Floor on D_c below which GRASS takes the documented "
+                          "no-heterogeneity branch. 0.0 is the exact value."},
+    )
+    mp_opd_grass_negative_tol_rel: float = field(
+        default=1e-6,
+        metadata={"help": "Relative tolerance under which a negative D_c/V_c is "
+                          "treated as round-off rather than an implementation fault."},
+    )
+    mp_opd_grass_shadow: bool = field(
+        default=False,
+        metadata={"help": "Diagnostic-only: also report the atomic, fixed-2, fixed-3 "
+                          "and GBV decisions for the same batch. Never changes the update."},
     )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
@@ -321,7 +359,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -342,6 +380,23 @@ class DistillationArguments:
                 )
             if self.mp_opd_gbv_beta < 0 or not math.isfinite(self.mp_opd_gbv_beta):
                 raise ValueError("mp_opd_gbv_beta must be finite and nonnegative")
+            if self.mp_opd_grass_geometry not in {"exact_head", "diag"}:
+                raise ValueError(
+                    f"unsupported mp_opd_grass_geometry: {self.mp_opd_grass_geometry}"
+                )
+            if not 0.0 <= self.mp_opd_grass_sigma_rho < 1.0:
+                raise ValueError("mp_opd_grass_sigma_rho must lie in [0, 1)")
+            if self.mp_opd_grass_sigma_min_pairs < 1:
+                raise ValueError("mp_opd_grass_sigma_min_pairs must be positive")
+            if self.mp_opd_grass_eps_d < 0 or not math.isfinite(self.mp_opd_grass_eps_d):
+                raise ValueError("mp_opd_grass_eps_d must be finite and nonnegative")
+            if (
+                self.mp_opd_grass_negative_tol_rel < 0
+                or not math.isfinite(self.mp_opd_grass_negative_tol_rel)
+            ):
+                raise ValueError(
+                    "mp_opd_grass_negative_tol_rel must be finite and nonnegative"
+                )
             if self.mp_opd_credit_transform not in {
                 "identity", "forward", "backward", "shuffle", "causal_kernel", "external",
             }:
@@ -372,4 +427,14 @@ class DistillationArguments:
                 raise ValueError(
                     "mp_opd_mode='atomic' is the identity credit operator; select the "
                     "operator with mp_opd_mode='kernel' instead"
+                )
+            if self.mp_opd_mode == "grass" and self.mp_opd_credit_transform != "identity":
+                # GRASS does not partition-and-pool the credit; it *shrinks* it inside
+                # each selected span. There is no defined composition of that with a
+                # cross-atom operator K r, and silently ignoring the operator would
+                # produce a run that is not the one the recipe names.
+                raise ValueError(
+                    "mp_opd_mode='grass' requires mp_opd_credit_transform='identity'; "
+                    "the span-local shrinkage is not composed with a cross-atom "
+                    "operator, and no such composition is defined"
                 )
