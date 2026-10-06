@@ -1263,14 +1263,12 @@ def grass_gram_diagnostics(gram: torch.Tensor, max_span_length: int) -> dict[str
         # principal submatrix ordering.
         rows = torch.arange(n - length + 1, device=gram.device)
         offsets = torch.arange(length, device=gram.device)
-        # Two [starts, length] index grids, one per axis, broadcast against each
-        # other into a [starts, length, length] stack of contiguous blocks. Indexing
-        # both axes with the same grid builds an [starts, length] matrix instead,
-        # which eigvalsh rejects rather than answering.
-        block = gram[
-            rows.view(-1, 1) + offsets.view(1, -1),
-            rows.view(1, -1) + offsets.view(-1, 1),
-        ].to(torch.float64)
+        # One [starts, length] grid of atom ids, used as both axes of the gather, so
+        # entry (c, i, j) is H[start_c + i, start_c + j]: a stack of contiguous
+        # blocks. Two different grids broadcast to incompatible shapes, and a single
+        # grid on both axes builds a non-square matrix that eigvalsh rejects.
+        grid = rows.view(-1, 1) + offsets.view(1, -1)
+        block = gram[grid.unsqueeze(-1), grid.unsqueeze(-2)].to(torch.float64)
         smallest = torch.linalg.eigvalsh(block).min(dim=1).values
         metrics["mp_opd_grass_gram_max_span_min_eigenvalue"] = smallest.min()
         metrics["mp_opd_grass_gram_max_span_negative_fraction"] = (

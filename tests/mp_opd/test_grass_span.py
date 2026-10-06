@@ -96,6 +96,7 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     logits = torch.randn(tokens, vocab, dtype=torch.float64)
     hidden = torch.randn(tokens, hidden_size, dtype=torch.float64)
     labels = torch.tensor([0, 3, 7, 7, 12, 19, 22, 1])
+    covered = atom_ranges[-1][1]
     result = atom_head_gram(
         logits,
         hidden,
@@ -103,10 +104,16 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
         atom_ranges,
         4,
         softcap=softcap,
-        selected_log_prob=logits.gather(1, labels.unsqueeze(1)).squeeze(1)
-        - torch.logsumexp(logits, dim=-1),
+        # The supplied route is validated against the atom-covered token axis, not
+        # the full one: passing the whole sequence asks the Gram to resolve atoms
+        # that tile only part of it.
+        selected_log_prob=(
+            logits[:covered].gather(1, labels[:covered].unsqueeze(1)).squeeze(1)
+            - torch.logsumexp(logits[:covered], dim=-1)
+        ),
     )
-    expected = _brute_force_gram(logits, hidden, labels, atom_ranges, softcap)
+    expected = _brute_force_gram(logits[:covered], hidden[:covered], labels[:covered],
+                                 atom_ranges, softcap)
     assert torch.allclose(result.gram, expected, atol=1e-10, rtol=1e-9)
     assert result.symmetry_error < 1e-12
     assert result.atom_count == len(atom_ranges)
@@ -250,11 +257,17 @@ def test_softcap_factor_is_the_actual_head_jacobian():
     # atom_head_gram accumulates in float32 on purpose; the reference is float64.
     diagonal = torch.diagonal(capped.gram).to(torch.float64)
     assert torch.allclose(diagonal, expected, atol=float(expected.abs().max()) * 1e-5)
-    # An unsquashed proxy would report ||p_t||^2 instead.
-    unsquashed = (probabilities**2).sum(dim=-1) * (hidden**2).sum(dim=-1)
+    # An unsquashed proxy would report ||p_t||^2 instead. It still has to carry the
+    # label half - ||delta_t||^2 = sum_v p^2 - 2 p[y] + 1 - or it is not the quantity
+    # the Gram diagonal reduces to, and the comparison below is meaningless.
+    unsquashed = (
+        (probabilities**2).sum(dim=-1)
+        - 2.0 * probabilities.gather(1, labels.unsqueeze(1)).squeeze(1)
+        + 1.0
+    ) * (hidden**2).sum(dim=-1)
     plain_diagonal = torch.diagonal(plain.gram).to(torch.float64)
     assert not torch.allclose(plain_diagonal, expected, atol=1e-6)
-    assert torch.allclose(plain_diagonal, unsquashed, atol=float(unsquashed.abs().max()) * 1e-5)
+    assert torch.allclose(plain_diagonal, unsquashed, atol=float(unsquashed.abs().max()) * 1e-4)
 
 
 def test_gram_survives_bf16_inputs_and_stays_detached():

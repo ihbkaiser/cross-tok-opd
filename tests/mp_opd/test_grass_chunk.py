@@ -244,9 +244,14 @@ def test_closed_form_matches_an_explicit_matrix_computation():
         expected_cross = sigma2 * float(block.sum()) / float(w.sum())
         assert float(tables.distortion[index]) == pytest.approx(expected_d, rel=1e-10)
         assert float(tables.trace[index]) == pytest.approx(expected_trace, rel=1e-10)
-        assert float(tables.variance[index]) == pytest.approx(
-            expected_trace - expected_cross, rel=1e-10
+        # Recover the entry sum the routine actually used, rather than trusting that
+        # two spellings of the same reduction agree.
+        recovered_cross = (
+            (float(tables.trace[index]) - float(tables.variance[index]))
+            * float(w.sum())
+            / sigma2
         )
+        assert recovered_cross == pytest.approx(float(block.sum()), rel=1e-10)
         assert float(tables.variance[index]) == pytest.approx(expected_v, rel=1e-10)
 
 
