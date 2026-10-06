@@ -738,6 +738,12 @@ def grass_span_costs(
     row_sum_prefix = torch.cat((h.new_zeros(1), h.sum(dim=1).cumsum(0)))
     weight_prefix = torch.cat((h.new_zeros(1), w.cumsum(0)))
     weighted_rate_prefix = torch.cat((h.new_zeros(1), (w * r).cumsum(0)))
+    # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
+    # expands to sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_i (H_c w)_i]: the second term
+    # is the Gram against the *weights*, not against the ones vector. The two agree
+    # only for equal weights, so using 1^T H_c 1 here silently reports the wrong
+    # variance for every span whose atoms do not share a token count.
+    weighted_row_prefix = torch.cat((h.new_zeros(1), (h @ w).cumsum(0)))
 
     costs = r.new_full((n, length), float("inf"))
     alpha_table = r.new_zeros((n, length))
@@ -764,7 +770,7 @@ def grass_span_costs(
             dim=(1, 2)
         )
         trace = sigma2 * (diagonal[span_index] / w[span_index]).sum(dim=1)
-        cross = row_sum_prefix[span_index[:, -1] + 1] - row_sum_prefix[span_index[:, 0]]
+        cross = weighted_row_prefix[span_index[:, -1] + 1] - weighted_row_prefix[span_index[:, 0]]
         variance = trace - sigma2 * cross / span_weight.sum(dim=1)
         strength = _shrunk_strength(distortion, variance, eps_d)
         # Section 14: the cost is built from the *zeroed* D, not the raw one, so

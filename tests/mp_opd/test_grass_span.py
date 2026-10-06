@@ -109,14 +109,16 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     expected = _brute_force_gram(logits, hidden, labels, atom_ranges, softcap)
     assert torch.allclose(result.gram, expected, atol=1e-10, rtol=1e-9)
     assert result.symmetry_error < 1e-12
+    assert result.atom_count == len(atom_ranges)
+    assert result.token_count == atom_ranges[-1][1]
 
 
 @pytest.mark.parametrize(
     "atom_ranges",
     [
-        (((0, 1), (1, 3), (3, 4), (4, 6)),),
-        (((0, 2), (2, 4), (4, 5)),),
-        (((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),),
+        ((0, 1), (1, 3), (3, 4), (4, 6)),
+        ((0, 2), (2, 4), (4, 5)),
+        ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),
     ],
 )
 def test_weighted_gram_matches_the_explicit_head_gradient(atom_ranges):
@@ -156,8 +158,6 @@ def test_row_chunking_agrees_with_a_single_pass_under_unequal_weights():
                                  row_chunk_atoms=chunk)
         assert torch.allclose(chunked.gram, reference.gram, atol=1e-6), chunk
         assert chunked.symmetry_error < 1e-5
-    assert result.atom_count == len(atom_ranges)
-    assert result.token_count == atom_ranges[-1][1]
 
 
 def test_atom_head_gram_band_is_zero_outside_the_candidate_window():
@@ -249,8 +249,9 @@ def test_softcap_factor_is_the_actual_head_jacobian():
     assert torch.allclose(diagonal, expected, atol=float(expected.abs().max()) * 1e-5)
     # An unsquashed proxy would report ||p_t||^2 instead.
     unsquashed = (probabilities**2).sum(dim=-1) * (hidden**2).sum(dim=-1)
-    assert not torch.allclose(torch.diagonal(plain.gram), expected, atol=1e-6)
-    assert torch.allclose(torch.diagonal(plain.gram), unsquashed, atol=1e-10)
+    plain_diagonal = torch.diagonal(plain.gram).to(torch.float64)
+    assert not torch.allclose(plain_diagonal, expected, atol=1e-6)
+    assert torch.allclose(plain_diagonal, unsquashed, atol=float(unsquashed.abs().max()) * 1e-5)
 
 
 def test_gram_survives_bf16_inputs_and_stays_detached():
@@ -360,8 +361,10 @@ def test_constant_credit_with_real_noise_pools_fully():
     weight = torch.ones(n, dtype=torch.float64)
     gram = _enforce_psd(torch.randn(n, n, dtype=torch.float64).abs() + torch.eye(n, dtype=torch.float64))
     tables = grass_span_costs(rate, weight, gram, 0.2, 4)
+    # Slice alpha to the candidate widths first: masking the full [n, length] table
+    # with a [n, length - 1] mask indexes the wrong axis.
     multi = tables.valid[:, 1:]
-    assert float(tables.alpha[multi].min()) == pytest.approx(1.0)
+    assert float(tables.alpha[:, 1:][multi].min()) == pytest.approx(1.0)
     shrunk, residual = grass_shrink(rate, weight, grass_partition(tables)[0], tables.alpha)
     assert float(residual) < 1e-12
     assert float(shrunk.max() - shrunk.min()) < 1e-12

@@ -416,7 +416,12 @@ def test_noise_estimator_ignores_pairs_that_cross_a_chunk_boundary():
 
     inside = estimator.update(rate, weight, same_group=same_chunk)
     assert inside["valid_pairs"] == n - 2
-    assert estimator.sigma2 == pytest.approx(sigma**2, rel=0.06)
+    # Ground truth is the variance of the differences the estimator was handed, not
+    # the planted sigma^2: MAD and the second moment agree only up to sampling, and
+    # comparing to a constant would measure the seed rather than the mask.
+    standardized = (rate[1:] - rate[:-1]) / (1.0 / weight[:-1] + 1.0 / weight[1:]).sqrt()
+    assert estimator.sigma2 == pytest.approx(float(standardized[same_chunk].var()), rel=0.05)
+    assert estimator.sigma2 == pytest.approx(sigma**2, rel=0.15)
 
 
 def test_the_masked_pair_is_a_large_outlier_a_nonrobust_scale_would_absorb():
