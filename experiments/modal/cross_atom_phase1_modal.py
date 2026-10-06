@@ -172,13 +172,32 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             'lengths_align': len(first.token_ids) == len(first.logprobs),
             'all_logprobs_finite': all(torch.isfinite(torch.tensor(value)).item()
                                        for value in first.logprobs),
-            'no_zero_logprob': all(value != 0.0 for value in first.logprobs),
+            'exact_zero_logprobs': sum(1 for value in first.logprobs if value == 0.0),
             'max_logprob': max(first.logprobs) if first.logprobs else None,
             'min_logprob': min(first.logprobs) if first.logprobs else None,
             'text_head': first.text[:160],
         }
-        # Every sampled token must be reproducible from the recorded logprob: re-running
-        # the same seed must give the same value, and a different seed a different draw.
+        # The engine's defect is an *unfilled* logprob slot, so the property that matters
+        # is consistency, not "never exactly zero": a temperature-scaled probability of
+        # genuinely 1 in float32 also reads as 0.0. Recompute the reported value from the
+        # model on the same prefix and compare.
+        zero_positions = [position for position, value in enumerate(first.logprobs)
+                          if value == 0.0]
+        checked = sorted(set(range(min(8, first.generated_tokens))) | set(zero_positions[:8]))
+        errors = []
+        gaps = []
+        for position in checked:
+            prefix = list(prompt_ids) + list(first.token_ids[:position])
+            with torch.inference_mode():
+                logits = student(torch.tensor([prefix], device='cuda')).logits[0, -1].float()
+            scaled = logits / bounded.temperature
+            recomputed = float(torch.log_softmax(scaled, dim=-1)[first.token_ids[position]])
+            errors.append(abs(recomputed - first.logprobs[position]))
+            gaps.append(float(scaled.max() - scaled[first.token_ids[position]]))
+        record['positions_rechecked'] = len(checked)
+        record['max_recompute_error'] = max(errors) if errors else None
+        record['max_scaled_logit_gap_at_checked'] = max(gaps) if gaps else None
+        record['zero_logprobs_are_consistent'] = bool(errors) and max(errors) <= 1e-4
         other = engine.sample(prompt_ids=prompt_ids, seed=2000 + index)
         record['seed_changes_the_draw'] = other.token_ids != first.token_ids
         content = list(first.content_ids)
@@ -194,7 +213,7 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             record['atoms'] = len(weights)
             record['atoms_w_gt_1'] = sum(1 for value in weights if value > 1)
         for key in ('deterministic', 'lengths_align', 'all_logprobs_finite',
-                    'no_zero_logprob'):
+                    'zero_logprobs_are_consistent'):
             if not record[key]:
                 failures.append('sample %d: %s' % (index, key))
         if record['atomization'] != 'OK':
@@ -230,7 +249,7 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             'all_logprobs_finite': all(
                 torch.isfinite(torch.tensor(value)).item()
                 for value in full_rollout.logprobs),
-            'no_zero_logprob': all(value != 0.0 for value in full_rollout.logprobs),
+            'exact_zero_logprobs': sum(1 for value in full_rollout.logprobs if value == 0.0),
         },
         'failures': failures,
         'note': ('sampler validation only: no prefix sampling, no branching, no utility '

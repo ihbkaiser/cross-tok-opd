@@ -142,11 +142,32 @@ def test_token_and_logprob_lengths_align_and_are_all_finite():
     assert len(rollout.content_ids) <= len(rollout.token_ids)
 
 
-def test_a_sampled_token_never_reports_a_zero_log_probability():
-    """The exact failure mode of the engine path cannot occur here."""
+def test_a_sharp_but_not_degenerate_distribution_never_yields_exactly_zero():
+    """Not the same claim as the engine's guard: a *real* p = 1 does give 0.0.
+
+    The engine's failure mode is an unfilled buffer slot; here the value always comes
+    out of the same log_softmax the draw came from, so an exact 0.0 can only mean the
+    temperature-scaled probability really is 1 in float32. This distribution is sharp
+    enough to be almost deterministic yet far from that regime.
+    """
     for seed in range(30):
         rollout = sampler(max_new_tokens=24).sample('q', seed=seed)
         assert all(value != 0.0 for value in rollout.logprobs)
+
+
+def test_a_genuine_probability_of_one_reports_zero_and_is_not_a_sentinel():
+    def one_hot(last):
+        logits = torch.full((VOCAB,), -1000.0)
+        logits[9] = 0.0
+        return logits
+
+    rollout = sampler(model=StubModel(one_hot), temperature=0.6, max_new_tokens=1).sample(
+        'a', seed=1)
+    assert rollout.token_ids[0] == 9
+    assert rollout.logprobs[0] == 0.0
+    # It is a real value, reproducible from the distribution, not a placeholder.
+    scaled = one_hot(ord('a')) / 0.6
+    assert float(torch.log_softmax(scaled, dim=-1)[9]) == 0.0
 
 
 # ---------------------------------------------------------------------------
