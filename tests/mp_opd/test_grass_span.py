@@ -61,7 +61,16 @@ def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None, token_w
     if token_weight is not None:
         probabilities = probabilities * token_weight.to(torch.float64).unsqueeze(-1)
     delta = probabilities.clone()
-    delta[torch.arange(labels.numel()), labels.long()] -= 1.0
+    # A token-weighted loss scales the whole per-token loss term, so delta_t is
+    # w_t (p_t - e_y): the label half is scaled by w_t too. Subtracting a bare 1
+    # here gives w_t p_t - e_y, which is not any real gradient and disagrees with
+    # the routine by exactly w_t - 1 on the label component.
+    label_term = (
+        torch.ones(labels.numel(), dtype=torch.float64)
+        if token_weight is None
+        else token_weight.to(torch.float64)
+    )
+    delta[torch.arange(labels.numel()), labels.long()] -= label_term
     grads = [
         torch.stack(
             [
@@ -114,8 +123,11 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     )
     expected = _brute_force_gram(logits[:covered], hidden[:covered], labels[:covered],
                                  atom_ranges, softcap)
-    assert torch.allclose(result.gram, expected, atol=1e-10, rtol=1e-9)
-    assert result.symmetry_error < 1e-12
+    # The routine accumulates in float32, so the float64 reference is matched at
+    # fp32 resolution rather than at the exactness of the inputs.
+    tolerance = max(float(expected.abs().max()), 1.0) * 1e-5
+    assert torch.allclose(result.gram.to(torch.float64), expected, atol=tolerance)
+    assert result.symmetry_error < 1e-5
     assert result.atom_count == len(atom_ranges)
     assert result.token_count == atom_ranges[-1][1]
 

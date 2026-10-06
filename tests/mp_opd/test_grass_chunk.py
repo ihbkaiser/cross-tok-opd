@@ -421,7 +421,7 @@ def test_noise_estimator_ignores_pairs_that_cross_a_chunk_boundary():
     # the boundary one - carries a step. A spike on a single atom would contaminate
     # its other neighbour too and would not test what this is about.
     latent = torch.full((n,), 0.5, dtype=torch.float64)
-    latent[n // 2 :] += 5.0
+    latent[n // 2 :] += 60.0
     noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
     rate = latent + noise
     same_chunk = torch.ones(n - 1, dtype=torch.bool)
@@ -449,7 +449,7 @@ def test_the_masked_pair_is_a_large_outlier_a_nonrobust_scale_would_absorb():
     n, sigma, weight_value = 1200, 0.05, 4.0
     weight = torch.full((n,), weight_value, dtype=torch.float64)
     latent = torch.full((n,), 0.5, dtype=torch.float64)
-    latent[n // 2 :] += 5.0
+    latent[n // 2 :] += 60.0
     noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
     rate = latent + noise
 
@@ -565,15 +565,23 @@ def test_gram_diagnostics_short_circuit_on_all_singleton_chunks():
 
 def test_boundary_diagnostics_separate_within_from_cross_chunk_neighbours():
     n = 8
-    rate, weight = _credits(n, seed=65, spread=5.0)
     partition = ((0, 4), (4, 8))
+    # The latent rate is constant inside each chunk, so a within-chunk difference is
+    # pure noise while the single cross-chunk pair carries a real step. With
+    # independent random credits inside the chunks the two populations overlap and
+    # the comparison measures the seed rather than the partition.
+    generator = torch.Generator().manual_seed(65)
+    weight = torch.full((n,), 2.0, dtype=torch.float64)
+    latent = torch.full((n,), 0.5, dtype=torch.float64)
+    latent[4:] += 4.0
+    rate = latent + 0.05 * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
     gram = _chunked_gram(partition, _psd(n, 65))
     metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
     assert metrics["adjacent_pairs_within"] == n - 2
     assert metrics["adjacent_pairs_cross"] == 1
     # The cross-chunk pair is the largest jump, because atom 3 to 4 is the
     # partition boundary.
-    assert metrics["cross_abs_diff_mean"] > metrics["within_abs_diff_mean"]
+    assert metrics["cross_abs_diff_mean"] > 10.0 * metrics["within_abs_diff_mean"]
     assert "cross_gradient_cosine_mean" in metrics
 
 

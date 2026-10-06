@@ -735,7 +735,6 @@ def grass_span_costs(
 
     h = gram.detach().to(torch.float64)
     diagonal = torch.diagonal(h).contiguous()
-    row_sum_prefix = torch.cat((h.new_zeros(1), h.sum(dim=1).cumsum(0)))
     weight_prefix = torch.cat((h.new_zeros(1), w.cumsum(0)))
     weighted_rate_prefix = torch.cat((h.new_zeros(1), (w * r).cumsum(0)))
 
@@ -765,10 +764,11 @@ def grass_span_costs(
         )
         trace = sigma2 * (diagonal[span_index] / w[span_index]).sum(dim=1)
         # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
-        # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij]. The second term is the
-        # *unweighted* entry sum: the weights cancel against the diagonal Sigma
-        # before the row sums are taken, so contracting H against w instead is wrong.
-        cross = row_sum_prefix[span_index[:, -1] + 1] - row_sum_prefix[span_index[:, 0]]
+        # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij], and that entry sum runs
+        # over the span on *both* axes. Summing the rows alone folds in the entries
+        # pointing at atoms outside the span, which a candidate Gram leaves nonzero
+        # whenever its band reaches past the span.
+        cross = block.sum(dim=(1, 2))
         variance = trace - sigma2 * cross / span_weight.sum(dim=1)
         strength = _shrunk_strength(distortion, variance, eps_d)
         # Section 14: the cost is built from the *zeroed* D, not the raw one, so

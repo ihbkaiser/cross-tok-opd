@@ -221,7 +221,8 @@ def unit_tests(commit: str):
             'tests/mp_opd/test_random_partition_min_span.py']
     gate_shared = [PYTHON, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
                    'tests/mp_opd/test_grass_span.py', '-k', shared]
-    full = [PYTHON, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', 'tests/mp_opd']
+    full = [PYTHON, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
+            'tests/mp_opd', '--continue-on-collection-errors']
 
     def run(command):
         return subprocess.run(command, cwd='/opt/overlay', env=e, text=True,

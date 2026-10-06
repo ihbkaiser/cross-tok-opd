@@ -394,7 +394,6 @@ def grass_chunk_tables(
     # Per-atom trace contribution, prefix-summed so a chunk's trace is a scalar
     # difference rather than a gather that would have to be padded.
     trace_prefix = torch.cat((h.new_zeros(1), (diagonal / w).cumsum(0)))
-    row_sum_prefix = torch.cat((h.new_zeros(1), h.sum(dim=1).cumsum(0)))
 
     starts = torch.tensor([start for start, _end in spans], dtype=torch.int64, device=r.device)
     ends = torch.tensor([end for _start, end in spans], dtype=torch.int64, device=r.device)
@@ -414,8 +413,11 @@ def grass_chunk_tables(
     distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
     trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
     # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w)
-    # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij]; the entry sum is unweighted.
-    cross = row_sum_prefix[ends] - row_sum_prefix[starts]
+    # is sigma^2 [sum_i H_ii/w_i - (1/W_c) sum_ij H_ij], and that entry sum runs
+    # over the chunk on *both* axes. A prefix sum over rows alone would fold in the
+    # entries pointing at atoms outside the chunk - zero for the chunked Gram, but
+    # not for a Gram whose off-diagonal is dense.
+    cross = block.sum(dim=(1, 2))
     variance = trace - sigma2 * cross / chunk_weight
 
     non_singleton = lengths > 1
