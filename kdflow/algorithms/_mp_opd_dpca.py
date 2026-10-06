@@ -48,9 +48,8 @@ from ._mp_opd_credit import AtomCreditTensors
 
 __all__ = [
     "DPCAConfig",
-    "dpca_target_log_probs",
+    "dpca_atom_advantages",
     "dpca_policy_loss",
-    "dpca_advantages",
 ]
 
 
@@ -65,61 +64,51 @@ class DPCAConfig:
     kl_clamp: float = 20.0
 
 
-def _per_atom_prior(prior_log_probs: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-    """Sum prior log-probability inside each atom, so chunks never cross atoms."""
-    # Repeated cumulative sums give every atom's inclusive prefix boundary; the
-    # exclusive boundary is the previous atom's inclusive one, and atom 0 starts
-    # at 0.
-    inclusive = torch.cumsum(prior_log_probs, dim=0)
-    starts = torch.cat([inclusive.new_zeros(1), inclusive[:-1]])
-    return (inclusive - starts)[weight.long().bool()]
-
-
-def dpca_target_log_probs(
+def dpca_atom_advantages(
+    student_old_log_score: torch.Tensor,
+    teacher_log_score: torch.Tensor,
+    counts: torch.Tensor,
     prior_log_probs: torch.Tensor,
-    teacher_log_probs: torch.Tensor,
-    weight: torch.Tensor,
-    teacher_chunk_logp: torch.Tensor,
+    adv_clamp: float | None,
 ) -> torch.Tensor:
-    """Semantic prior assignment ``log q_i = (L_T/L_S) * log p_i``, per atom.
+    """Semantic-prior advantage per student token, from per-atom chunk totals.
 
-    Mirrors ``compute_policy_loss_opd``: teacher and student log-probabilities are
-    summed inside each synchronized chunk, and every token in the chunk inherits
-    the chunk's ratio. ``teacher_chunk_logp`` is supplied by the caller because
-    summing it here would repeat the detach-and-mask bookkeeping that already
-    happened when the credits were built.
+    Reproduces ``compute_policy_loss_opd``: inside each synchronized chunk the
+    teacher and prior log-probabilities are summed (``L_T``, ``L_S``), every token
+    inherits the chunk's ratio via ``log q_i = (L_T / L_S) * log p_i``, and the
+    advantage is ``A_i = (L_T / L_S - 1) * log p_i``.
 
-    ``L_S == 0`` is the degenerate case the upstream handles by spreading the
-    teacher budget uniformly across the chunk; it is reproduced rather than
-    silently clamped, because a clamped denominator would turn a real signal
-    into a spurious one.
+    The ratio is formed from **per-atom** totals and only then expanded to token
+    resolution. Computing ``L_T / log p_i`` token by token instead would divide a
+    whole chunk's teacher mass by a single token's log-probability, which is a
+    different objective that happens to look plausible.
+
+    ``L_S == 0`` is the degenerate chunk upstream handles by spreading the teacher
+    budget uniformly across it; it is reproduced rather than clamped, because a
+    clamped denominator turns a real signal into a spurious one.
     """
-    if prior_log_probs.shape != teacher_log_probs.shape:
-        raise ValueError("prior_log_probs and teacher_log_probs must be aligned")
-    prior_chunk_logp = _per_atom_prior(prior_log_probs, weight)
-
-    with torch.no_grad():
-        valid = weight.long().bool()
-        safe_prior_chunk = torch.where(
-            prior_chunk_logp.abs() < 1e-8, torch.ones_like(prior_chunk_logp), prior_chunk_logp
+    counts = counts.long()
+    if student_old_log_score.shape != teacher_log_score.shape:
+        raise ValueError("student_old_log_score and teacher_log_score must be aligned")
+    if student_old_log_score.shape != counts.shape:
+        raise ValueError("atom counts must match the per-atom log-probability totals")
+    if int(counts.sum().item()) != prior_log_probs.numel():
+        raise ValueError(
+            f"atom token counts total {int(counts.sum().item())} but the prior covers "
+            f"{prior_log_probs.numel()} tokens"
         )
-        ratio = teacher_chunk_logp / safe_prior_chunk
-        uniform = (prior_chunk_logp.abs() < 1e-8) & valid
-        per_token = torch.where(
-            uniform,
-            teacher_chunk_logp / weight.clamp_min(1.0),
-            ratio * prior_log_probs,
-        )
-        return torch.where(valid, per_token, prior_log_probs)
 
+    teacher_chunk = teacher_log_score.float()
+    prior_chunk = student_old_log_score.float()
+    degenerate = prior_chunk.abs() < 1e-8
+    safe_prior_chunk = torch.where(degenerate, torch.ones_like(prior_chunk), prior_chunk)
+    ratio = teacher_chunk / safe_prior_chunk
 
-def dpca_advantages(
-    target_log_probs: torch.Tensor,
-    prior_log_probs: torch.Tensor,
-    adv_clamp: float,
-) -> torch.Tensor:
-    """``A_i = log q_i - log p_i``, optionally clamped to ``+-loss_max_clamp``."""
-    advantages = target_log_probs - prior_log_probs
+    scaled = torch.repeat_interleave(ratio * prior_log_probs, counts)
+    uniform = torch.repeat_interleave(teacher_chunk / counts.clamp_min(1).float(), counts)
+    target = torch.where(torch.repeat_interleave(degenerate, counts), uniform, scaled)
+
+    advantages = target - prior_log_probs
     if adv_clamp is not None:
         advantages = torch.clamp(advantages, min=-adv_clamp, max=adv_clamp)
     return advantages

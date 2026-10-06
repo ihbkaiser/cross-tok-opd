@@ -941,7 +941,7 @@ class MetaPartitionedOPD:
         (``teacher_log_score`` / ``student_old_log_score``); they are expanded back
         to token resolution because the advantage is per token.
         """
-        from ._mp_opd_dpca import DPCAConfig, dpca_advantages, dpca_policy_loss, dpca_target_log_probs
+        from ._mp_opd_dpca import DPCAConfig, dpca_atom_advantages, dpca_policy_loss
 
         kd = self.args.kd
         config = DPCAConfig(
@@ -983,11 +983,14 @@ class MetaPartitionedOPD:
         counts = credits.weight.long()
         if int(counts.sum().item()) != prior.numel():
             raise ValueError("atom student token counts do not cover the loss-masked response")
-        teacher_chunk = torch.repeat_interleave(credits.teacher_log_score, counts).float()
-        per_token_weight = torch.ones_like(prior)
 
-        target = dpca_target_log_probs(prior, teacher_chunk, per_token_weight, teacher_chunk)
-        advantages = dpca_advantages(target, prior, config.adv_clamp)
+        advantages = dpca_atom_advantages(
+            credits.student_old_log_score,
+            credits.teacher_log_score,
+            counts,
+            prior,
+            config.adv_clamp,
+        )
 
         loss, metrics = dpca_policy_loss(
             prior,

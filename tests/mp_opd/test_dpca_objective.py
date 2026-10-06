@@ -25,9 +25,8 @@ sys.path.insert(0, str(ROOT))
 
 from kdflow.algorithms._mp_opd_dpca import (
     DPCAConfig,
-    dpca_advantages,
+    dpca_atom_advantages,
     dpca_policy_loss,
-    dpca_target_log_probs,
 )
 
 CONFIG = DPCAConfig()
@@ -105,70 +104,75 @@ def test_clip_engages_once_the_policy_moves():
 def test_semantic_prior_matches_the_paper_formula():
     """A_i = (L_T / L_S - 1) * log p_i, with L_T and L_S summed inside a chunk."""
     prior = torch.tensor([-1.0, -2.0, -3.0, -4.0])
-    teacher_chunk = torch.tensor([-3.0, -3.0, -7.0, -7.0])  # chunk sums
-    weight = torch.ones(4)
+    counts = torch.tensor([2, 2])
+    # atom 0: L_S = -3, L_T = -6 -> ratio 2; atom 1: L_S = -7, L_T = -10.5 -> ratio 1.5
+    student_old = torch.tensor([-3.0, -7.0])
+    teacher = torch.tensor([-6.0, -10.5])
 
-    target = dpca_target_log_probs(prior, teacher_chunk, weight, teacher_chunk)
-    advantages = dpca_advantages(target, prior, adv_clamp=None)
+    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
 
-    for lo, hi, teacher_sum in [(0, 2, -3.0), (2, 4, -7.0)]:
-        prior_sum = prior[lo:hi].sum().item()
-        expected = (teacher_sum / prior_sum - 1.0) * prior[lo:hi]
-        assert torch.allclose(advantages[lo:hi], expected, atol=1e-5)
+    expected = torch.cat(
+        [(teacher[0] / student_old[0] - 1.0) * prior[0:2], (teacher[1] / student_old[1] - 1.0) * prior[2:4]]
+    )
+    assert torch.allclose(advantages, expected, atol=1e-5)
+    assert torch.allclose(advantages, torch.tensor([-1.0, -2.0, -1.5, -2.0]), atol=1e-5)
 
 
 def test_chunks_do_not_leak_across_atoms():
-    """Two atoms, deliberately identical L_T/L_S ratios, opposite sign.
+    """Two atoms with different ratios must not share one denominator.
 
-    If the prior sum crossed the boundary the two atoms would receive one shared
-    ratio and both advantages would move together. Isolated, they must not.
+    Dividing a whole chunk's teacher mass by a single token's log-probability
+    (``L_T / log p_i``) instead of the chunk's own sum (``L_T / L_S``) is the exact
+    failure this pins: it still produces finite, plausible-looking advantages.
     """
     prior = torch.tensor([-1.0, -1.0, -1.0, -1.0])
-    teacher_chunk = torch.tensor([-1.0, -1.0, -3.0, -3.0])
-    weight = torch.ones(4)
+    counts = torch.tensor([2, 2])
+    student_old = torch.tensor([-2.0, -2.0])   # L_S equal, L_T differ
+    teacher = torch.tensor([-1.0, -6.0])       # ratios 0.5 and 3.0
 
-    advantages = dpca_advantages(
-        dpca_target_log_probs(prior, teacher_chunk, weight, teacher_chunk),
-        prior,
-        adv_clamp=None,
-    )
+    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
 
-    assert torch.allclose(advantages[:2], torch.full((2,), -0.5), atol=1e-6)
-    assert torch.allclose(advantages[2:], torch.full((2,), 2.0), atol=1e-6)
-    assert not torch.allclose(advantages[:2], advantages[2:])
+    assert torch.allclose(advantages, torch.tensor([0.5, 0.5, -2.0, -2.0]), atol=1e-6)
+    assert not torch.allclose(advantages[0:2], advantages[2:4])
 
 
 def test_zero_prior_chunk_spreads_the_teacher_budget_uniformly():
     """L_S == 0 is the degenerate chunk upstream handles explicitly."""
-    prior = torch.tensor([0.0, 0.0, 0.0])
-    teacher_chunk = torch.tensor([-3.0, -3.0, -3.0])
-    weight = torch.ones(3)
+    prior = torch.zeros(3)
+    counts = torch.tensor([3])
+    student_old = torch.tensor([0.0])
+    teacher = torch.tensor([-3.0])
 
-    target = dpca_target_log_probs(prior, teacher_chunk, weight, teacher_chunk)
+    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
 
-    assert torch.allclose(target, torch.full((3,), -1.0), atol=1e-6)
+    # target = L_T / n_chunk = -1 per token, so A = -1 - 0.
+    assert torch.allclose(advantages, torch.full((3,), -1.0), atol=1e-6)
 
 
 def test_clamp_saturates_and_is_measurable():
     prior = torch.tensor([-1.0, -1.0])
-    teacher_chunk = torch.tensor([-100.0, 0.0])
-    weight = torch.ones(2)
+    counts = torch.tensor([1, 1])
+    student_old = torch.tensor([-1.0, -1.0])
+    teacher = torch.tensor([-100.0, 0.0])      # ratios 100 and 0
 
-    raw = dpca_advantages(
-        dpca_target_log_probs(prior, teacher_chunk, weight, teacher_chunk),
-        prior,
-        adv_clamp=None,
-    )
-    clamped = dpca_advantages(
-        dpca_target_log_probs(prior, teacher_chunk, weight, teacher_chunk),
-        prior,
-        adv_clamp=10.0,
-    )
+    raw = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
+    clamped = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=10.0)
 
+    # token 0: teacher far more negative than the student -> advantage -99
+    assert raw[0].item() == pytest.approx(-99.0)
+    # token 1: teacher exactly matches -> ratio 0 -> advantage +1
+    assert raw[1].item() == pytest.approx(1.0)
     assert raw.abs().max().item() > 10.0
     assert clamped.abs().max().item() == 10.0
-    assert clamped[0].item() == 10.0
-    assert clamped[1].item() == 0.0
+    assert clamped[0].item() == -10.0
+    assert clamped[1].item() == 1.0
+
+
+def test_counts_that_do_not_cover_the_prior_fail_closed():
+    with pytest.raises(ValueError):
+        dpca_atom_advantages(
+            torch.tensor([-3.0]), torch.tensor([-6.0]), torch.tensor([2]), torch.tensor([-1.0]), None
+        )
 
 
 def test_mismatched_shapes_fail_closed():
