@@ -178,18 +178,23 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             'text_head': first.text[:160],
         }
         # The engine's defect is an *unfilled* logprob slot, so the property that matters
-        # is consistency, not "never exactly zero": a temperature-scaled probability of
-        # genuinely 1 in float32 also reads as 0.0. Two checks separate the two:
+        # is consistency, not "never exactly zero": a temperature-scaled probability that
+        # is 1 to within float32 resolution also reads as 0.0. Two checks separate them:
         #   (a) recompute the reported value from the model on the same prefix; a sentinel
         #       would be off by the size of the logprob itself, while a cached incremental
         #       decode against a fresh full forward in bf16 differs by ~1e-2 at worst;
-        #   (b) at every exact zero, measure the margin to the runner-up in scaled logits.
-        #       exp() underflows below ~88, so a margin above that explains the zero.
+        #   (b) at every exact zero, recompute the same quantity in float64. If the true
+        #       value is ~0 then the zero is a genuine near-certainty rounded away by
+        #       float32 (the logits sit near +-30 with Gemma-2 softcapping, so the
+        #       logsumexp is ~1e2 and its ulp is ~1e-5: any runner-up margin beyond ~20
+        #       rounds the difference to exactly zero). If it is not ~0, the recorded slot
+        #       was never filled -- the engine's failure mode.
         zero_positions = [position for position, value in enumerate(first.logprobs)
                           if value == 0.0]
         checked = sorted(set(range(min(8, first.generated_tokens))) | set(zero_positions[:8]))
         errors = []
         margins_at_zero = []
+        exact64_at_zero = []
         for position in checked:
             prefix = list(prompt_ids) + list(first.token_ids[:position])
             with torch.inference_mode():
@@ -201,15 +206,19 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             if first.logprobs[position] == 0.0:
                 top_two = torch.topk(scaled, 2).values
                 margins_at_zero.append(float(top_two[0] - top_two[1]))
+                exact64_at_zero.append(
+                    abs(float(torch.log_softmax(scaled.double(), dim=-1)[token])))
         record['positions_rechecked'] = len(checked)
         record['max_recompute_error'] = max(errors) if errors else None
         record['mean_recompute_error'] = (sum(errors) / len(errors)) if errors else None
         record['zero_positions_rechecked'] = len(margins_at_zero)
         record['min_runner_up_margin_at_zero'] = (min(margins_at_zero)
                                                   if margins_at_zero else None)
+        record['max_abs_logprob_float64_at_zero'] = (max(exact64_at_zero)
+                                                     if exact64_at_zero else None)
         record['logprobs_consistent'] = (not errors) or max(errors) <= 0.05
-        record['zeros_explained_by_underflow'] = (not margins_at_zero
-                                                  or min(margins_at_zero) >= 80.0)
+        record['zeros_are_genuine_certainty'] = (not exact64_at_zero
+                                                 or max(exact64_at_zero) <= 1e-4)
         other = engine.sample(prompt_ids=prompt_ids, seed=2000 + index)
         record['seed_changes_the_draw'] = other.token_ids != first.token_ids
         content = list(first.content_ids)
@@ -225,7 +234,7 @@ def sampler_validation(commit: str, student_dir: str = '', max_new_tokens: int =
             record['atoms'] = len(weights)
             record['atoms_w_gt_1'] = sum(1 for value in weights if value > 1)
         for key in ('deterministic', 'lengths_align', 'all_logprobs_finite',
-                    'logprobs_consistent', 'zeros_explained_by_underflow'):
+                    'logprobs_consistent', 'zeros_are_genuine_certainty'):
             if not record[key]:
                 failures.append('sample %d: %s' % (index, key))
         if record['atomization'] != 'OK':
