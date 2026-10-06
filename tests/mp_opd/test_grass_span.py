@@ -348,10 +348,17 @@ def test_span_costs_match_the_closed_form_of_the_method_note():
             deviation = span_rate - pooled
             block = gram[start:end, start:end]
             expected_d = deviation @ block @ deviation
-            expected_v = sigma2 * (
-                (torch.diagonal(block) / span_weight).sum()
-                - block.sum() / span_weight.sum()
-            )
+            # V straight from its definition, tr(H A Sigma). The routine expands it
+            # to avoid cancelling sigma^2-scale terms; expanding it a second time
+            # here would only test that two spellings agree, not that either one is
+            # the trace of the product.
+            width = end - start
+            sigma = sigma2 * torch.diag(1.0 / span_weight)
+            pooling = torch.ones(width, 1, dtype=block.dtype) @ (
+                span_weight / span_weight.sum()
+            ).unsqueeze(0)
+            projection = torch.eye(width, dtype=block.dtype) - pooling
+            expected_v = float(torch.trace(block @ projection @ sigma))
             expected_alpha = min(max(float(expected_v / expected_d), 0.0), 1.0)
             assert float(tables.distortion[start, index]) == pytest.approx(
                 float(expected_d), rel=1e-10, abs=1e-14
@@ -576,9 +583,9 @@ def test_negative_statistics_are_reported_not_hidden():
     """An indefinite Gram must surface through the pathology counters.
 
     The credits are chosen so the sign is provable rather than sampled: with equal
-    weights, ``r = (1, -1, 0, 0, 0)`` makes the (0, 2) span deviate by
-    ``(+1/2, -1/2)``, and against ``H = [[1, 3], [3, 1]]`` that block gives
-    ``1/4 - 3/2 + 1/4 = -1``, an order of magnitude below any plausible tolerance.
+    weights, ``r = (1, -1, 0, 0, 0)`` pools to zero, so the (0, 2) span deviates by
+    ``(+1, -1)``, and against ``H = [[1, 3], [3, 1]]`` that block gives
+    ``1 - 6 + 1 = -4``, an order of magnitude below any plausible tolerance.
     """
     n = 5
     rate = torch.tensor([1.0, -1.0, 0.0, 0.0, 0.0], dtype=torch.float64)
@@ -589,7 +596,7 @@ def test_negative_statistics_are_reported_not_hidden():
     indefinite = torch.eye(n, dtype=torch.float64)
     indefinite[0, 1] = indefinite[1, 0] = 3.0
     tables = grass_span_costs(rate, weight, indefinite, 1.0, 3)
-    assert float(tables.distortion[0, 1]) == pytest.approx(-1.0, rel=1e-12)
+    assert float(tables.distortion[0, 1]) == pytest.approx(-4.0, rel=1e-12)
     metrics = grass_candidate_metrics(tables)
     assert float(metrics["mp_opd_grass_pathology_negative_d_fraction"]) > 0.0
     assert float(metrics["mp_opd_grass_pathology_negative_v_fraction"]) > 0.0
