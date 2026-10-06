@@ -219,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--dtype', default='bfloat16')
     parser.add_argument('--attn', default='sdpa', choices=('sdpa', 'eager'))
     parser.add_argument('--out', default='credit-path-probe.json')
+    parser.add_argument('--dump-atoms', default=None,
+                        help='JSONL of per-atom rate/weight, consumed by '
+                             'analyze_span_poolability.py')
     args = parser.parse_args(argv)
 
     root = put_repo_on_path(args.repo_root)
@@ -350,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     atom_report: list[dict[str, Any]] = []
     invalid = 0
     skipped_long = 0
+    dump_atoms = (open(args.dump_atoms, 'w', encoding='utf-8') if args.dump_atoms else None)
 
     with torch.no_grad():
         for index, sample in enumerate(samples):
@@ -406,6 +410,16 @@ def main(argv: list[str] | None = None) -> int:
                 'rate_max': float(credits.rate.max().item()),
             })
             batch = production_credit_batch(credits.rate, credits.base_credit, weight)
+            if args.dump_atoms is not None:
+                # Span-poolability needs the per-atom series itself, not the
+                # per-sample summaries below. One JSON object per sample, in
+                # sample order, so the analyzer's EMA sees a stable sequence.
+                dump_atoms.write(json.dumps({
+                    'index': index,
+                    'rate': [round(float(v), 8) for v in credits.rate.tolist()],
+                    'weight': [round(float(v), 8) for v in weight.tolist()],
+                    'base': [round(float(v), 8) for v in credits.base_credit.tolist()],
+                }) + '\n')
             legacy = float(
                 legacy_atomic_loss(credits.current_nll, credits.base_credit, weight)
                 .detach().item())
@@ -439,6 +453,10 @@ def main(argv: list[str] | None = None) -> int:
                         output.diagnostics['mp_opd_credit_transfer_fraction'].item()),
                     'corr': float(output.diagnostics['mp_opd_credit_corr_effective_atomic'].item()),
                 })
+
+    if dump_atoms is not None:
+        dump_atoms.close()
+        print('PROBE_ATOM_DUMP=%s' % args.dump_atoms, flush=True)
 
     summary: dict[str, Any] = {
         'repo_rev': git_revision(root),
