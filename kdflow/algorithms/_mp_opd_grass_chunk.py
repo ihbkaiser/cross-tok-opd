@@ -389,28 +389,28 @@ def grass_chunk_tables(
     row_sum_prefix = torch.cat((h.new_zeros(1), h.sum(dim=1).cumsum(0)))
     weight_prefix = torch.cat((h.new_zeros(1), w.cumsum(0)))
     weighted_rate_prefix = torch.cat((h.new_zeros(1), (w * r).cumsum(0)))
+    # Per-atom trace contribution, prefix-summed so a chunk's trace is a scalar
+    # difference rather than a gather that would have to be padded.
+    trace_prefix = torch.cat((h.new_zeros(1), (diagonal / w).cumsum(0)))
 
-    offsets = torch.arange(int(lengths.max()), device=r.device).view(1, -1)
-    span_index = torch.stack(
-        [
-            torch.arange(start, end, device=r.device).view(-1, 1)
-            + offsets[:, : end - start]
-            for start, end in spans
-        ]
-    )
+    starts = torch.tensor([start for start, _end in spans], dtype=torch.int64, device=r.device)
+    ends = torch.tensor([end for _start, end in spans], dtype=torch.int64, device=r.device)
+    positions = torch.arange(int(lengths.max()), device=r.device).view(1, -1)
+    # Chunks have different lengths, so the block gather is padded to the widest one.
+    # Padded slots point at their own chunk's first atom - always a valid index - and
+    # are then zeroed by multiplying a masked deviation, so no junk can reach D_c.
+    inside = positions < lengths.unsqueeze(-1)
+    index = torch.where(inside, positions + starts.unsqueeze(-1), starts.unsqueeze(-1))
+    span_index = index.unsqueeze(-1) + index.unsqueeze(-2)
 
-    atom_weight = weight_prefix[span_index + 1] - weight_prefix[span_index]
-    chunk_rate = (
-        weighted_rate_prefix[span_index + 1] - weighted_rate_prefix[span_index]
-    ) / atom_weight
-    deviation = r[span_index] - chunk_rate
-    block = h[span_index.unsqueeze(-1), span_index.unsqueeze(-2)]
-    distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(
-        dim=(1, 2)
-    )
-    trace = sigma2 * (diagonal[span_index] / w[span_index]).sum(dim=1)
-    cross = row_sum_prefix[span_index[:, -1] + 1] - row_sum_prefix[span_index[:, 0]]
-    variance = trace - sigma2 * cross / atom_weight.sum(dim=1)
+    chunk_weight = weight_prefix[ends] - weight_prefix[starts]
+    chunk_rate = (weighted_rate_prefix[ends] - weighted_rate_prefix[starts]) / chunk_weight
+    deviation = (r[index] - chunk_rate.unsqueeze(-1)) * inside
+    block = h[span_index]
+    distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
+    trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
+    cross = row_sum_prefix[ends] - row_sum_prefix[starts]
+    variance = trace - sigma2 * cross / chunk_weight
 
     non_singleton = lengths > 1
     # Section 4 / 13.5: a singleton chunk is pinned to alpha = 0 and reported as

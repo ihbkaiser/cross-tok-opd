@@ -435,6 +435,7 @@ def _delta_correction(
     ``1 - 2 p_t[y_t] + p_t[y_t]^2``.
     """
     rows = row_labels.numel()
+    columns = probabilities.shape[0]
     vocab = probabilities.shape[1]
     row_scale = label_scale[column_index].unsqueeze(-1)
     column_scale = label_scale.unsqueeze(0)
@@ -442,12 +443,17 @@ def _delta_correction(
     at_column_labels = probabilities.gather(
         1, column_labels.unsqueeze(0).expand(rows, -1)
     )
-    # q_s[y_t]: a flat gather at (the window position of row token t, its label).
-    # gather keeps the [rows, 1] shape of its index, which is exactly the column
-    # broadcast this term needs - no further unsqueeze.
+    # q_s[y_t]: a flat gather at (the window position of column s, the label of row t).
+    # Both operands must broadcast to the full [rows, window] block - indexing by the
+    # row's own position instead would collapse this term onto the diagonal and leave
+    # every off-diagonal block wrong.
+    window_position = torch.arange(columns, device=probabilities.device)
     at_row_labels = probabilities.reshape(-1).gather(
-        0, column_index.unsqueeze(-1) * vocab + row_labels.unsqueeze(-1)
-    )
+        0,
+        (window_position.unsqueeze(0) * vocab + row_labels.unsqueeze(-1))
+        .expand(rows, columns)
+        .reshape(-1),
+    ).view(rows, columns)
     same_label = row_labels.unsqueeze(-1) == column_labels.unsqueeze(0)
     return (
         -(row_scale * at_column_labels + at_row_labels * column_scale)
@@ -1143,6 +1149,11 @@ def grass_candidate_metrics(
     valid = tables.valid
     if not bool(valid.any()):
         return {}
+    # The reporting buckets are indexed against the table's own width, not against a
+    # separately recomputed `length`: the two can disagree whenever a caller supplies
+    # a table built with a different max_span_length, and indexing past the end is a
+    # crash in a telemetry function.
+    length = tables.costs.shape[1]
     distortion = tables.distortion[valid]
     variance = tables.variance[valid]
     alpha = tables.alpha[valid]
