@@ -318,8 +318,15 @@ class MetaPartitionedOPD:
         # built once here, and the projection is re-verified by digest here rather
         # than trusted, because a run whose chunks came from a different
         # projection is not the run the recipe names.
+        # Built only for the mode that consumes it. Gating on the source alone let
+        # the default mp_opd_grass_chunk_source='xtoken' build this for every mode,
+        # so any mp_opd run without MP_XTOKEN_PROJECTION_PATH died in __init__ on
+        # Path(None) before a single step - gbv, soft and atomic included, not just
+        # grass_chunk.
         self.grass_aligner = (
-            self._build_grass_aligner() if self.grass_chunk_source == "xtoken" else None
+            self._build_grass_aligner()
+            if self.mode == "grass_chunk" and self.grass_chunk_source == "xtoken"
+            else None
         )
         self._grass_modes = _GRASS_MODES
         self.grass_needs_logits = self.mode in _GRASS_MODES
