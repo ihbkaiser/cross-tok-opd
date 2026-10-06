@@ -29,6 +29,11 @@ from ._mp_opd_credit import (
     soft_partition_loss,
     span_tables,
 )
+from ._mp_opd_credit_transform import (
+    AtomCreditBatch,
+    CreditTransformSpec,
+    credit_transform_from_args,
+)
 from ._mp_opd_energy import MPAtomEnergy, load_energy_checkpoint
 from ._mp_opd_gbv_span import (
     atom_logit_sensitivity,
@@ -247,6 +252,12 @@ class MetaPartitionedOPD:
         if self.mode == "gbv" and self.gbv_geometry not in {"exact_logit", "token_count"}:
             raise ValueError(f"unsupported mp_opd_gbv_geometry: {self.gbv_geometry}")
         self.gbv_needs_logits = self.mode == "gbv" and self.gbv_geometry == "exact_logit"
+        # Cross-atom credit operator. Atomic *is* the identity operator here, so
+        # mode 'atomic' and mode 'kernel' with transform 'identity' share one path.
+        self.credit_spec: CreditTransformSpec = credit_transform_from_args(self.args.kd)
+        # Fail-closed regression probe: recompute the historical Atomic pooled loss
+        # next to the identity-operator loss and raise on any drift.
+        self.credit_identity_check = _env_flag("MP_OPD_CREDIT_IDENTITY_CHECK", False)
         self.host_mask = bool(getattr(self.args.kd, "mp_opd_host_mask", False))
         self.timing_enabled = os.environ.get("MP_OPD_TIMING", "0") == "1"
         # The diagnostics are opt-in because logit-space gradient probes retain
@@ -365,6 +376,38 @@ class MetaPartitionedOPD:
         """Explicitly separate from ``get_projector_params``/student optimizer."""
         return [] if self.energy is None else list(self.energy.parameters())
 
+    def _effective_credit(self, credits, n: int, micro_batch, sample_index: int):
+        """Apply the configured credit operator to one sample's atomic credits.
+
+        Production calls this once per sample, so the packed-batch axes are the
+        degenerate ones: one sequence, every listed atom valid. Atoms the atomizer
+        rejected never reach here, and the masked EOS tokens live outside every
+        atom, exactly as in the Atomic credit path.
+        """
+        metadata = {}
+        if self.credit_spec.name == "external":
+            supplied = micro_batch.get("mp_opd_atom_future_advantage")
+            if supplied is None:
+                raise RuntimeError(
+                    "the external credit operator requires a detached "
+                    "mp_opd_atom_future_advantage per sample"
+                )
+            advantage = supplied[sample_index]
+            if torch.as_tensor(advantage).numel() != n:
+                raise ValueError("future-advantage cardinality mismatch")
+            metadata["future_advantage"] = advantage
+        batch = AtomCreditBatch(
+            rate_credit=credits.rate,
+            base_credit=credits.base_credit,
+            token_count=credits.weight,
+            valid_mask=torch.ones_like(credits.rate, dtype=torch.bool),
+            seq_ids=torch.zeros_like(credits.rate, dtype=torch.long),
+            atom_positions=torch.arange(n, device=credits.rate.device),
+            metadata=metadata,
+        )
+        output = self.credit_spec.transform(batch, training=True)
+        return output.effective_credit, output.diagnostics
+
     def _partition_loss(
         self,
         credits,
@@ -380,40 +423,71 @@ class MetaPartitionedOPD:
         n = len(atoms)
         metrics = {}
 
+        def add_diagnostics(partition):
+            if not diagnostics:
+                return
+            metrics.update(
+                partition_metrics(
+                    credits.base_credit,
+                    credits.weight,
+                    partition,
+                    shuffle_seed=diagnostic_seed,
+                )
+            )
+            if self.diagnostics_logit_grad and student_logits is not None:
+                metrics.update(
+                    logit_gradient_metrics(
+                        student_logits,
+                        credits.student_token_nll,
+                        credits.rate,
+                        credits.weight,
+                        partition,
+                        shuffle_seed=diagnostic_seed,
+                        # Atoms can leave tokens outside every atom (masked EOS), so the
+                        # probe needs the ranges instead of assuming a full cover.
+                        atom_ranges=tuple(
+                            (atom.student_start, atom.student_end) for atom in atoms
+                        ),
+                    )
+                )
+
         def hard_loss_with_metrics(partition):
             loss = hard_partition_loss(
                 credits.current_nll, credits.base_credit, credits.weight, partition
             )
-            if diagnostics:
-                metrics.update(
-                    partition_metrics(
-                        credits.base_credit,
-                        credits.weight,
-                        partition,
-                        shuffle_seed=diagnostic_seed,
-                    )
-                )
-                if self.diagnostics_logit_grad and student_logits is not None:
-                    metrics.update(
-                        logit_gradient_metrics(
-                            student_logits,
-                            credits.student_token_nll,
-                            credits.rate,
-                            credits.weight,
-                            partition,
-                            shuffle_seed=diagnostic_seed,
-                            # Atoms can leave tokens outside every atom (masked EOS), so the
-                            # probe needs the ranges instead of assuming a full cover.
-                            atom_ranges=tuple(
-                                (atom.student_start, atom.student_end) for atom in atoms
-                            ),
-                        )
-                    )
+            add_diagnostics(partition)
             return loss, metrics
 
-        if self.mode == "atomic":
-            partition = fixed_partition(n, 1)
-            return hard_loss_with_metrics(partition)
+        def credit_operator_loss(partition):
+            """``sum_i stopgrad(A_i) NLL_i`` with ``A = K r`` from the credit operator.
+
+            Atomic is this path with ``K = I``. The operator never redefines
+            ``b_i``/``w_i``/``r_i`` and never touches atomization, masking or NLL.
+            """
+            effective, operator_metrics = self._effective_credit(
+                credits, n, micro_batch, sample_index
+            )
+            metrics.update(operator_metrics)
+            loss = soft_partition_loss(credits.current_nll, effective)
+            if self.credit_identity_check and self.credit_spec.name == "identity":
+                legacy = hard_partition_loss(
+                    credits.current_nll, credits.base_credit, credits.weight, partition
+                )
+                drift = (loss - legacy).detach().abs()
+                relative = drift / (1.0 + legacy.detach().abs())
+                metrics["mp_opd_credit_identity_abs_diff"] = drift
+                metrics["mp_opd_credit_identity_rel_diff"] = relative
+                if float(relative) > 1e-5:
+                    raise RuntimeError(
+                        "identity credit operator no longer reproduces the historical "
+                        f"Atomic pooled loss: |drift|={float(drift):.6g}, "
+                        f"relative={float(relative):.6g} > 1e-5"
+                    )
+            add_diagnostics(partition)
+            return loss, metrics
+
+        if self.mode in {"atomic", "kernel"}:
+            return credit_operator_loss(fixed_partition(n, 1))
         if self.mode == "fixed":
             partition = fixed_partition(n, self.fixed_span_length)
             return hard_loss_with_metrics(partition)

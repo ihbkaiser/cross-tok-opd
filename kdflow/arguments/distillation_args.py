@@ -235,6 +235,58 @@ class DistillationArguments:
         default=False,
         metadata={"help": "Candidate-only: copy semi-Markov boolean mask metadata to host once per partition."},
     )
+    # Cross-atom credit operators A = K r. Atomic is the identity operator K = I;
+    # the remaining operators are the pre-registered conditions of the cross-atom
+    # credit experiment, not a continuation of the GBV span selector.
+    mp_opd_credit_transform: str = field(
+        default="identity",
+        metadata={
+            "choices": ["identity", "forward", "backward", "shuffle", "causal_kernel", "external"],
+            "help": "Credit operator attached to each atom NLL. 'identity' is Atomic.",
+        },
+    )
+    mp_opd_credit_lambda: float = field(
+        default=0.25,
+        metadata={"help": "Transfer weight of the neighbor operators. Atomic is lambda=0."},
+    )
+    mp_opd_credit_convex: bool = field(
+        default=True,
+        metadata={"help": "Convex transfer (1-lam) r_i + lam r_j; False is raw additive."},
+    )
+    mp_opd_credit_horizon: int = field(
+        default=2, metadata={"help": "Static causal kernel horizon in atoms; 1 is Atomic."}
+    )
+    mp_opd_credit_kernel: str = field(
+        default="uniform",
+        metadata={
+            "choices": ["uniform", "exponential"],
+            "help": "Static kernel family: truncated uniform or normalized exponential.",
+        },
+    )
+    mp_opd_credit_decay: float = field(
+        default=0.5, metadata={"help": "Decay of the exponential causal kernel."}
+    )
+    mp_opd_credit_direction: str = field(
+        default="forward",
+        metadata={
+            "choices": ["forward", "backward", "symmetric"],
+            "help": "Kernel offset family. 'backward' is the anti-causal control.",
+        },
+    )
+    mp_opd_credit_shuffle_seed: int = field(
+        default=43, metadata={"help": "Seed of the in-sequence shuffle control."}
+    )
+    mp_opd_credit_alpha: float = field(
+        default=0.25,
+        metadata={"help": "Weight of an offline future advantage in the external operator."},
+    )
+    mp_opd_credit_scale_match: str = field(
+        default="raw",
+        metadata={
+            "choices": ["raw", "rms"],
+            "help": "External operator scaling: raw additive, or RMS-matched to atomic credit.",
+        },
+    )
 
     def __post_init__(self):
         # Validate teacher parallel size settings
@@ -269,7 +321,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -290,3 +342,34 @@ class DistillationArguments:
                 )
             if self.mp_opd_gbv_beta < 0 or not math.isfinite(self.mp_opd_gbv_beta):
                 raise ValueError("mp_opd_gbv_beta must be finite and nonnegative")
+            if self.mp_opd_credit_transform not in {
+                "identity", "forward", "backward", "shuffle", "causal_kernel", "external",
+            }:
+                raise ValueError(
+                    f"unsupported mp_opd_credit_transform: {self.mp_opd_credit_transform}"
+                )
+            if not 0.0 <= self.mp_opd_credit_lambda <= 1.0:
+                raise ValueError("mp_opd_credit_lambda must be in [0, 1]")
+            if self.mp_opd_credit_horizon < 1:
+                raise ValueError("mp_opd_credit_horizon must be at least 1")
+            if self.mp_opd_credit_kernel not in {"uniform", "exponential"}:
+                raise ValueError(
+                    f"unsupported mp_opd_credit_kernel: {self.mp_opd_credit_kernel}"
+                )
+            if not 0.0 < self.mp_opd_credit_decay <= 1.0:
+                raise ValueError("mp_opd_credit_decay must be in (0, 1]")
+            if self.mp_opd_credit_direction not in {"forward", "backward", "symmetric"}:
+                raise ValueError(
+                    f"unsupported mp_opd_credit_direction: {self.mp_opd_credit_direction}"
+                )
+            if self.mp_opd_credit_alpha < 0 or not math.isfinite(self.mp_opd_credit_alpha):
+                raise ValueError("mp_opd_credit_alpha must be finite and nonnegative")
+            if self.mp_opd_credit_scale_match not in {"raw", "rms"}:
+                raise ValueError(
+                    f"unsupported mp_opd_credit_scale_match: {self.mp_opd_credit_scale_match}"
+                )
+            if self.mp_opd_mode == "atomic" and self.mp_opd_credit_transform != "identity":
+                raise ValueError(
+                    "mp_opd_mode='atomic' is the identity credit operator; select the "
+                    "operator with mp_opd_mode='kernel' instead"
+                )
