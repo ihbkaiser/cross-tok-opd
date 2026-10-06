@@ -251,7 +251,10 @@ def chunk_head_gram(
     each ``alpha_c`` from ``H_c`` alone and ignores cross-chunk terms.
     """
     n = len(atom_ranges)
-    gram = torch.zeros((n, n), dtype=torch.float64, device=logits.device)
+    # float32, like the per-chunk routine it assembles: holding the assembly in
+    # float64 would advertise precision the fp32 blocks do not have while doubling
+    # the [n, n] buffer - 134 MB at n = 4096.
+    gram = torch.zeros((n, n), dtype=torch.float32, device=logits.device)
     symmetry_error = 0.0
     covered = 0
     for start, end in partition:
@@ -279,7 +282,7 @@ def chunk_head_gram(
         )
         symmetry_error = max(symmetry_error, block.symmetry_error)
         covered += block.token_count
-        gram[start:end, start:end] = block.gram
+        gram[start:end, start:end] = block.gram.to(gram.dtype)
     return GrassHeadGram(
         gram=gram,
         diagonal_only=bool(diagonal_only),
@@ -401,12 +404,13 @@ def grass_chunk_tables(
     # are then zeroed by multiplying a masked deviation, so no junk can reach D_c.
     inside = positions < lengths.unsqueeze(-1)
     index = torch.where(inside, positions + starts.unsqueeze(-1), starts.unsqueeze(-1))
-    span_index = index.unsqueeze(-1) + index.unsqueeze(-2)
 
     chunk_weight = weight_prefix[ends] - weight_prefix[starts]
     chunk_rate = (weighted_rate_prefix[ends] - weighted_rate_prefix[starts]) / chunk_weight
     deviation = (r[index] - chunk_rate.unsqueeze(-1)) * inside
-    block = h[span_index]
+    # `index` already holds absolute atom ids, so the block is the two-axis gather -
+    # adding the two index tensors instead would address start+i + start+j.
+    block = h[index.unsqueeze(-1), index.unsqueeze(-2)]
     distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
     trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
     cross = row_sum_prefix[ends] - row_sum_prefix[starts]
@@ -521,11 +525,14 @@ def chunk_boundary_diagnostics(
     for start, end in partition:
         if end - start < 2:
             continue
-        # Pair index i joins atoms i and i+1, so the within-chunk pairs of a chunk
-        # [start, end) are exactly i in [start, end - 1]. Getting this off by one
-        # would let a boundary pair into the "within" population, which is the
-        # population that is supposed to establish the chunk as a coherent unit.
-        inside[start : end - 1] = False
+        # Pair index i joins atoms i and i+1, so a chunk [start, end) owns exactly the
+        # pairs i in [start, end - 2]. The pair i = end - 1 reaches into the next chunk
+        # and is the single boundary pair this chunk must keep out of the "within"
+        # population. Clearing the range [start, end - 1] instead would drop precisely
+        # the pairs the chunk owns and keep the boundary one - the inverse of the
+        # intent, and it makes the two populations describe opposite things.
+        if end - 1 < inside.numel():
+            inside[end - 1] = False
     scale = (1.0 / w[:-1] + 1.0 / w[1:]).clamp_min(1e-300).sqrt()
     absolute = (r[1:] - r[:-1]).abs()
     normalized = absolute / scale

@@ -172,8 +172,12 @@ def test_chunk_head_gram_matches_the_unrestricted_gram_inside_each_chunk():
     # The same atoms computed in one pass with a band wide enough to reach every
     # within-chunk pair must agree exactly on those entries.
     wide = atom_head_gram(logits, hidden, labels, ranges, 2)
-    expected = _chunked_gram(partition, wide.gram)
-    assert torch.allclose(blockwise.gram, expected, atol=1e-10)
+    expected = _chunked_gram(partition, wide.gram).to(torch.float64)
+    # chunk_head_gram accumulates each chunk in float64 while atom_head_gram's
+    # accumulator is float32, so the comparison happens in float64 against a
+    # tolerance the fp32 path can actually resolve rather than an absolute 1e-10.
+    scale = max(float(expected.abs().max()), 1.0) * 1e-6
+    assert torch.allclose(blockwise.gram.to(torch.float64), expected, atol=scale)
     # Nothing is computed across a chunk boundary.
     ids = chunk_span_ids(partition, 4, logits.device)
     assert float(blockwise.gram[ids.unsqueeze(-1) != ids.unsqueeze(0)].abs().max()) == 0.0
@@ -191,7 +195,9 @@ def test_chunk_head_gram_singleton_chunks_cost_only_their_diagonal():
         (index, index + 1) for index in range(4)
     ))
     full = atom_head_gram(logits, hidden, labels, ranges, 4)
-    assert torch.allclose(torch.diagonal(singles.gram), torch.diagonal(full.gram), atol=1e-12)
+    diagonal = torch.diagonal(full.gram).to(torch.float64)
+    scale = max(float(diagonal.abs().max()), 1.0) * 1e-6
+    assert torch.allclose(torch.diagonal(singles.gram).to(torch.float64), diagonal, atol=scale)
 
 
 def test_chunk_head_gram_diag_ablation_zeroes_the_off_diagonal():
@@ -395,12 +401,12 @@ def test_noise_estimator_ignores_pairs_that_cross_a_chunk_boundary():
     generator = torch.Generator().manual_seed(51)
     n, sigma, weight_value = 40, 0.05, 4.0
     weight = torch.full((n,), weight_value, dtype=torch.float64)
+    # The latent credit jumps between the two chunks, so exactly one adjacent pair -
+    # the boundary one - carries a step. A spike on a single atom would contaminate
+    # its other neighbour too and would not test what this is about.
     latent = torch.full((n,), 0.5, dtype=torch.float64)
+    latent[20:] += 5.0
     noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
-    # Chunk 0 covers atoms 0..19 and chunk 1 covers 20..39. Atoms 19 and 20 get a
-    # huge latent jump, which is exactly the cross-boundary pair the noise scale
-    # must not see.
-    noise[19] += 30.0
     rate = latent + noise
     same_chunk = torch.ones(n - 1, dtype=torch.bool)
     same_chunk[19] = False
@@ -408,6 +414,27 @@ def test_noise_estimator_ignores_pairs_that_cross_a_chunk_boundary():
     inside = estimator.update(rate, weight, same_group=same_chunk)
     assert inside["valid_pairs"] == n - 2
     assert estimator.sigma2 == pytest.approx(sigma**2, rel=0.35)
+
+
+def test_the_noise_scale_would_be_wrecked_by_the_boundary_pair():
+    """Control: without the group mask the same step must inflate the estimate.
+
+    Proves the mask is doing something on this input rather than the test passing
+    because the contamination was too small to matter.
+    """
+    generator = torch.Generator().manual_seed(51)
+    n, sigma, weight_value = 40, 0.05, 4.0
+    weight = torch.full((n,), weight_value, dtype=torch.float64)
+    latent = torch.full((n,), 0.5, dtype=torch.float64)
+    latent[20:] += 5.0
+    noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
+    rate = latent + noise
+
+    masked = GrassNoiseEstimator(rho=0.0, min_adjacent_pairs=1).update(
+        rate, weight, same_group=torch.cat((torch.ones(19, dtype=torch.bool), torch.zeros(20, dtype=torch.bool)))
+    )
+    unmasked = GrassNoiseEstimator(rho=0.0, min_adjacent_pairs=1).update(rate, weight)
+    assert float(masked["sigma_batch"]) < float(unmasked["sigma_batch"])
 
 
 def test_noise_estimator_rejects_a_mismatched_group_mask():
