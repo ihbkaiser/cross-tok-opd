@@ -283,22 +283,15 @@ def main(argv: list[str] | None = None) -> int:
             HFFrozenPolicySampler,
             SamplingConfig,
             sampling_config_from_launch_config,
+            terminal_token_ids,
         )
         # The policy that generates is the student, so the stop set must be the
         # student's own turn terminators. Taking the teacher's eos here hands the
         # sampler an id that is an ordinary token in the student vocabulary, so
         # rollouts never stop at the turn boundary and keep emitting turn markers,
-        # which the atomizer then rejects as unsupported added tokens. This mirrors
-        # ``mp_content_ids``: eos plus ``<end_of_turn>`` when it is a special token.
-        stops: list[int] = []
-        student_eos = student_tok.eos_token_id
-        if student_eos is not None:
-            stops.append(int(student_eos))
-        added_vocab = getattr(student_tok, 'get_added_vocab', dict)()
-        end_of_turn = added_vocab.get('<end_of_turn>')
-        if end_of_turn is not None and int(end_of_turn) in set(
-                getattr(student_tok, 'all_special_ids', ())):
-            stops.append(int(end_of_turn))
+        # which the atomizer then rejects as unsupported added tokens. The repo
+        # already defines this set for the sampler, so reuse it.
+        stops = list(terminal_token_ids(student_tok))
         print('PROBE_STOP_TOKENS: %s (student policy)' % stops, flush=True)
         campaign = (sampling_config_from_launch_config(
             args.launch_config, stop_token_ids=tuple(stops))
