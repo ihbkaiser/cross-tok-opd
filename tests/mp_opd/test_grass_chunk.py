@@ -300,9 +300,14 @@ def test_full_pooling_recovers_hard_chunk_pooling():
     n = 6
     rate, weight = _credits(n, seed=35, spread=3.0)
     partition = ((0, 2), (2, 6))
-    gram = _chunked_gram(partition, _psd(n, 35))
-    # An enormous noise scale drives every strength to the alpha = 1 boundary.
+    # A diagonal Gram, so V_c and D_c are both positive and grow at known rates: the
+    # off-diagonal sum vanishes, D_c is the plain squared deviation, and V_c is
+    # sigma^2/W sum_i (W/w_i - 1). A random Gram can make a two-atom block nearly
+    # rank one, where V_c collapses to zero and the alpha is decided by the
+    # conditioning rather than by the noise scale this test is about.
+    gram = torch.eye(n, dtype=torch.float64)
     tables = grass_chunk_tables(rate, weight, gram, partition, 1e6)
+    assert bool((tables.variance > 0.0).all())
     assert torch.all(tables.alpha == 1)
     shrunk, _ = apply_chunk_shrinkage(rate, weight, tables)
     assert torch.allclose(shrunk, hard_chunk_credits(rate, weight, partition), atol=1e-12)
