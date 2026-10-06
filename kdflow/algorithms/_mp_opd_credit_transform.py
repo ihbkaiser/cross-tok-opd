@@ -595,6 +595,32 @@ class ExternalCreditAugmentationTransform(CreditTransformBase):
         return augmented
 
 
+def production_credit_batch(
+    rate_credit: torch.Tensor,
+    base_credit: torch.Tensor,
+    token_count: torch.Tensor,
+    metadata: Mapping[str, Any] | None = None,
+) -> AtomCreditBatch:
+    """One sample's atoms as the trainer presents them: one sequence, all valid.
+
+    Production calls the operator once per sample, so the packed-batch axes are
+    degenerate. Atomizer-rejected samples never reach the credit path, and masked
+    EOS tokens live outside every atom, exactly as in the Atomic credit path. The
+    trainer and the offline probes share this constructor so a probe cannot pass on
+    a batch geometry the trainer never builds.
+    """
+    n = rate_credit.numel()
+    return AtomCreditBatch(
+        rate_credit=rate_credit,
+        base_credit=base_credit,
+        token_count=token_count,
+        valid_mask=torch.ones_like(rate_credit, dtype=torch.bool),
+        seq_ids=torch.zeros_like(rate_credit, dtype=torch.long),
+        atom_positions=torch.arange(n, device=rate_credit.device),
+        metadata=dict(metadata or {}),
+    )
+
+
 @dataclass(frozen=True)
 class CreditTransformSpec:
     """Resolved, loggable description of one credit operator."""

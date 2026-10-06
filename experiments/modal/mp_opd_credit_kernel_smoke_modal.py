@@ -209,6 +209,191 @@ def _training_options(condition, updates, student, teacher, prompts):
     return options
 
 
+@app.function(image=image, gpu='B200', cpu=8, memory=65536, timeout=2400, retries=0,
+              max_containers=1, volumes={'/assets': assets, '/runs': outputs})
+def credit_path_probe(commit: str, samples: int = 8):
+    """Run the credit path on a real B200 with real atoms, without the rollout engine.
+
+    Why not just train: at this revision every on-policy rollout with
+    ``temperature > 0`` aborts inside the SGLang engine with
+    ``engine returned a zero sampled behavior log-probability (p=1)``. That is the
+    documented upstream 0.5.11 defect (``SGLANG_ZERO_LOGPROB_BUG.md``,
+    ``LONGCAP_PARITY_PROBE.md`` section 17) and the team decision is to keep the
+    guard closed rather than relax it. The engine is therefore not evidence about
+    this change, and this probe replaces it: the same atomizer, the same
+    ``build_atom_credits``, the same ``production_credit_batch`` and the same
+    operators, on real logits from a real GPU forward pass, with the historical
+    pooled Atomic loss computed alongside as the regression oracle.
+
+    What this can show: the credit operators run on real atoms, the identity
+    operator reproduces the historical Atomic loss, and telemetry is finite. What
+    it cannot show: anything about rollout, training dynamics or utility.
+    """
+    root = Path('/runs')
+    root.mkdir(exist_ok=True)
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from kdflow.algorithms._mp_opd_atoms import SimCTAtomizer
+    from kdflow.algorithms._mp_opd_credit import build_atom_credits, hard_partition_loss
+    from kdflow.algorithms._mp_opd_credit_transform import (
+        CREDIT_TRANSFORM_CHOICES,
+        build_credit_transform,
+        production_credit_batch,
+    )
+
+    def legacy_atomic_loss(current_nll, base, weight):
+        """The historical Atomic objective: the singleton partition of the pooled loss."""
+        partition = tuple((index, index + 1) for index in range(current_nll.numel()))
+        return hard_partition_loss(current_nll, base, weight, partition)
+
+    pairs = [
+        ('What is 17*23? Show the arithmetic.', ' 17 * 23 = 391, so the answer is 391.'),
+        ('Solve for x: 3x + 7 = 25.', ' 3x = 18, so x = 6.'),
+        ('What is the sum of the first ten positive integers?', ' The sum is 55.'),
+        ('Write a Python function that reverses a string.',
+         ' def reverse(s):\n    return s[::-1]'),
+        ('What is the greatest common divisor of 84 and 132?', ' The answer is 12.'),
+        ('Simplify (x^2 - 9)/(x - 3).', ' It simplifies to x + 3.'),
+        ('Write a Python one-liner that counts vowels in a string.',
+         " sum(c in 'aeiou' for c in s)"),
+        ('What is 2^10 divided by 8?', ' 1024 / 8 = 128.'),
+    ][:samples]
+
+    device = 'cuda'
+    student_tok = AutoTokenizer.from_pretrained('/assets/student')
+    teacher_tok = AutoTokenizer.from_pretrained('/assets/teacher')
+    student = AutoModelForCausalLM.from_pretrained(
+        '/assets/student', torch_dtype=torch.bfloat16, attn_implementation='sdpa'
+    ).to(device).eval()
+    teacher = AutoModelForCausalLM.from_pretrained(
+        '/assets/teacher', torch_dtype=torch.bfloat16, attn_implementation='sdpa'
+    ).to(device).eval()
+    atomizer = SimCTAtomizer(student_tok, teacher_tok)
+
+    operators = list(CREDIT_TRANSFORM_CHOICES)
+    per_operator = {name: [] for name in operators}
+    per_operator['legacy_atomic'] = []
+    atom_report = []
+    invalid = 0
+    with torch.no_grad():
+        for index, (prompt, response) in enumerate(pairs):
+            row = {}
+            for tag, tokenizer, model in (('student', student_tok, student),
+                                          ('teacher', teacher_tok, teacher)):
+                prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
+                response_ids = tokenizer.encode(response, add_special_tokens=False)
+                eos = tokenizer.eos_token_id
+                if eos is not None and (not response_ids or response_ids[-1] != eos):
+                    response_ids = response_ids + [eos]
+                ids = prompt_ids + response_ids
+                logits = model(torch.tensor([ids], device=device)).logits[0]
+                # Rows that predict a response token: the last prompt row predicts the
+                # first response token, and the final row predicts nothing.
+                first = len(prompt_ids) - 1
+                last = len(ids) - 1
+                row[tag] = (logits[first:last].float(),
+                            torch.tensor(ids[first + 1:last + 1], device=device),
+                            response_ids)
+            stu_logits, stu_labels, stu_response = row['student']
+            tea_logits, tea_labels, tea_response = row['teacher']
+            atomized = atomizer.atomize(stu_response, tea_response, sample_id='probe-%d' % index)
+            if not atomized.valid:
+                invalid += 1
+                print('PROBE_ATOMIZE_FAIL=' + json.dumps({'index': index,
+                                                          'reason': atomized.failure_reason}))
+                continue
+            atoms = atomized.atoms
+            credits = build_atom_credits(atoms, stu_logits, stu_labels, tea_logits, tea_labels)
+            atom_report.append({
+                'index': index, 'atoms': len(atoms),
+                'one_to_one': sum(atom.boundary_type == 'one_to_one' for atom in atoms),
+                'student_tokens': int(credits.weight.sum().item()),
+                'masked_student_eos': atomized.masked_student_eos,
+                'w_mean': float(credits.weight.mean().item()),
+                'base_mean': float(credits.base_credit.mean().item()),
+                'base_std': float(credits.base_credit.std(unbiased=False).item()),
+                'rate_mean': float(credits.rate.mean().item()),
+                'rate_std': float(credits.rate.std(unbiased=False).item()),
+                'rate_min': float(credits.rate.min().item()),
+                'rate_max': float(credits.rate.max().item()),
+            })
+            batch = production_credit_batch(credits.rate, credits.base_credit, credits.weight)
+            legacy = float(
+                legacy_atomic_loss(credits.current_nll, credits.base_credit, credits.weight)
+                .detach()
+                .item()
+            )
+            per_operator['legacy_atomic'].append({'loss': legacy})
+            for name in operators:
+                if name == 'external':
+                    # The external operator is Experiment B's offline augmentation; give
+                    # it the local directional signal the branch probe would supply.
+                    direction = (credits.rate - credits.rate.mean()).detach()
+                    transform = build_credit_transform(name, alpha=0.25, scale_match='rms')
+                    operator_batch = production_credit_batch(
+                        credits.rate, credits.base_credit, credits.weight,
+                        {'future_advantage': direction})
+                else:
+                    transform = build_credit_transform(
+                        name, lam=0.25, horizon=3, kernel='uniform', direction='forward',
+                        shuffle_seed=43)
+                    operator_batch = batch
+                output = transform(operator_batch, training=True)
+                effective = output.effective_credit
+                loss = float((effective * credits.current_nll).sum().detach().item())
+                per_operator[name].append({
+                    'loss': loss,
+                    'relative_drift_vs_legacy': abs(loss - legacy) / (1.0 + abs(legacy)),
+                    'finite': all(bool(torch.isfinite(value).all().item())
+                                  for value in output.diagnostics.values()),
+                    'rms_atomic': float(output.diagnostics['mp_opd_credit_rms_atomic'].item()),
+                    'rms_effective': float(output.diagnostics['mp_opd_credit_rms_effective'].item()),
+                    'mean_abs_delta': float(output.diagnostics['mp_opd_credit_mean_abs_delta'].item()),
+                    'transfer_fraction': float(
+                        output.diagnostics['mp_opd_credit_transfer_fraction'].item()),
+                    'corr': float(
+                        output.diagnostics['mp_opd_credit_corr_effective_atomic'].item()),
+                })
+
+    summary = {'commit': commit, 'samples': len(pairs), 'invalid_samples': invalid,
+               'atoms': atom_report, 'operators': {}}
+    failures = []
+    for name, rows in per_operator.items():
+        if not rows:
+            continue
+        summary['operators'][name] = {
+            'mean_loss': sum(row['loss'] for row in rows) / len(rows),
+            'max_relative_drift': max(
+                row['relative_drift_vs_legacy'] for row in rows) if name != 'legacy_atomic' else 0.0,
+            'max_rms_ratio': max(
+                row['rms_effective'] / max(row['rms_atomic'], 1e-12)
+                for row in rows) if name != 'legacy_atomic' else 1.0,
+            'min_transfer_fraction': min(
+                row['transfer_fraction'] for row in rows) if name != 'legacy_atomic' else 0.0,
+            'all_finite': all(row.get('finite', True) for row in rows),
+        }
+    for name, stats in summary['operators'].items():
+        if name in ('identity', 'legacy_atomic'):
+            if stats['max_relative_drift'] > 1e-4:
+                failures.append('%s drift %.3g > 1e-4' % (name, stats['max_relative_drift']))
+        else:
+            if not stats['all_finite']:
+                failures.append('%s emitted a non-finite metric' % name)
+            if stats['min_transfer_fraction'] <= 0.0:
+                failures.append('%s never moved a credit' % name)
+            if stats['max_rms_ratio'] > 1.05:
+                failures.append('%s inflated the credit scale (%.3g)'
+                                % (name, stats['max_rms_ratio']))
+    summary['failures'] = failures
+    (root / 'credit-path-probe.json').write_text(json.dumps(summary, indent=2))
+    outputs.commit()
+    print('CREDIT_PATH_ATOMS=' + json.dumps(atom_report), flush=True)
+    print('CREDIT_PATH_JSON=' + json.dumps(summary), flush=True)
+    if failures:
+        raise RuntimeError('credit path probe failed: ' + '; '.join(failures))
+
+
 @app.function(image=image, gpu='B200', cpu=16, memory=98304, timeout=3600, retries=0,
               max_containers=1, volumes={'/assets': assets, '/runs': outputs})
 def train_smoke(commit: str, condition_json: str, updates: int):
@@ -344,7 +529,15 @@ def cross_check(summaries):
 
 
 @app.local_entrypoint()
-def main(updates: int = UPDATES, conditions: str = ','.join(CONDITION_TAGS)):
+def main(
+    updates: int = UPDATES,
+    conditions: str = ','.join(CONDITION_TAGS),
+    phases: str = 'units,probe',
+):
+    """Run the selected phases: ``units`` (CPU runtime tests), ``probe`` (B200 credit
+    path without the engine), ``train`` (B200 rollout; blocked while the SGLang
+    0.5.11 zero-log-probability defect is open -- see ``credit_path_probe``).
+    """
     # This checkout lives on an NTFS path that two different git builds read: the
     # Windows one with core.autocrlf=true (which created the working tree) and the
     # WSL one with no autocrlf at all. Without the explicit flag the WSL check calls
@@ -357,7 +550,17 @@ def main(updates: int = UPDATES, conditions: str = ','.join(CONDITION_TAGS)):
         raise RuntimeError('Commit tracked changes first:\n' + dirty)
     commit = subprocess.check_output(git + ['rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     print('SMOKE_SOURCE_COMMIT=' + commit, flush=True)
-    unit_tests.remote(commit)
+    selected_phases = [item.strip() for item in phases.split(',') if item.strip()]
+    unknown_phases = [item for item in selected_phases if item not in {'units', 'probe', 'train'}]
+    if unknown_phases:
+        raise ValueError('unknown phases ' + ','.join(unknown_phases))
+    if 'units' in selected_phases:
+        unit_tests.remote(commit)
+    if 'probe' in selected_phases:
+        credit_path_probe.remote(commit)
+    if 'train' not in selected_phases:
+        print('CREDIT_SMOKE_PHASES=' + json.dumps(selected_phases), flush=True)
+        return
     selected = [item.strip() for item in conditions.split(',') if item.strip()]
     unknown = [tag for tag in selected if tag not in CONDITION_TAGS]
     if unknown:

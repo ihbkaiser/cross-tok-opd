@@ -30,6 +30,7 @@ from kdflow.algorithms._mp_opd_credit_transform import (
     credit_transform_from_args,
     kernel_weights,
     neighbor_reach,
+    production_credit_batch,
 )
 
 ARGS = Path(__file__).resolve().parents[2] / "kdflow/arguments/distillation_args.py"
@@ -608,6 +609,21 @@ def test_factory_reads_the_argument_namespace():
     assert spec.transform.direction == "backward"
     assert spec.transform.horizon == 4
     assert spec.parameters["decay"] == 0.25
+
+
+def test_production_batch_helper_builds_one_valid_sequence():
+    """The trainer and the offline probes must share one batch geometry."""
+    rate = draw(6, seed=71)
+    batch = production_credit_batch(rate, rate.clone(), torch.ones(6))
+    assert batch.seq_ids.tolist() == [0] * 6
+    assert batch.atom_positions.tolist() == [0, 1, 2, 3, 4, 5]
+    assert bool(batch.valid_mask.all())
+    assert batch.metadata == {}
+    carried = production_credit_batch(rate, rate.clone(), torch.ones(6), {"future_advantage": rate})
+    assert torch.equal(carried.metadata["future_advantage"], rate)
+    # Boundary fallback still applies at the ends of the single sequence.
+    applied = ForwardNeighborCreditTransform(0.5)(batch, training=True).effective_credit
+    assert float(applied[-1]) == pytest.approx(float(rate[-1]))
 
 
 def test_args_declare_the_credit_knobs():

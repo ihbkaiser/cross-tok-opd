@@ -30,9 +30,9 @@ from ._mp_opd_credit import (
     span_tables,
 )
 from ._mp_opd_credit_transform import (
-    AtomCreditBatch,
     CreditTransformSpec,
     credit_transform_from_args,
+    production_credit_batch,
 )
 from ._mp_opd_energy import MPAtomEnergy, load_energy_checkpoint
 from ._mp_opd_gbv_span import (
@@ -396,14 +396,8 @@ class MetaPartitionedOPD:
             if torch.as_tensor(advantage).numel() != n:
                 raise ValueError("future-advantage cardinality mismatch")
             metadata["future_advantage"] = advantage
-        batch = AtomCreditBatch(
-            rate_credit=credits.rate,
-            base_credit=credits.base_credit,
-            token_count=credits.weight,
-            valid_mask=torch.ones_like(credits.rate, dtype=torch.bool),
-            seq_ids=torch.zeros_like(credits.rate, dtype=torch.long),
-            atom_positions=torch.arange(n, device=credits.rate.device),
-            metadata=metadata,
+        batch = production_credit_batch(
+            credits.rate, credits.base_credit, credits.weight, metadata
         )
         output = self.credit_spec.transform(batch, training=True)
         return output.effective_credit, output.diagnostics
