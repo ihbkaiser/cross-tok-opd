@@ -80,7 +80,72 @@ def read_texts(path: Path) -> list[dict[str, str]]:
     return samples
 
 
-def read_prompts(path: Path, column: str | None) -> list[str]:
+def as_chat_cell(value: Any) -> list | None:
+    """Return the chat turns of a prompt cell, or ``None`` if it is plain text.
+
+    ``pandas.read_parquet`` hands back a column of Python lists as numpy arrays, so an
+    ``isinstance(value, list)`` check alone silently mis-routes chat rows to ``str()``.
+    """
+    if isinstance(value, str):
+        return None
+    if hasattr(value, 'tolist'):  # numpy array of dicts
+        value = value.tolist()
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return None
+
+
+def chat_turns(value: Any) -> list[dict[str, str]]:
+    """Normalise a prompt cell to OpenAI turns.
+
+    The repo converter is preferred so the probe renders prompts the same way training
+    does. ``kdflow.datasets.utils`` pulls in torch and ``datasets`` at import time, so
+    when that stack is absent the probe falls back to a minimal normaliser and says so
+    instead of silently rendering something different.
+    """
+    cell = as_chat_cell(value)
+    if cell is None:
+        return [{'role': 'user', 'content': str(value)}]
+    try:
+        from kdflow.datasets.utils import convert_to_openai_messages
+    except ImportError as exc:
+        print('PROBE_PROMPT_CONVERTER: local (%s)' % exc.__class__.__name__, flush=True)
+        turns = [{'role': turn.get('role', 'user'), 'content': turn.get('content', '')}
+                 for turn in cell if isinstance(turn, dict)]
+        if not turns:
+            raise SystemExit('PROBE_SETUP_FAIL: chat cell holds no role/content turns')
+        return turns
+    return list(convert_to_openai_messages(cell))
+
+
+def render_chat_prompt(value: Any, chat_template_fn: Any) -> str:
+    """Render a chat cell the way ``prompts_dataset._build_prompt`` does.
+
+    The campaign prompt files store ``messages`` (OpenAI turns), not a plain prompt
+    string, so the probe must go through the same converter and the same
+    ``tokenize=False, add_generation_prompt=True`` call instead of guessing a layout.
+    """
+    chat = chat_turns(value)
+    # A prompt cell must not carry the gold answer: anything after the last user turn is
+    # dropped, which is what ``sft_dataset.py`` does with ``messages[:-1]`` when it renders
+    # the prompt half of a training pair.
+    while len(chat) > 1 and chat[-1].get('role') == 'assistant':
+        chat = chat[:-1]
+        print('PROBE_PROMPT_DROP_ASSISTANT: kept %d turns' % len(chat), flush=True)
+    for kwargs in ({'tokenize': False, 'add_generation_prompt': True, 'enable_thinking': False},
+                   {'tokenize': False, 'add_generation_prompt': True}):
+        try:
+            return str(chat_template_fn(chat, **kwargs))
+        except TypeError:
+            continue
+    raise SystemExit('PROBE_SETUP_FAIL: the student chat template rejected both '
+                     'enable_thinking variants')
+
+
+def read_prompts(path: Path, column: str | None,
+                 chat_template_fn: Any = None) -> tuple[list[str], str]:
     try:
         import pandas as pd
         frame = pd.read_parquet(path)
@@ -91,10 +156,24 @@ def read_prompts(path: Path, column: str | None) -> list[str]:
         columns = list(table.column_names)
         frame = table.to_pandas()
     name = column or next((c for c in columns if c in ('prompt', 'question', 'text', 'input')), None)
+    if name is None and 'messages' in columns:
+        name = 'messages'
     if name is None:
         raise SystemExit('PROBE_SETUP_FAIL: pass --prompt-column; columns are %s' % columns)
-    print('PROBE_PROMPTS: column=%s rows=%d' % (name, len(frame)), flush=True)
-    return [str(value) for value in frame[name].tolist()]
+    mode = 'plain'
+    prompts: list[str] = []
+    for value in frame[name].tolist():
+        cell = as_chat_cell(value)
+        if cell is None:
+            prompts.append(str(value))
+            continue
+        if chat_template_fn is None:
+            raise SystemExit('PROBE_SETUP_FAIL: column %s holds chat turns but the '
+                             'student tokenizer exposes no chat template' % name)
+        prompts.append(render_chat_prompt(cell, chat_template_fn))
+        mode = 'chat_template'
+    print('PROBE_PROMPTS: column=%s rows=%d mode=%s' % (name, len(prompts), mode), flush=True)
+    return prompts, mode
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -195,7 +274,9 @@ def main(argv: list[str] | None = None) -> int:
         samples = read_texts(Path(args.texts))[:args.samples]
         source_note = 'texts:%s' % args.texts
     else:
-        prompts = read_prompts(Path(args.prompts), args.prompt_column)[:args.samples]
+        prompts, prompt_mode = read_prompts(Path(args.prompts), args.prompt_column,
+                                             getattr(student_tok, 'apply_chat_template', None))
+        prompts = prompts[:args.samples]
         if args.response_tokens < 1:
             raise SystemExit('PROBE_SETUP_FAIL: --response-tokens must be >= 1 with --prompts')
         from experiments.mp_opd.hf_frozen_sampler import (
@@ -231,8 +312,8 @@ def main(argv: list[str] | None = None) -> int:
                 print('PROBE_SAMPLE_SKIP index=%d reason=empty_continuation' % index, flush=True)
                 continue
             samples.append({'prompt': prompt, 'response': text})
-        source_note = 'prompts:%s seed=%d campaign=%s probe=%s' % (
-            args.prompts, args.seed, campaign.as_dict(), config.as_dict())
+        source_note = 'prompts:%s seed=%d prompt_render=%s campaign=%s probe=%s' % (
+            args.prompts, args.seed, prompt_mode, campaign.as_dict(), config.as_dict())
 
     device_name = (torch.cuda.get_device_name(args.device) if args.device.startswith('cuda')
                    else 'cpu')
