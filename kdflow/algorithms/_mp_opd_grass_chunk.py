@@ -421,6 +421,14 @@ def grass_chunk_tables(
     # Section 10: logged, never used to accept, reject, split, merge or reorder.
     gain = 2.0 * alpha * variance - alpha * alpha * usable_distortion
 
+    # The pathology tolerance needs a scale that survives a response of nothing but
+    # singleton chunks. Taking it from the *reported* trace would give exactly zero
+    # there, so the float64 cancellation residue (~1e-18) would be counted as a sign
+    # failure on every sample. D_c and V_c both scale with the Gram diagonal, so that
+    # is the honest scale.
+    negative_tol = negative_tol_rel * max(
+        float(trace.max()), float(diagonal.abs().max()), float(torch.finfo(torch.float64).tiny)
+    )
     return GrassChunkTables(
         partition=spans,
         lengths=lengths,
@@ -431,7 +439,7 @@ def grass_chunk_tables(
         gain=gain,
         sigma2=sigma2,
         eps_d=eps_d,
-        negative_tol=negative_tol_rel * float(trace.max()),
+        negative_tol=negative_tol,
         degenerate=sigma2 <= 0.0,
     )
 

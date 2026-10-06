@@ -344,6 +344,22 @@ def test_negative_statistics_are_reported_not_hidden():
     assert tables.negative_tol >= 0.0
 
 
+def test_an_all_singleton_response_reports_no_spurious_sign_failure():
+    """The pathology tolerance must not collapse to zero when every chunk is length 1."""
+    n = 5
+    rate, weight = _credits(n, seed=42, spread=4.0)
+    gram = _chunked_gram(tuple((i, i + 1) for i in range(n)), _psd(n, 42))
+    partition = tuple((index, index + 1) for index in range(n))
+    tables = grass_chunk_tables(rate, weight, gram, partition, 1.0)
+    assert tables.negative_tol > 0.0
+    metrics = grass_chunk_metrics(
+        tables, rate, weight, gram, rate, torch.zeros((), dtype=torch.float64),
+        assignment=run_chunk_assignment(n, 1), noncontiguous_splits=0, source="run",
+    )
+    assert float(metrics["mp_opd_grass_chunk_pathology_negative_d_fraction"]) == 0.0
+    assert float(metrics["mp_opd_grass_chunk_pathology_negative_v_fraction"]) == 0.0
+
+
 def test_invalid_chunk_table_inputs_raise():
     rate, weight = _credits(4, seed=41)
     gram = torch.eye(4, dtype=torch.float64)
