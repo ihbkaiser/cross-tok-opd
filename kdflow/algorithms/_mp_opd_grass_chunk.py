@@ -422,7 +422,14 @@ def grass_chunk_tables(
     alpha = torch.where(
         non_singleton, _chunk_strength(distortion, variance, eps_d), torch.zeros_like(variance)
     )
-    trace = torch.where(non_singleton, trace, torch.zeros_like(trace))
+    # Both statistics are identically zero for a singleton chunk: there is no
+    # second atom, so there is no within-chunk heterogeneity to observe and no
+    # within-chunk trace to sum. They are pinned to exact zero rather than left to
+    # the prefix-sum difference below, which would report the cancellation residue
+    # of sigma^2 * H_ii/w_i - sigma^2 * H_ii/w_i as if it were a real quantity.
+    zeroed = torch.zeros_like(trace)
+    trace = torch.where(non_singleton, trace, zeroed)
+    variance = torch.where(non_singleton, variance, zeroed)
     # Section 9.1: a tiny negative D is clamped to zero before it is used, and
     # the raw value is kept in the reported table so a real sign failure surfaces
     # in the pathology counter instead of being hidden here.

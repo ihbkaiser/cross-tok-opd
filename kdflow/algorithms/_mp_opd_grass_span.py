@@ -439,10 +439,13 @@ def _delta_correction(
     vocab = probabilities.shape[1]
     row_scale = label_scale[column_index].unsqueeze(-1)
     column_scale = label_scale.unsqueeze(0)
-    # q_t[y_s] for every (row, column) pair: one gather across the window.
-    at_column_labels = probabilities.gather(
-        1, column_labels.unsqueeze(0).expand(rows, -1)
-    )
+    # q_t[y_s] for every (row, column) pair: one gather across the window. The row
+    # axis is addressed through column_index, not through 0..rows-1 - the two agree
+    # only for a chunk whose first row is the window's first row, and using the
+    # window position there left every chunk but the first one wrong.
+    at_column_labels = probabilities[
+        column_index.unsqueeze(-1), column_labels.unsqueeze(0).expand(rows, -1)
+    ]
     # q_s[y_t]: a flat gather at (the window position of column s, the label of row t).
     # Both operands must broadcast to the full [rows, window] block - indexing by the
     # row's own position instead would collapse this term onto the diagonal and leave
@@ -455,8 +458,13 @@ def _delta_correction(
         .reshape(-1),
     ).view(rows, columns)
     same_label = row_labels.unsqueeze(-1) == column_labels.unsqueeze(0)
+    # Each half of the correction carries the scale of the operand whose label it
+    # reads: -v_s q_t[y_s] - v_t q_s[y_t]. Pairing them the other way round is
+    # invisible whenever every token weight is equal, which is the only case the
+    # earlier suite exercised, and wrong by a factor of m_t/m_s as soon as two atoms
+    # carry different weights.
     return (
-        -(row_scale * at_column_labels + at_row_labels * column_scale)
+        -(column_scale * at_column_labels + row_scale * at_row_labels)
         + row_scale * column_scale * same_label
     )
 

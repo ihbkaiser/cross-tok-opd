@@ -50,7 +50,7 @@ def _credits(n: int, seed: int = 3, spread: float = 1.0):
     return rate, weight
 
 
-def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None):
+def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None, token_weight=None):
     """Reference atom Gram: build every head gradient explicitly, then inner-product."""
     rows = logits.to(torch.float64)
     log_partition = torch.logsumexp(rows, dim=-1)
@@ -58,6 +58,8 @@ def _brute_force_gram(logits, hidden, labels, atom_ranges, softcap=None):
     if softcap is not None:
         normalized = (rows / float(softcap)).clamp(-1.0, 1.0)
         probabilities = probabilities * (1.0 - normalized * normalized)
+    if token_weight is not None:
+        probabilities = probabilities * token_weight.to(torch.float64).unsqueeze(-1)
     delta = probabilities.clone()
     delta[torch.arange(labels.numel()), labels.long()] -= 1.0
     grads = [
@@ -107,6 +109,53 @@ def test_atom_head_gram_matches_explicit_head_gradient(atom_ranges, softcap):
     expected = _brute_force_gram(logits, hidden, labels, atom_ranges, softcap)
     assert torch.allclose(result.gram, expected, atol=1e-10, rtol=1e-9)
     assert result.symmetry_error < 1e-12
+
+
+@pytest.mark.parametrize(
+    "atom_ranges",
+    [
+        (((0, 1), (1, 3), (3, 4), (4, 6)),),
+        (((0, 2), (2, 4), (4, 5)),),
+        (((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),),
+    ],
+)
+def test_weighted_gram_matches_the_explicit_head_gradient(atom_ranges):
+    """Regression: unequal token weights across atoms broke the delta identity.
+
+    The correction -v_s q_t[y_s] - v_t q_s[y_t] was paired with the wrong scale on
+    each half. Equal weights cancel the mistake, so every unweighted case passed;
+    only a weight that differs between two atoms exposes it. The reference below
+    carries the same weights through explicit head gradients.
+    """
+    torch.manual_seed(19)
+    tokens, vocab, hidden_size = 6, 17, 4
+    logits = torch.randn(tokens, vocab, dtype=torch.float64)
+    hidden = torch.randn(tokens, hidden_size, dtype=torch.float64)
+    labels = torch.tensor([0, 5, 5, 11, 16, 2])
+    weight = torch.tensor([1.0, 2.0, 2.0, 0.5, 1.5, 3.0], dtype=torch.float64)
+    result = atom_head_gram(logits, hidden, labels, atom_ranges, 4, token_weight=weight)
+    expected = _brute_force_gram(logits, hidden, labels, atom_ranges, None, weight)
+    assert torch.allclose(result.gram.to(torch.float64), expected, atol=1e-9, rtol=1e-9)
+    assert result.symmetry_error < 1e-6
+
+
+def test_row_chunking_agrees_with_a_single_pass_under_unequal_weights():
+    """Regression: chunked rows read the window position instead of the row index."""
+    torch.manual_seed(20)
+    tokens, vocab, hidden_size = 9, 13, 4
+    logits = torch.randn(tokens, vocab, dtype=torch.float64)
+    hidden = torch.randn(tokens, hidden_size, dtype=torch.float64)
+    labels = torch.tensor([0, 1, 2, 3, 12, 4, 5, 6, 7])
+    weight = torch.tensor([1.0, 2.0, 0.5, 1.0, 3.0, 1.0, 2.0, 1.0, 4.0], dtype=torch.float64)
+    # Multi-token atoms make the row/window offset real rather than hypothetical.
+    ranges = ((0, 1), (1, 3), (3, 4), (4, 6), (6, 9))
+    reference = atom_head_gram(logits, hidden, labels, ranges, 3, token_weight=weight,
+                               row_chunk_atoms=len(ranges))
+    for chunk in (1, 2, 3):
+        chunked = atom_head_gram(logits, hidden, labels, ranges, 3, token_weight=weight,
+                                 row_chunk_atoms=chunk)
+        assert torch.allclose(chunked.gram, reference.gram, atol=1e-6), chunk
+        assert chunked.symmetry_error < 1e-5
     assert result.atom_count == len(atom_ranges)
     assert result.token_count == atom_ranges[-1][1]
 
@@ -195,7 +244,9 @@ def test_softcap_factor_is_the_actual_head_jacobian():
         + jacobian.gather(1, labels.unsqueeze(1)).squeeze(1) ** 2
     )
     expected = expected * (hidden**2).sum(dim=-1)
-    assert torch.allclose(torch.diagonal(capped.gram), expected, atol=1e-10)
+    # atom_head_gram accumulates in float32 on purpose; the reference is float64.
+    diagonal = torch.diagonal(capped.gram).to(torch.float64)
+    assert torch.allclose(diagonal, expected, atol=float(expected.abs().max()) * 1e-5)
     # An unsquashed proxy would report ||p_t||^2 instead.
     unsquashed = (probabilities**2).sum(dim=-1) * (hidden**2).sum(dim=-1)
     assert not torch.allclose(torch.diagonal(plain.gram), expected, atol=1e-6)
@@ -425,7 +476,7 @@ def test_loss_gradient_is_the_shrunk_credit_rate():
     tables = grass_span_costs(rate, weight, gram, 0.3, 3)
     partition, _cost, margins = grass_partition(tables)
     shrunk, _residual = grass_shrink(rate, weight, partition, tables.alpha)
-    nll = torch.randn(n, dtype=torch.float64, requires_grad=True)
+    nll = torch.randn(n, dtype=torch.float32, requires_grad=True)
     loss = soft_partition_loss(nll, shrunk.to(torch.float32))
     gradient = torch.autograd.grad(loss, nll)[0]
     assert torch.allclose(gradient, shrunk.to(torch.float32), atol=1e-6)

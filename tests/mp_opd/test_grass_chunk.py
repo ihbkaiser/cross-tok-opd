@@ -235,8 +235,8 @@ def test_closed_form_matches_an_explicit_matrix_computation():
         deviation = r - pooled
         expected_d = float(deviation @ block @ deviation)
         sigma = sigma2 * torch.diag(1.0 / w)
-        pooling = torch.ones(end - start, 1) @ (w / w.sum()).unsqueeze(0)
-        a = torch.eye(end - start) - pooling
+        pooling = torch.ones(end - start, 1, dtype=block.dtype) @ (w / w.sum()).unsqueeze(0)
+        a = torch.eye(end - start, dtype=block.dtype) - pooling
         expected_v = float(torch.trace(block @ a @ sigma))
         assert float(tables.distortion[index]) == pytest.approx(expected_d, rel=1e-10)
         assert float(tables.variance[index]) == pytest.approx(expected_v, rel=1e-10)
@@ -399,42 +399,47 @@ def test_invalid_chunk_table_inputs_raise():
 def test_noise_estimator_ignores_pairs_that_cross_a_chunk_boundary():
     estimator = GrassNoiseEstimator(rho=0.9, min_adjacent_pairs=1)
     generator = torch.Generator().manual_seed(51)
-    n, sigma, weight_value = 40, 0.05, 4.0
+    # A MAD scale estimate carries roughly a 10% relative sampling error per hundred
+    # pairs. At forty pairs that error is larger than the effect under test, so the
+    # assertion would only measure the seed. Twelve hundred pairs puts it at ~1.5%.
+    n, sigma, weight_value = 1200, 0.05, 4.0
     weight = torch.full((n,), weight_value, dtype=torch.float64)
     # The latent credit jumps between the two chunks, so exactly one adjacent pair -
     # the boundary one - carries a step. A spike on a single atom would contaminate
     # its other neighbour too and would not test what this is about.
     latent = torch.full((n,), 0.5, dtype=torch.float64)
-    latent[20:] += 5.0
+    latent[n // 2 :] += 5.0
     noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
     rate = latent + noise
     same_chunk = torch.ones(n - 1, dtype=torch.bool)
-    same_chunk[19] = False
+    same_chunk[n // 2 - 1] = False
 
     inside = estimator.update(rate, weight, same_group=same_chunk)
     assert inside["valid_pairs"] == n - 2
-    assert estimator.sigma2 == pytest.approx(sigma**2, rel=0.35)
+    assert estimator.sigma2 == pytest.approx(sigma**2, rel=0.06)
 
 
-def test_the_noise_scale_would_be_wrecked_by_the_boundary_pair():
-    """Control: without the group mask the same step must inflate the estimate.
+def test_the_masked_pair_is_a_large_outlier_a_nonrobust_scale_would_absorb():
+    """Control: the excluded pair is genuinely enormous, not a negligible extra.
 
-    Proves the mask is doing something on this input rather than the test passing
-    because the contamination was too small to matter.
+    MAD is robust to a single outlier by design, so 'the masked estimate is
+    smaller' is not a meaningful claim - one outlier cannot move a median. The
+    meaningful claim is that the pair being excluded carries a step orders of
+    magnitude above the noise, which is what would wreck a quadratic scale.
     """
     generator = torch.Generator().manual_seed(51)
-    n, sigma, weight_value = 40, 0.05, 4.0
+    n, sigma, weight_value = 1200, 0.05, 4.0
     weight = torch.full((n,), weight_value, dtype=torch.float64)
     latent = torch.full((n,), 0.5, dtype=torch.float64)
-    latent[20:] += 5.0
+    latent[n // 2 :] += 5.0
     noise = sigma * torch.randn(n, generator=generator, dtype=torch.float64) / weight.sqrt()
     rate = latent + noise
 
-    masked = GrassNoiseEstimator(rho=0.0, min_adjacent_pairs=1).update(
-        rate, weight, same_group=torch.cat((torch.ones(19, dtype=torch.bool), torch.zeros(20, dtype=torch.bool)))
-    )
-    unmasked = GrassNoiseEstimator(rho=0.0, min_adjacent_pairs=1).update(rate, weight)
-    assert float(masked["sigma_batch"]) < float(unmasked["sigma_batch"])
+    scale = (1.0 / weight[:-1] + 1.0 / weight[1:]).sqrt()
+    z = (rate[1:] - rate[:-1]) / scale
+    boundary = n // 2 - 1
+    assert float(z[boundary].abs()) > 50.0
+    assert float((z**2).mean()) > 50.0 * float((z[z.abs() < 5.0] ** 2).mean())
 
 
 def test_noise_estimator_rejects_a_mismatched_group_mask():
@@ -558,8 +563,15 @@ def test_boundary_diagnostics_handle_the_first_chunk_starting_at_zero():
     n = 4
     rate, weight = _credits(n, seed=66)
     metrics = chunk_boundary_diagnostics(rate, weight, None, ((0, 2), (2, 4)))
+    # Pairs are (0,1), (1,2), (2,3). Only (1,2) crosses a boundary, and it is pair
+    # index 1 - the first chunk starting at zero must not shift that index.
     assert metrics["adjacent_pairs_within"] == 2
-    assert metrics["cross_abs_diff_mean"] == 0.0
+    assert metrics["adjacent_pairs_cross"] == 1
+    difference = (rate[1:] - rate[:-1]).abs()
+    assert metrics["cross_abs_diff_mean"] == pytest.approx(float(difference[1]))
+    assert metrics["within_abs_diff_mean"] == pytest.approx(
+        float((difference[0] + difference[2]) / 2)
+    )
     assert metrics["within_gradient_cosine_mean"] == 0.0
 
 
