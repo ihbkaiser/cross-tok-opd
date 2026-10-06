@@ -54,6 +54,7 @@ TEACHER_TOKENIZER_FILES = (
     'vocab.json',
     'merges.txt',
     'special_tokens_map.json',
+    'added_tokens.json',
 )
 # Pre-registered gate thresholds, fixed before the run so the numbers cannot pick them.
 ATOMIZATION_SUCCESS_FLOOR = 0.5
@@ -104,23 +105,36 @@ def env(online=False):
     return e
 
 
-def ensure_teacher(tokenizer_only: bool) -> None:
-    """Materialise the campaign teacher, cheaply when only the tokenizer is needed."""
+def ensure_teacher(tokenizer_only: bool) -> dict:
+    """Materialise the campaign teacher, cheaply when only the tokenizer is needed.
+
+    The file list comes from the pinned revision rather than from a hard-coded list,
+    because a repo does not necessarily contain every optional tokenizer file (the
+    first attempt 404'd on ``special_tokens_map.json``).
+    """
     teacher = Path('/assets/teacher')
     teacher.mkdir(parents=True, exist_ok=True)
     os.environ['HF_HOME'] = '/assets/hf'
     os.environ['HF_HUB_OFFLINE'] = '0'
-    from huggingface_hub import hf_hub_download, snapshot_download
+    from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 
-    missing = [name for name in TEACHER_TOKENIZER_FILES
-               if not (teacher / name).is_file()]
-    for name in missing:
-        hf_hub_download(TEACHER_REPO, name, revision=TEACHER_REVISION,
-                        local_dir=str(teacher))
+    available = sorted(HfApi().list_repo_files(TEACHER_REPO, revision=TEACHER_REVISION))
+    tokenizer_files = [name for name in available if name in TEACHER_TOKENIZER_FILES]
+    weights = [name for name in available
+               if name.endswith('.safetensors') or name.endswith('.safetensors.index.json')]
+    for name in tokenizer_files:
+        if not (teacher / name).is_file():
+            hf_hub_download(TEACHER_REPO, name, revision=TEACHER_REVISION,
+                            local_dir=str(teacher))
     if not tokenizer_only and not (teacher / 'model.safetensors.index.json').is_file():
+        if not weights:
+            raise RuntimeError('no safetensors in %s@%s' % (TEACHER_REPO, TEACHER_REVISION))
         snapshot_download(TEACHER_REPO, revision=TEACHER_REVISION, local_dir=str(teacher),
-                          allow_patterns=['*.safetensors', '*.index.json'])
+                          allow_patterns=weights)
     assets.commit()
+    return {'teacher_repo': TEACHER_REPO, 'teacher_revision': TEACHER_REVISION,
+            'repo_files': available, 'tokenizer_files_used': tokenizer_files,
+            'weight_files': weights}
 
 
 def file_digest(path: Path, chunk: int = 1 << 20) -> str:
@@ -204,7 +218,7 @@ def cross_tokenizer_probe(commit: str):
 
     root = Path('/runs')
     root.mkdir(exist_ok=True)
-    ensure_teacher(tokenizer_only=False)
+    teacher_files = ensure_teacher(tokenizer_only=False)
     corpus = json.loads(Path('/opt/overlay/experiments/mp_opd/cross_atom_phase05_texts.json').read_text())
 
     lineage = student_lineage()
@@ -405,6 +419,7 @@ def cross_tokenizer_probe(commit: str):
             'teacher_revision': TEACHER_REVISION,
             'teacher_is_campaign_teacher': True,
         },
+        'teacher_files': teacher_files,
         'corpus': {'items': len(per_sample), 'atomized': len(atomized_rows)},
         'w_distribution': w_distribution,
         'failures': failures,
