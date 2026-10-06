@@ -113,13 +113,22 @@ preflight_abi() {
   # `strings` is used rather than glibcxx_ver: S1 on this node class proved the
   # versioned symbols are readable this way, and a missing tool would otherwise turn
   # the guard into a silent pass.
-  if ! strings -a "$ABI_LD_PRELOAD" 2>/dev/null | grep -qx 'GLIBCXX_3.4.32'; then
-    echo "PREFLIGHT_FAIL $ABI_LD_PRELOAD khong xuat GLIBCXX_3.4.32; SGLang se fail khi capture cuda graph"
-    strings -a "$ABI_LD_PRELOAD" 2>/dev/null | grep -o '^GLIBCXX_3\.4\.3[0-9]$' | tr '\n' ' '
-    echo ""
-    return 1
-  fi
-  echo "PREFLIGHT_OK abi=$ABI_LD_PRELOAD provides GLIBCXX_3.4.32"
+  #
+  # The output is captured before it is matched on purpose. Under `pipefail`, a
+  # `grep -q` that exits on the first hit leaves `strings` killed by SIGPIPE (141),
+  # so the pipeline reports failure for a library that does export the symbol --
+  # the guard refused a valid run on this node.
+  ABI_SYMS=$(strings -a "$ABI_LD_PRELOAD" 2>/dev/null | grep -o '^GLIBCXX_3\.4\.3[0-9]$' | tr '\n' ' ')
+  case " $ABI_SYMS " in
+    *" GLIBCXX_3.4.32 "*)
+      echo "PREFLIGHT_OK abi=$ABI_LD_PRELOAD provides GLIBCXX_3.4.32"
+      ;;
+    *)
+      echo "PREFLIGHT_FAIL $ABI_LD_PRELOAD khong xuat GLIBCXX_3.4.32; SGLang se fail khi capture cuda graph"
+      echo "PREFLIGHT_FAIL symbols=[${ABI_SYMS:-none}]"
+      return 1
+      ;;
+  esac
 }
 
 run_one() {  # $1=mode $2=tag $3=seed
