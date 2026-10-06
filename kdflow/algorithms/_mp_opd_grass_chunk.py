@@ -409,7 +409,16 @@ def grass_chunk_tables(
     deviation = (r[index] - chunk_rate.unsqueeze(-1)) * inside
     # `index` already holds absolute atom ids, so the block is the two-axis gather -
     # adding the two index tensors instead would address start+i + start+j.
+    #
+    # The padding is then zeroed on both axes, once. A padded slot points at its own
+    # chunk's first atom, so it reads H[start, start] rather than zero, and that
+    # entry survives every reduction that does not carry `inside` along with it:
+    # the deviation kills it in D_c, and nothing kills it in the off-diagonal sum
+    # below. For a two-atom chunk in a four-atom partition that is twelve phantom
+    # diagonals - enough to drive V_c negative and alpha to 0 on a chunk that is
+    # poolable on sight.
     block = h[index.unsqueeze(-1), index.unsqueeze(-2)]
+    block = block * inside.unsqueeze(-1) * inside.unsqueeze(-2)
     distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
     trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
     # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w):
