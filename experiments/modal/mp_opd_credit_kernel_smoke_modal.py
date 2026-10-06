@@ -157,7 +157,12 @@ def unit_tests(commit: str):
                'tests/mp_opd/test_credit_oracle.py',
                'tests/mp_opd/test_random_partition_min_span.py',
                'tests/mp_opd/test_atoms.py',
-               'tests/mp_opd/test_training_diagnostics.py']
+               'tests/mp_opd/test_training_diagnostics.py',
+               'tests/mp_opd/test_vectorized_features.py',
+               # Exercises MetaPartitionedOPD.training_step end to end on the atomic
+               # mode, which is exactly the path the identity refactor rewrote. It needs
+               # transformers, so it can only run here and not on the local CPU host.
+               'tests/mp_opd/test_energy_and_integration.py']
     done = subprocess.run(command, cwd='/opt/overlay', env=e, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=2300)
     (root / 'unit-tests.log').write_text(done.stdout)
