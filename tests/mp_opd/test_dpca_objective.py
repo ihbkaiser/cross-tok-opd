@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from kdflow.algorithms._mp_opd_dpca import (
     DPCAConfig,
     dpca_atom_advantages,
+    dpca_metrics_to_tensors,
     dpca_policy_loss,
 )
 
@@ -180,3 +181,35 @@ def test_mismatched_shapes_fail_closed():
         dpca_atom_advantages(
             torch.zeros(4), torch.zeros(5), torch.tensor([1, 1, 1, 1]), torch.zeros(4), None
         )
+
+
+def test_policy_metrics_are_floats_not_tensors():
+    """dpca_policy_loss reports Python floats on purpose.
+
+    They are what get aggregated per sample, so the tensor conversion has to be a
+    separate, explicit step. If this ever returns tensors, extra_sums' ``value.
+    new_zeros(())`` accumulator changes shape silently.
+    """
+    prior = torch.tensor([-1.0, -2.0])
+    log_probs = torch.tensor([-1.2, -2.4])
+    advantages = torch.tensor([0.5, -0.5])
+    _, metrics = dpca_policy_loss(
+        prior, log_probs, advantages, torch.ones(2), DPCAConfig()
+    )
+    assert metrics, "policy loss reported no metrics"
+    assert all(isinstance(v, float) for v in metrics.values()), metrics
+
+
+def test_scalar_metrics_are_materialized_on_the_requested_device():
+    """The conversion must honour the device it is handed.
+
+    A bare ``torch.as_tensor(float)`` lands on CPU no matter what device is
+    requested, which is exactly the bug that made training_step's finite check
+    fail on torch.stack with the loss-derived metrics still on CUDA.
+    """
+    metrics = {"a": 1.0, "b": -0.5}
+    tensors = dpca_metrics_to_tensors(metrics, torch.device("cpu"))
+    assert set(tensors) == set(metrics)
+    assert all(isinstance(v, torch.Tensor) for v in tensors.values())
+    assert all(v.device.type == "cpu" for v in tensors.values())
+    assert tensors["b"].item() == pytest.approx(-0.5)

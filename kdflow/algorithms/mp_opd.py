@@ -948,7 +948,12 @@ class MetaPartitionedOPD:
         (``teacher_log_score`` / ``student_old_log_score``); they are expanded back
         to token resolution because the advantage is per token.
         """
-        from ._mp_opd_dpca import DPCAConfig, dpca_atom_advantages, dpca_policy_loss
+        from ._mp_opd_dpca import (
+            DPCAConfig,
+            dpca_atom_advantages,
+            dpca_metrics_to_tensors,
+            dpca_policy_loss,
+        )
 
         kd = self.args.kd
         config = DPCAConfig(
@@ -1029,7 +1034,7 @@ class MetaPartitionedOPD:
             torch.ones_like(prior),
             config,
         )
-        metrics = {key: torch.as_tensor(value) for key, value in metrics.items()}
+        metrics = dpca_metrics_to_tensors(metrics, prior.device)
         metrics["mp_opd_dpca_advantage_mean"] = advantages.detach().mean()
         metrics["mp_opd_dpca_advantage_abs_max"] = advantages.detach().abs().max()
         metrics["mp_opd_dpca_advantage_clamped_frac"] = (

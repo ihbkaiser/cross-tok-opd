@@ -167,3 +167,15 @@ def dpca_policy_loss(
         "mp_opd_dpca_ratio_mean": float(ratio.detach().mean().item()),
     }
     return pg_loss, metrics
+
+
+def dpca_metrics_to_tensors(metrics, device):
+    """Materialize the scalar DPCA metrics on the objective's device.
+
+    ``dpca_policy_loss`` reports Python floats, and ``.item()`` has already
+    discarded where they were computed. A bare ``torch.as_tensor`` therefore puts
+    every metric on CPU while the loss-derived metrics beside them stay on CUDA,
+    and ``training_step`` then dies on ``torch.stack``. Pin the device here so the
+    conversion cannot silently default.
+    """
+    return {key: torch.as_tensor(value, device=device) for key, value in metrics.items()}
