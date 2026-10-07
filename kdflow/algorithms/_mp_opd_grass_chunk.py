@@ -577,22 +577,26 @@ def chunk_boundary_diagnostics(
     if gram is not None and n > 1:
         h = gram.detach().to(torch.float64)
         diagonal = torch.diagonal(h)
-        denominator = (diagonal[:-1] * diagonal[1:]).clamp_min(1e-300).sqrt()
+        # The Gram head is an approximation over token spans, so its diagonal can carry
+        # zero, NaN or inf. NaN is the case a floor cannot rescue: comparisons with NaN
+        # are false, so clamp_min lets it through unchanged and 0/0 stays NaN. It has to
+        # be replaced before the division, not after.
+        diagonal_bad = ~torch.isfinite(diagonal)
+        diagonal_safe = torch.where(diagonal_bad, torch.ones_like(diagonal), diagonal)
+        metrics["gram_diagonal_non_finite"] = float(diagonal_bad.sum())
+        denominator = (diagonal_safe[:-1] * diagonal_safe[1:]).clamp_min(1e-300).sqrt()
         cosine = h[:-1, 1:] / denominator
-        # The Gram head is an approximation, so its diagonal can carry zero, NaN or
-        # inf. The raw ratio is then undefined for that pair, and mean() propagates
-        # a single non-finite value into the whole metric - including cases where the
-        # offending pair lies outside the selected population and should not have
-        # contributed at all. Averaging over the defined pairs only, and publishing
-        # how many pairs were dropped, keeps a filtered mean from being read as a
-        # direct measurement: the dropped pairs are exactly the least reliable ones.
+        # A non-finite numerator still makes the ratio undefined even when the
+        # denominator is clean, so the mean is taken over the finite pairs only and the
+        # dropped count is published: a filtered mean must not be read as a direct
+        # measurement, since the dropped pairs are exactly the least reliable ones.
         defined = torch.isfinite(cosine)
         cosine = torch.where(defined, cosine, torch.zeros_like(cosine))
         for name, selection in (("within", inside), ("cross", ~inside)):
             metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
-                (selection & ~defined).sum()
+                (selection[:, None] & ~defined).sum()
             )
-            kept = selection & defined
+            kept = selection[:, None] & defined
             if bool(kept.any()):
                 metrics[f"{name}_gradient_cosine_mean"] = float(cosine[kept].mean())
     return metrics
@@ -734,10 +738,26 @@ def chunk_gram_diagnostics(
         return {key: value.detach() for key, value in metrics.items()}
     step = max(1, len(indices) // max(int(max_sampled), 1))
     sampled = indices[::step][: int(max_sampled)]
+    # eigvalsh propagates a non-finite entry to every eigenvalue of the block, so a
+    # single corrupt diagonal cell would make the whole PSD report NaN. Chunks whose
+    # block is not entirely finite are excluded and counted, rather than being allowed
+    # to poison the aggregate with a value that describes no real block.
+    finite_blocks = [
+        (start, end)
+        for start, end in (tables.partition[index] for index in sampled)
+        if bool(torch.isfinite(h[start:end, start:end]).all())
+    ]
+    metrics["mp_opd_grass_chunk_gram_sampled_blocks_non_finite"] = h.new_tensor(
+        float(len(sampled) - len(finite_blocks))
+    )
+    if not finite_blocks:
+        metrics["mp_opd_grass_chunk_gram_sampled_min_eigenvalue"] = diagonal.new_zeros(())
+        metrics["mp_opd_grass_chunk_gram_sampled_negative_fraction"] = diagonal.new_zeros(())
+        return {key: value.detach() for key, value in metrics.items()}
     smallest = torch.stack(
         [
             torch.linalg.eigvalsh(h[start:end, start:end]).min()
-            for start, end in (tables.partition[index] for index in sampled)
+            for start, end in finite_blocks
         ]
     )
     metrics["mp_opd_grass_chunk_gram_sampled_chunks"] = h.new_tensor(float(len(sampled)))
@@ -751,8 +771,14 @@ def chunk_gram_diagnostics(
         block = h[start:end, start:end]
         rows = torch.arange(end - start - 1, device=h.device).unsqueeze(-1)
         columns = rows + 1
+        # Same floor-versus-NaN trap as in chunk_boundary_diagnostics: a non-finite
+        # diagonal entry passes straight through clamp_min, so it is replaced first.
+        block_diagonal = diagonal[start:end]
+        block_diagonal = torch.where(
+            torch.isfinite(block_diagonal), block_diagonal, torch.ones_like(block_diagonal)
+        )
         denominator = (
-            diagonal[start:end][rows] * diagonal[start:end][columns]
+            block_diagonal[rows] * block_diagonal[columns]
         ).clamp_min(1e-300).sqrt()
         cosines.append((block[rows, columns] / denominator).reshape(-1))
     cosine = cosines[0] if len(cosines) == 1 else torch.cat(cosines)

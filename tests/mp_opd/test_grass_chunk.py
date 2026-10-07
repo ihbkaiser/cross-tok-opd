@@ -620,6 +620,10 @@ def _degenerate_gram(partition, n, seed):
     clamp_min floors the denominator at 1e-150 and the quotient stays finite - so the
     reproduction has to make the *numerator* overflow, which is what actually produced
     the non-finite metric that stopped the run.
+
+    A NaN diagonal is a strictly harder case and is covered separately by
+    _nan_diagonal_gram: no floor can rescue NaN, because every comparison against it is
+    false.
     """
     generator = torch.Generator().manual_seed(seed)
     gram = _chunked_gram(partition, _psd(n, seed)).clone()
@@ -678,6 +682,102 @@ def test_gram_diagnostics_report_zero_not_nan_when_no_entry_is_finite():
     for key, value in metrics.items():
         assert torch.isfinite(torch.as_tensor(value)).all(), f"{key} was {value}"
     assert float(metrics["mp_opd_grass_chunk_gram_neighbour_cosine_mean"]) == 0.0
+
+
+def _nan_diagonal_gram(partition, n, seed, count=3):
+    """A Gram whose diagonal carries genuine NaN entries.
+
+    _degenerate_gram uses a zero diagonal, which cannot break the ratio: clamp_min
+    floors the denominator at 1e-150 and the quotient stays finite. NaN is the entry
+    a floor does not stop, because every comparison against NaN is false, so
+    clamp_min returns it unchanged and 0/0 remains NaN. That is the case the run on
+    GPU 0 actually hit: the guard filtered the *result* but the denominator was still
+    built from the corrupt value, so the fix has to replace the diagonal before the
+    division, not after it.
+    """
+    gram = _chunked_gram(partition, _psd(n, seed)).clone()
+    for index in range(count):
+        position = (index * 2 + 1) % n
+        gram[position, position] = float("nan")
+    return gram
+
+
+def test_boundary_diagnostics_survive_a_nan_gram_diagonal():
+    # clamp_min cannot rescue NaN, so this is the regression for the run that died on
+    # mp_opd_grass_chunk_boundary_within_gradient_cosine_mean at the very first step.
+    n = 12
+    partition = ((0, 6), (6, 12))
+    rate, weight = _credits(n, seed=81)
+    gram = _nan_diagonal_gram(partition, n, 81, count=4)
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    for key, value in metrics.items():
+        assert math.isfinite(value), f"{key} was {value!r}"
+    assert metrics["gram_diagonal_non_finite"] == 4.0
+
+
+def test_boundary_diagnostics_count_the_corrupt_diagonal_rather_than_hiding_it():
+    # Reporting 0 would make a corrupt Gram indistinguishable from a clean one, and
+    # the whole run would look healthy while silently dropping its gradient geometry.
+    n = 10
+    partition = ((0, 5), (5, 10))
+    rate, weight = _credits(n, seed=82)
+    clean = chunk_boundary_diagnostics(
+        rate, weight, _chunked_gram(partition, _psd(n, 82)), partition
+    )
+    assert clean["gram_diagonal_non_finite"] == 0.0
+    dirty = chunk_boundary_diagnostics(
+        rate, weight, _nan_diagonal_gram(partition, n, 82, count=2), partition
+    )
+    assert dirty["gram_diagonal_non_finite"] == 2.0
+
+
+def test_boundary_diagnostics_survive_an_infinite_gram_diagonal():
+    # inf is the other value a comparison cannot catch, and 0/inf and inf/inf both
+    # reach the metric, so the same replacement has to cover it.
+    n = 12
+    partition = ((0, 6), (6, 12))
+    rate, weight = _credits(n, seed=83)
+    gram = _chunked_gram(partition, _psd(n, 83)).clone()
+    for position in (2, 5, 9):
+        gram[position, position] = float("inf")
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    for key, value in metrics.items():
+        assert math.isfinite(value), f"{key} was {value!r}"
+    assert metrics["gram_diagonal_non_finite"] == 3.0
+
+
+def test_gram_diagnostics_survive_a_nan_gram_diagonal():
+    # eigvalsh spreads one NaN cell across every eigenvalue of its block, so the PSD
+    # report has to drop the whole block rather than average a value that describes no
+    # real block.
+    n = 12
+    partition = ((0, 6), (6, 12))
+    rate, weight = _credits(n, seed=84)
+    gram = _nan_diagonal_gram(partition, n, 84, count=2)
+    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
+    metrics = chunk_gram_diagnostics(gram, tables, max_sampled=4)
+    for key, value in metrics.items():
+        assert torch.isfinite(torch.as_tensor(value)).all(), f"{key} was {value}"
+    assert float(metrics["mp_opd_grass_chunk_gram_diagonal_non_finite"]) == 2.0
+
+
+def test_gram_diagnostics_report_zero_when_every_sampled_block_is_corrupt():
+    # The degenerate all-NaN case must still emit every key, because the caller
+    # prefixes them into the log and a missing key would look like an unrun diagnostic.
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=85)
+    gram = torch.full((n, n), float("nan"), dtype=torch.float64)
+    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
+    metrics = chunk_gram_diagnostics(gram, tables, max_sampled=2)
+    for key in (
+        "mp_opd_grass_chunk_gram_sampled_min_eigenvalue",
+        "mp_opd_grass_chunk_gram_sampled_negative_fraction",
+        "mp_opd_grass_chunk_gram_sampled_blocks_non_finite",
+    ):
+        assert key in metrics, f"{key} was never emitted"
+        assert torch.isfinite(torch.as_tensor(metrics[key])).all()
+    assert float(metrics["mp_opd_grass_chunk_gram_sampled_blocks_non_finite"]) > 0.0
 
 
 def test_shadow_reports_hard_chunk_and_atomic_without_changing_anything():
