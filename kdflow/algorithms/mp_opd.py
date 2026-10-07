@@ -937,22 +937,35 @@ class MetaPartitionedOPD:
         )
         return metrics
 
-    def _dpca_loss(self, credits, atoms, micro_batch, sample_index: int):
+    def _dpca_loss(
+        self,
+        credits,
+        atoms,
+        micro_batch,
+        sample_index: int,
+        student_logits: torch.Tensor | None = None,
+        student_labels: torch.Tensor | None = None,
+    ):
         """DPCA: semantic-prior advantage on the rollout behaviour likelihood ratio.
 
         Unlike every other mode this does not consume a partition. The gradient is
         ``sum_i A_i * d(-log p(sampled_i))/d(theta)``, so the differentiable input
-        is ``credits.student_token_nll`` and not ``credits.current_nll``.
+        is the student's per-token log-probability and not ``credits.current_nll``.
 
-        ``L_T`` and ``L_S`` are already per-atom sums inside ``AtomCreditTensors``
-        (``teacher_log_score`` / ``student_old_log_score``); they are expanded back
-        to token resolution because the advantage is per token.
+        Both sides of the likelihood ratio live on the rollout's tempered
+        distribution: ``prior`` is what the engine reported, and the current
+        log-probability is recomputed here with the same temperature, which is what
+        ``verl``'s actor does. ``L_T`` is the per-atom teacher total already carried
+        in ``AtomCreditTensors``; ``L_S`` is summed from ``prior`` itself, matching
+        upstream, and both are expanded back to token resolution because the
+        advantage is per token.
         """
         from ._mp_opd_dpca import (
             DPCAConfig,
             dpca_atom_advantages,
             dpca_metrics_to_tensors,
             dpca_policy_loss,
+            rollout_temperature_log_probs,
         )
 
         kd = self.args.kd
@@ -1020,12 +1033,27 @@ class MetaPartitionedOPD:
             raise ValueError("atom student token counts do not cover the atom-selected response")
 
         advantages = dpca_atom_advantages(
-            credits.student_old_log_score,
             credits.teacher_log_score,
             counts,
             prior,
             config.adv_clamp,
         )
+
+        # The current policy's log-probability has to be recomputed on the same
+        # tempered distribution the engine sampled from. credits.student_token_nll
+        # is built from raw logits, so reusing it would put pi_theta on one side of
+        # the ratio and pi_T on the other.
+        if student_logits is None or student_labels is None:
+            raise RuntimeError("mp_opd dpca requires the student logits to rebuild pi_T")
+        current_log_probs = rollout_temperature_log_probs(
+            student_logits, student_labels, float(self.args.rollout.temperature)
+        )
+        if current_log_probs.shape != prior.shape:
+            raise ValueError(
+                f"tempered student log-probs cover {current_log_probs.numel()} tokens "
+                f"but the atom-selected prior covers {prior.numel()}"
+            )
+        token_nll = -current_log_probs[covered].to(prior.device)
 
         loss, metrics = dpca_policy_loss(
             prior,
@@ -1208,7 +1236,14 @@ class MetaPartitionedOPD:
             credits.base_credit, credits.weight, self.max_span_length
         )
         if self.mode == "dpca":
-            return self._dpca_loss(credits, atoms, micro_batch, sample_index)
+            return self._dpca_loss(
+                credits,
+                atoms,
+                micro_batch,
+                sample_index,
+                student_logits=student_logits,
+                student_labels=student_labels,
+            )
 
         if self.mode == "oracle":
             supplied = micro_batch.get("mp_opd_atom_directional_scores")
@@ -1398,7 +1433,7 @@ class MetaPartitionedOPD:
                 batch_index,
                 diagnostics=diagnostics_due,
                 diagnostic_seed=int(sample_key, 16),
-                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits or self.grass_needs_logits) else None,
+                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits or self.grass_needs_logits or self.mode == "dpca") else None,
                 student_labels=stu_label_tensor,
                 student_hidden=(
                     None

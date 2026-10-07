@@ -38,6 +38,7 @@ MP-OPD rather than with a second, independent aligner.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -64,8 +65,31 @@ class DPCAConfig:
     kl_clamp: float = 20.0
 
 
+def rollout_temperature_log_probs(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    temperature: float,
+) -> torch.Tensor:
+    """log p_T(label) per row, on the rollout's tempered distribution.
+
+    ``verl``'s actor divides the logits by the rollout temperature before
+    ``logprobs_from_logits`` (``dp_actor._forward_micro_batch``), and the rollout
+    engine applies the same temperature to the logprobs it returns. Both sides of
+    the DPCA ratio must therefore sit on ``pi_T``. Comparing raw logits against a
+    tempered prior would make ``clip`` bite on temperature rather than on policy
+    drift, and with one update per rollout the corrected ratio collapses back to 1.
+    """
+    temperature = float(temperature)
+    if not math.isfinite(temperature) or temperature <= 0.0:
+        raise ValueError(f"rollout temperature must be positive and finite, got {temperature}")
+    if logits.ndim != 2 or labels.ndim != 1 or logits.shape[0] != labels.numel():
+        raise ValueError("logits must be [tokens,vocab] and labels [tokens]")
+    scaled = logits.float() / temperature
+    chosen = scaled.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    return chosen - torch.logsumexp(scaled, dim=-1)
+
+
 def dpca_atom_advantages(
-    student_old_log_score: torch.Tensor,
     teacher_log_score: torch.Tensor,
     counts: torch.Tensor,
     prior_log_probs: torch.Tensor,
@@ -88,10 +112,9 @@ def dpca_atom_advantages(
     clamped denominator turns a real signal into a spurious one.
     """
     counts = counts.long()
-    if student_old_log_score.shape != teacher_log_score.shape:
-        raise ValueError("student_old_log_score and teacher_log_score must be aligned")
-    if student_old_log_score.shape != counts.shape:
-        raise ValueError("atom counts must match the per-atom log-probability totals")
+    n_atoms = int(counts.numel())
+    if teacher_log_score.shape != (n_atoms,):
+        raise ValueError("teacher_log_score must be one total per atom")
     if int(counts.sum().item()) != prior_log_probs.numel():
         raise ValueError(
             f"atom token counts total {int(counts.sum().item())} but the prior covers "
@@ -99,7 +122,14 @@ def dpca_atom_advantages(
         )
 
     teacher_chunk = teacher_log_score.float()
-    prior_chunk = student_old_log_score.float()
+    # Upstream sums ``prior_log_probs`` for L_S and uses the *same array* for the
+    # per-token log p_i. Deriving the chunk total from a different quantity would
+    # silently mix two conventions inside one formula.
+    atom_index = torch.repeat_interleave(
+        torch.arange(n_atoms, device=prior_log_probs.device), counts
+    )
+    prior_chunk = torch.zeros(n_atoms, dtype=torch.float32, device=prior_log_probs.device)
+    prior_chunk = prior_chunk.index_add(0, atom_index, prior_log_probs.float())
     degenerate = prior_chunk.abs() < 1e-8
     safe_prior_chunk = torch.where(degenerate, torch.ones_like(prior_chunk), prior_chunk)
     ratio = teacher_chunk / safe_prior_chunk
@@ -141,7 +171,11 @@ def dpca_policy_loss(
         negative_approx_kl, min=-config.kl_clamp, max=config.kl_clamp
     )
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl = (negative_approx_kl * response_mask).sum() / response_mask.sum().clamp_min(1.0)
+    # Upstream reports ``masked_mean(-negative_approx_kl)``. This is the mean of a
+    # log-ratio, not a divergence, so it is only a readable divergence estimate
+    # once the two policies agree; upstream still negates it, and matching that
+    # sign is what makes the reported number comparable with the reference runs.
+    ppo_kl = -(negative_approx_kl * response_mask).sum() / response_mask.sum().clamp_min(1.0)
 
     pg_losses1 = -advantages * ratio
     pg_losses2 = -advantages * torch.clamp(

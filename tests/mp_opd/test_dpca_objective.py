@@ -28,6 +28,7 @@ from kdflow.algorithms._mp_opd_dpca import (
     dpca_atom_advantages,
     dpca_metrics_to_tensors,
     dpca_policy_loss,
+    rollout_temperature_log_probs,
 )
 
 CONFIG = DPCAConfig()
@@ -106,14 +107,16 @@ def test_semantic_prior_matches_the_paper_formula():
     """A_i = (L_T / L_S - 1) * log p_i, with L_T and L_S summed inside a chunk."""
     prior = torch.tensor([-1.0, -2.0, -3.0, -4.0])
     counts = torch.tensor([2, 2])
-    # atom 0: L_S = -3, L_T = -6 -> ratio 2; atom 1: L_S = -7, L_T = -10.5 -> ratio 1.5
-    student_old = torch.tensor([-3.0, -7.0])
-    teacher = torch.tensor([-6.0, -10.5])
+    # L_S is summed from prior: atom 0 -> -3, atom 1 -> -7
+    teacher = torch.tensor([-6.0, -10.5])   # ratios 2.0 and 1.5
 
-    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
+    advantages = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
 
     expected = torch.cat(
-        [(teacher[0] / student_old[0] - 1.0) * prior[0:2], (teacher[1] / student_old[1] - 1.0) * prior[2:4]]
+        [
+            (teacher[0] / -3.0 - 1.0) * prior[0:2],
+            (teacher[1] / -7.0 - 1.0) * prior[2:4],
+        ]
     )
     assert torch.allclose(advantages, expected, atol=1e-5)
     assert torch.allclose(advantages, torch.tensor([-1.0, -2.0, -1.5, -2.0]), atol=1e-5)
@@ -128,10 +131,9 @@ def test_chunks_do_not_leak_across_atoms():
     """
     prior = torch.tensor([-1.0, -1.0, -1.0, -1.0])
     counts = torch.tensor([2, 2])
-    student_old = torch.tensor([-2.0, -2.0])   # L_S equal, L_T differ
-    teacher = torch.tensor([-1.0, -6.0])       # ratios 0.5 and 3.0
+    teacher = torch.tensor([-1.0, -6.0])   # L_S = -2 both; ratios 0.5 and 3.0
 
-    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
+    advantages = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
 
     assert torch.allclose(advantages, torch.tensor([0.5, 0.5, -2.0, -2.0]), atol=1e-6)
     assert not torch.allclose(advantages[0:2], advantages[2:4])
@@ -141,10 +143,9 @@ def test_zero_prior_chunk_spreads_the_teacher_budget_uniformly():
     """L_S == 0 is the degenerate chunk upstream handles explicitly."""
     prior = torch.zeros(3)
     counts = torch.tensor([3])
-    student_old = torch.tensor([0.0])
     teacher = torch.tensor([-3.0])
 
-    advantages = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
+    advantages = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
 
     # target = L_T / n_chunk = -1 per token, so A = -1 - 0.
     assert torch.allclose(advantages, torch.full((3,), -1.0), atol=1e-6)
@@ -153,11 +154,10 @@ def test_zero_prior_chunk_spreads_the_teacher_budget_uniformly():
 def test_clamp_saturates_and_is_measurable():
     prior = torch.tensor([-1.0, -1.0])
     counts = torch.tensor([1, 1])
-    student_old = torch.tensor([-1.0, -1.0])
-    teacher = torch.tensor([-100.0, 0.0])      # ratios 100 and 0
+    teacher = torch.tensor([-100.0, 0.0])      # L_S = -1 both; ratios 100 and 0
 
-    raw = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=None)
-    clamped = dpca_atom_advantages(student_old, teacher, counts, prior, adv_clamp=10.0)
+    raw = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
+    clamped = dpca_atom_advantages(teacher, counts, prior, adv_clamp=10.0)
 
     # token 0: teacher far more negative than the student -> advantage -99
     assert raw[0].item() == pytest.approx(-99.0)
@@ -172,15 +172,84 @@ def test_clamp_saturates_and_is_measurable():
 def test_counts_that_do_not_cover_the_prior_fail_closed():
     with pytest.raises(ValueError):
         dpca_atom_advantages(
-            torch.tensor([-3.0]), torch.tensor([-6.0]), torch.tensor([2]), torch.tensor([-1.0]), None
+            torch.tensor([-6.0]), torch.tensor([2]), torch.tensor([-1.0]), None
         )
 
 
 def test_mismatched_shapes_fail_closed():
     with pytest.raises(ValueError):
         dpca_atom_advantages(
-            torch.zeros(4), torch.zeros(5), torch.tensor([1, 1, 1, 1]), torch.zeros(4), None
+            torch.zeros(5), torch.tensor([1, 1, 1, 1]), torch.zeros(4), None
         )
+
+
+def test_chunk_total_comes_from_the_prior_not_a_separate_array():
+    """L_S must be summed from the same array that supplies log p_i.
+
+    Upstream sums ``prior_log_probs`` for the chunk denominator and reuses that
+    array for the per-token term. Passing an independent per-atom total is the
+    failure mode where both halves are individually plausible and the ratio is
+    quietly formed from two different conventions.
+    """
+    prior = torch.tensor([-1.0, -2.0, -3.0, -4.0])
+    counts = torch.tensor([2, 2])
+    teacher = torch.tensor([-6.0, -7.0])   # ratios 2.0 and 1.0
+
+    advantages = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
+
+    # L_S = [-3, -7]; A = (L_T/L_S - 1) * log p_i
+    expected = torch.tensor([1.0, 2.0, 0.0, 0.0])
+    assert torch.allclose(advantages, expected, atol=1e-5)
+
+
+def test_tempered_log_probs_match_a_reference_softmax():
+    """The current policy must be rebuilt on pi_T, like verl's actor does.
+
+    Dividing the logits by the rollout temperature before the log-softmax is what
+    puts the ratio's two sides on the same distribution. Comparing against an
+    explicit float64 softmax pins both the scaling and the gather.
+    """
+    logits = torch.tensor([[2.0, 0.0, -1.0], [0.5, 0.5, 0.5]])
+    labels = torch.tensor([0, 2])
+
+    got = rollout_temperature_log_probs(logits, labels, 0.6)
+
+    reference = torch.log_softmax(logits.double() / 0.6, dim=-1).gather(
+        -1, labels.unsqueeze(-1)
+    ).squeeze(-1)
+    assert torch.allclose(got.double(), reference, atol=1e-5)
+
+
+def test_tempered_log_probs_differ_from_the_raw_ones():
+    """Guards the fix itself: at T != 1 the two distributions must not coincide."""
+    logits = torch.tensor([[2.0, 0.0, -1.0]])
+    labels = torch.tensor([0])
+
+    tempered = rollout_temperature_log_probs(logits, labels, 0.6)
+    raw = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+
+    assert not torch.allclose(tempered, raw, atol=1e-3)
+
+
+@pytest.mark.parametrize("temperature", [0.0, -1.0, float("nan"), float("inf")])
+def test_invalid_temperature_fails_closed(temperature):
+    with pytest.raises(ValueError):
+        rollout_temperature_log_probs(torch.zeros(2, 3), torch.zeros(2, dtype=torch.long), temperature)
+
+
+def test_ppo_kl_keeps_the_upstream_sign():
+    """Upstream reports masked_mean(-negative_approx_kl).
+
+    Dropping the negation makes the reported number the exact opposite of the
+    reference runs, which is easy to misread as "the policy moved the wrong way".
+    """
+    prior = torch.tensor([-1.0, -1.0])
+    log_probs = torch.tensor([-2.0, -2.0])   # negative_approx_kl = -1 per token
+    advantages = torch.ones(2)
+
+    _, metrics = dpca_policy_loss(prior, log_probs, advantages, torch.ones(2), CONFIG)
+
+    assert metrics["mp_opd_dpca_ppo_kl"] == pytest.approx(1.0)
 
 
 def test_policy_metrics_are_floats_not_tensors():
