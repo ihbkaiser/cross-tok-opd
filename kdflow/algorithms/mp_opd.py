@@ -974,43 +974,41 @@ class MetaPartitionedOPD:
 
         loss_mask = micro_batch["stu_loss_mask"][sample_index]
         prior = behaviour[sample_index][loss_mask]
-        if prior.numel() != credits.student_token_nll.numel():
+        token_nll = credits.student_token_nll
+        if prior.numel() != token_nll.numel():
             raise ValueError(
                 f"behaviour log-prob cardinality {prior.numel()} does not match the "
-                f"{credits.student_token_nll.numel()} student loss tokens"
+                f"{token_nll.numel()} student loss tokens"
             )
         prior = prior.detach()
-        if sample_index < 3:
-            _b = behaviour[sample_index]
-            _nan = torch.nonzero(torch.isnan(_b), as_tuple=False).flatten()
-            _mask_true = int(loss_mask.sum().item())
-            _nll_n = int(credits.student_token_nll.numel())
-            print(
-                "[dpca-diag] idx=%d stu_len=%d mask_true=%d prior_n=%d nll_n=%d counts=%d "
-                "behav_nan=%d nan_pos=%s mask_minus_nll=%d"
-                % (
-                    sample_index,
-                    int(_b.numel()),
-                    _mask_true,
-                    int(prior.numel()),
-                    _nll_n,
-                    int(credits.weight.long().sum().item()),
-                    int(_nan.numel()),
-                    _nan[:16].tolist(),
-                    _mask_true - _nll_n,
-                ),
-                flush=True,
-            )
+
+        # The loss mask is deliberately wider than the atoms. trajectory_tokens
+        # appends a synthetic EOS sentinel that the atomizer excludes from credit
+        # ("the atomizer excludes it from credit"), so the mask carries positions
+        # that own no atom and, because behaviour is NaN outside the sampled span,
+        # no engine log-prob either. student_logits was already sliced by this same
+        # mask and atom.student_start/end index it directly, so restricting both
+        # tensors to atom-covered mask positions is what keeps the semantic prior
+        # and the per-atom credit aligned.
+        covered = torch.zeros(prior.numel(), dtype=torch.bool, device=prior.device)
+        for atom in atoms:
+            covered[atom.student_start : atom.student_end] = True
+        if not bool(covered.any()):
+            raise RuntimeError("mp_opd dpca sample has no atom-covered loss position")
+        prior = prior[covered]
+        token_nll = token_nll[covered]
+
         if not torch.isfinite(prior).all():
             raise RuntimeError(
-                "mp_opd dpca received non-finite behaviour log-probabilities inside the loss "
-                "mask; the engine did not report logprobs for the whole generated span"
+                "mp_opd dpca received non-finite behaviour log-probabilities on an "
+                "atom-covered position; the engine did not report logprobs for the whole "
+                "generated span"
             )
         prior = prior.float()
 
         counts = credits.weight.long()
         if int(counts.sum().item()) != prior.numel():
-            raise ValueError("atom student token counts do not cover the loss-masked response")
+            raise ValueError("atom student token counts do not cover the atom-selected response")
 
         advantages = dpca_atom_advantages(
             credits.student_old_log_score,
@@ -1022,7 +1020,7 @@ class MetaPartitionedOPD:
 
         loss, metrics = dpca_policy_loss(
             prior,
-            -credits.student_token_nll,
+            -token_nll,
             advantages,
             torch.ones_like(prior),
             config,
