@@ -74,6 +74,10 @@ from ._mp_opd_airs import (
     airs_precision_buckets,
     airs_shrinkage,
 )
+from ._mp_opd_align import (
+    align_chunks,
+    align_metrics,
+)
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -85,7 +89,15 @@ from ._mp_opd_training_diagnostics import (
 # Modes that shrink credit with the shared SURE geometry. GRASS-DP searches for
 # the partition; GRASS-Chunk takes it from the upstream alignment. Both need the
 # same logits, the same head-input hidden states and the same noise-scale state.
-_GRASS_MODES = frozenset({"grass", "grass_chunk"})
+# ALIGN joins them: it reuses GRASS-Chunk's chunks and its exact head Gram verbatim,
+# and differs only in what it does with the credit afterwards.
+_GRASS_MODES = frozenset({"grass", "grass_chunk", "align"})
+
+# The modes whose partitions come from the upstream alignment, and therefore the ones
+# that need the aligner built when mp_opd_grass_chunk_source is 'xtoken'. GRASS-DP
+# builds its own partition and never reads this source, so including it here would
+# rebuild the earlier bug for every grass run.
+_CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "align"})
 
 # AIRS needs none of the GRASS machinery: no logits, no hidden states, no Gram. It
 # shares only the noise estimator, because the method note fixes the same MAD-of-
@@ -335,7 +347,7 @@ class MetaPartitionedOPD:
         # grass_chunk.
         self.grass_aligner = (
             self._build_grass_aligner()
-            if self.mode == "grass_chunk" and self.grass_chunk_source == "xtoken"
+            if self.mode in _CHUNK_SOURCE_MODES and self.grass_chunk_source == "xtoken"
             else None
         )
         self._grass_modes = _GRASS_MODES
@@ -355,6 +367,11 @@ class MetaPartitionedOPD:
         self.grass_softcap = self._detect_final_logit_softcap()
         self.grass_head_bias = self._detect_head_bias()
         self.airs_warmup_steps = int(getattr(self.args.kd, "mp_opd_airs_warmup_steps", 20))
+        self.align_eps_h = float(getattr(self.args.kd, "mp_opd_align_eps_h", 1e-12))
+        if not (self.align_eps_h >= 0.0):
+            raise ValueError(
+                f"mp_opd_align_eps_h must be non-negative, got {self.align_eps_h}"
+            )
         self.airs_noise = (
             GrassNoiseEstimator(
                 rho=float(getattr(self.args.kd, "mp_opd_airs_sigma_rho", 0.99)),
@@ -821,6 +838,98 @@ class MetaPartitionedOPD:
         return atom_chunk_ids_from_tokens(
             token_chunk_ids, atom_ranges, policy=self.grass_chunk_straddle
         )
+
+    def _align_loss(
+        self,
+        credits,
+        atoms,
+        *,
+        student_logits: torch.Tensor | None,
+        student_labels: torch.Tensor | None,
+        student_hidden: torch.Tensor | None,
+        student_ids: list[int] | None = None,
+        teacher_ids: list[int] | None = None,
+    ):
+        """ALIGN: remove negative pairwise interference inside alignment chunks.
+
+        The chunk boundaries, the exact LM-head Gram and the credits themselves are
+        the GRASS-Chunk ones, reused unchanged, so the only difference between the
+        two modes is what happens to the credit after it leaves the atomizer. Here
+        nothing is shrunk and nothing is pooled: a PCGrad projection is applied in
+        coefficient space, and its sum over each chunk becomes the credit the loss
+        consumes. No renormalization follows, because a projection is meant to be
+        measured, and rescaling it would erase the size of what it did.
+        """
+        if student_logits is None or student_labels is None:
+            raise RuntimeError(
+                "mp_opd align mode requires the student logits and labels"
+            )
+        if student_hidden is None:
+            raise RuntimeError(
+                "mp_opd align mode requires the student LM-head hidden states"
+            )
+        if credits.student_token_nll is None:
+            raise RuntimeError(
+                "mp_opd align mode requires per-token student NLL"
+            )
+        if credits.student_token_nll.numel() != student_logits.shape[0]:
+            raise ValueError(
+                "per-token student NLL and student logits disagree on token count"
+            )
+        if self.grass_chunk_source == "xtoken" and (
+            student_ids is None or teacher_ids is None
+        ):
+            raise RuntimeError(
+                "mp_opd grass_chunk_source='xtoken' needs the sampled student and "
+                "teacher token ids for the alignment"
+            )
+
+        atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
+        covered = atom_ranges[-1][1]
+        assignment = self._grass_chunk_assignment(atoms, student_ids, teacher_ids)
+        partition, _noncontiguous = chunk_partition(assignment)
+        head = chunk_head_gram(
+            student_logits[:covered],
+            student_hidden[:covered],
+            student_labels[:covered],
+            atom_ranges,
+            partition,
+            selected_log_prob=-credits.student_token_nll[:covered],
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=self.grass_geometry == "diag",
+        )
+        stats = align_chunks(
+            credits.rate,
+            head.gram,
+            partition,
+            eps_h=self.align_eps_h,
+        )
+        effective = stats["rate"].to(credits.rate.dtype)
+        metrics = align_metrics(credits.rate, effective, head.gram, stats)
+        metrics.update(
+            {
+                "mp_opd_align_exact_geometry": credits.rate.new_tensor(
+                    float(self.grass_geometry == "exact_head")
+                ),
+                "mp_opd_align_gram_symmetry_error": credits.rate.new_tensor(
+                    head.symmetry_error
+                ),
+                "mp_opd_align_atom_token_count": credits.rate.new_tensor(
+                    float(head.token_count)
+                ),
+                "mp_opd_align_softcap": credits.rate.new_tensor(
+                    float(self.grass_softcap or 0.0)
+                ),
+                "mp_opd_align_head_bias": credits.rate.new_tensor(
+                    float(self.grass_head_bias)
+                ),
+                "mp_opd_align_chunk_source": credits.rate.new_tensor(
+                    float(self.grass_chunk_source == "xtoken")
+                ),
+            }
+        )
+        return soft_partition_loss(credits.current_nll, effective), metrics
 
     def _grass_chunk_loss(
         self,
@@ -1338,6 +1447,17 @@ class MetaPartitionedOPD:
                 teacher_ids=teacher_ids,
             )
 
+        if self.mode == "align":
+            return self._align_loss(
+                credits,
+                atoms,
+                student_logits=student_logits,
+                student_labels=student_labels,
+                student_hidden=student_hidden,
+                student_ids=student_ids,
+                teacher_ids=teacher_ids,
+            )
+
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
         )
@@ -1546,8 +1666,12 @@ class MetaPartitionedOPD:
                     if student_hiddens_flat is None
                     else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count]
                 ),
-                student_ids=stu_ids if self.mode == "grass_chunk" else None,
-                teacher_ids=tea_ids if self.mode == "grass_chunk" else None,
+                student_ids=(
+                    stu_ids if self.mode in _CHUNK_SOURCE_MODES else None
+                ),
+                teacher_ids=(
+                    tea_ids if self.mode in _CHUNK_SOURCE_MODES else None
+                ),
             )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():

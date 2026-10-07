@@ -196,7 +196,8 @@ class DistillationArguments:
     mp_opd_mode: str = field(
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
-                              "kernel", "grass", "grass_chunk", "airs", "dpca"]},
+                              "kernel", "grass", "grass_chunk", "airs", "align",
+                              "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -348,6 +349,12 @@ class DistillationArguments:
         metadata={"help": "Valid adjacent pairs below which the batch does not identify "
                           "a scale and the previous estimate is kept."},
     )
+    mp_opd_align_eps_h: float = field(
+        default=1e-12,
+        metadata={"help": "Gram diagonal at or below which a candidate ALIGN projection "
+                          "is skipped rather than dividing by a vanishing norm. Fixed by "
+                          "the method note; exposed so the skip is auditable, not tuned."},
+    )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
     mp_opd_energy_lr: float = field(default=1e-3)
@@ -451,7 +458,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "dpca"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "align", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -518,7 +525,7 @@ class DistillationArguments:
             if self.mp_opd_grass_chunk_run_length < 1:
                 raise ValueError("mp_opd_grass_chunk_run_length must be positive")
             if (
-                self.mp_opd_mode == "grass_chunk"
+                self.mp_opd_mode in {"grass_chunk", "align"}
                 and self.mp_opd_grass_chunk_source == "xtoken"
             ):
                 # The native chunk is the method's definition, so a run that asks
@@ -577,7 +584,7 @@ class DistillationArguments:
                     "operator, and no such composition is defined"
                 )
             if (
-                self.mp_opd_mode == "grass_chunk"
+                self.mp_opd_mode in {"grass_chunk", "align"}
                 and self.mp_opd_credit_transform != "identity"
             ):
                 # Same reasoning as GRASS-DP, applied to chunk-local shrinkage.

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "airs"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "airs", "align"}
 limit = int(limit)
 assert 0 <= limit <= 312
 
@@ -94,7 +94,9 @@ opts.update(
 # audited projection. A run that cannot name its chunk source would therefore
 # refuse to start for a reason that looks like a bug, so the choice is explicit
 # here and echoed to the log rather than left to a default.
-if mode == "grass_chunk":
+# ALIGN reads the chunk from the same source as GRASS-Chunk and applies its own
+# projection afterwards, so it inherits that choice rather than duplicating it.
+if mode in {"grass_chunk", "align"}:
     opts.update(
         mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "run"),
         mp_opd_grass_chunk_run_length=int(os.environ.get("MP_GRASS_CHUNK_RUN_LENGTH", "2")),
