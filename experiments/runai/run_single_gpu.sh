@@ -41,7 +41,12 @@ export MP_SOURCE_DIRTY="$(git -C "$CODE_ROOT" status --porcelain --untracked-fil
 RUN_ROOT="${MP_RUN_ROOT:-$(dirname "$CODE_ROOT")/simct-runs}"
 mkdir -p "$RUN_ROOT"
 RUN_ROOT="$(cd -- "$RUN_ROOT" && pwd)"
-RUN_DIR="$RUN_ROOT/qwen-gemma-${ALGORITHM}-${MODE}-gpu${GPU}-limit${LIMIT}-$(date +%Y%m%d-%H%M%S)-$$"
+# MP_RUN_DIR points a resume at the run directory that already holds the checkpoint.
+# Without it the directory is stamped with the current time and pid, which can never
+# contain checkpoints/latest.json, so MP_RESUME=1 below always failed. Note that
+# `${RUN_DIR}.log` is opened with `>` by the call below, so resuming into a finished
+# run overwrites that run's log unless it is copied aside first.
+RUN_DIR="${MP_RUN_DIR:-$RUN_ROOT/qwen-gemma-${ALGORITHM}-${MODE}-gpu${GPU}-limit${LIMIT}-$(date +%Y%m%d-%H%M%S)-$$}"
 echo "RUN_DIR=$RUN_DIR"
 cd "$CODE_ROOT"
 
