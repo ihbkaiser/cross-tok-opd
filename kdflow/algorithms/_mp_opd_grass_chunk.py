@@ -738,6 +738,8 @@ def chunk_gram_diagnostics(
     # non-finite diagonal entry, and mean() would propagate it. Reduce over the finite
     # entries and publish the count that was excluded.
     diagonal_finite = diagonal[torch.isfinite(diagonal)]
+    off_diagonal = h[~torch.eye(h.shape[0], dtype=torch.bool, device=h.device)]
+    off_diagonal_finite = off_diagonal[torch.isfinite(off_diagonal)]
     metrics = {
         "mp_opd_grass_chunk_gram_diagonal_mean": (
             diagonal_finite.mean()
@@ -749,6 +751,20 @@ def chunk_gram_diagnostics(
         ),
         "mp_opd_grass_chunk_gram_diagonal_non_finite": diagonal.new_tensor(
             float(diagonal.numel() - diagonal_finite.numel())
+        ),
+        # A Gram whose off-diagonal entries dwarf its diagonal is exactly what pushes
+        # the adjacent cosine outside [-1, 1]. Reporting the scale separates "a few
+        # pairs are slightly over" from "the head emits numbers describing no
+        # geometry", which look identical from the cosine counter alone.
+        "mp_opd_grass_chunk_gram_offdiagonal_max_abs": (
+            off_diagonal_finite.abs().max()
+            if off_diagonal_finite.numel()
+            else diagonal.new_zeros(())
+        ),
+        "mp_opd_grass_chunk_gram_offdiagonal_to_diagonal_max": (
+            off_diagonal_finite.abs().max() / diagonal_finite.max().clamp_min(1e-300)
+            if off_diagonal_finite.numel() and diagonal_finite.numel()
+            else diagonal.new_zeros(())
         ),
     }
     indices = [

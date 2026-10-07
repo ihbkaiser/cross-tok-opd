@@ -849,14 +849,20 @@ def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
 
 
 def test_a_healthy_gram_reports_no_out_of_range_pairs():
-    # The counter is only meaningful if a clean Gram leaves it at zero; otherwise it
-    # cannot distinguish a degenerate run from a normal one. PSD reconstruction pushes
-    # some cosines a few ulp past 1, which the tolerance absorbs.
+    # The counter is only meaningful if a well-conditioned Gram leaves it at zero.
+    # _psd floors eigenvalues at 1e-6, which makes the matrix nearly rank-deficient:
+    # its cosines sit within float error of 1 and legitimately cross the bound. A
+    # near-singular Gram is not a healthy reference for this metric, so this test
+    # builds a properly conditioned one instead of loosening the tolerance until a
+    # degenerate matrix passes.
     n = 10
     partition = ((0, 5), (5, 10))
     rate, weight = _credits(n, seed=92)
+    generator = torch.Generator().manual_seed(92)
+    raw = torch.randn(n, n, generator=generator, dtype=torch.float64)
+    well_conditioned = 0.5 * (raw + raw.T) + n * torch.eye(n, dtype=torch.float64)
     metrics = chunk_boundary_diagnostics(
-        rate, weight, _chunked_gram(partition, _psd(n, 92)), partition
+        rate, weight, _chunked_gram(partition, well_conditioned), partition
     )
     assert metrics["gradient_cosine_out_of_range"] == 0.0
     assert metrics["gradient_cosine_max_abs"] <= 1.0 + CHUNK_COSINE_TOLERANCE
