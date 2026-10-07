@@ -81,6 +81,12 @@ opts.update(
     load_checkpoint=resume,
     pause_after_updates=int(os.environ.get("MP_PAUSE_AFTER_UPDATES", "0")),
     resume_checkpoint_steps=os.environ.get("MP_CHECKPOINT_STEPS", "40,80,120,156,200,240,280,312"),
+    eval_on_checkpoint=os.environ.get("MP_EVAL_ON_CKPT", "0") == "1",
+    eval_on_checkpoint_steps=os.environ.get("MP_EVAL_STEPS", "40,80,120,160,200,240,280,312"),
+    eval_case_dir=os.environ.get("MP_EVAL_CASE_DIR", ""),
+    eval_prepared_dir=os.environ.get("MP_EVAL_PREPARED_DIR", ""),
+    eval_concurrency=int(os.environ.get("MP_EVAL_CONCURRENCY", "32")),
+    eval_score_python=os.environ.get("MP_EVAL_SCORE_PYTHON", "/usr/bin/python3.12"),
     mp_opd_offload_adam_moments=os.environ.get("MP_OFFLOAD_ADAM_MOMENTS", "0") == "1",
     mp_opd_host_mask=os.environ.get("MP_OPD_HOST_MASK", "0") == "1",
     rollout_deterministic_inference=os.environ.get("MP_ROLLOUT_DETERMINISTIC", "0") == "1",
@@ -133,6 +139,8 @@ if os.environ.get("MP_ROLLOUT_DETERMINISTIC", "0") not in {"0", "1"}:
     raise ValueError("MP_ROLLOUT_DETERMINISTIC must be 0 or 1")
 if os.environ.get("MP_ROLLOUT_DISABLE_RADIX_CACHE", "0") not in {"0", "1"}:
     raise ValueError("MP_ROLLOUT_DISABLE_RADIX_CACHE must be 0 or 1")
+if os.environ.get("MP_EVAL_ON_CKPT", "0") not in {"0", "1"}:
+    raise ValueError("MP_EVAL_ON_CKPT must be 0 or 1")
 if opts["mp_opd_offload_adam_moments"] and (
     opts["kd_algorithm"] != "mp_opd"
     or mode != "soft"

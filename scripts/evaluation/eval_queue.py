@@ -197,7 +197,11 @@ def run_cell(root,plan,plan_hash,job,benchmark,seed,base,server,args,deadline):
     responses=journal(cell/"responses.jsonl"); scores=journal(cell/"scores.jsonl")
     if not set(scores)<=set(responses)<=set(items): raise ValueError("orphan/unknown results")
     for key,row in responses.items():
-        expected=E.generation_payload("eval-gemma",items[key],benchmark,seed)
+        # Cells generated outside a dedicated eval server record the model the
+        # serving process actually advertised; legacy cells predate that record
+        # and keep the historical eval-gemma alias.
+        served = server.get("served_model") if isinstance(server, dict) else None
+        expected=E.generation_payload(served or "eval-gemma",items[key],benchmark,seed)
         if row["seed"]!=seed or row["request_sha256"]!=E.digest(E.encoded(expected)): raise ValueError("response request mismatch")
         E.validate_response(row["response"])
     for key,row in scores.items():

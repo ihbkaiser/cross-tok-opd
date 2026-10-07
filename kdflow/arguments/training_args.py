@@ -107,6 +107,30 @@ class TrainingArguments:
         default=0,
         metadata={"help": "Cooperative checkpoint pause for resume qualification; does not change LR horizon/budget."}
     )
+    eval_on_checkpoint: bool = field(
+        default=False,
+        metadata={"help": "Generate 3-seed benchmark cells from the resident rollout policy at eval steps. Blocking by design: the cells must belong to that step."}
+    )
+    eval_on_checkpoint_steps: str = field(
+        default="40,80,120,160,200,240,280,312",
+        metadata={"help": "Optimizer updates that trigger in-process eval generation, comma separated. Each must coincide with a checkpoint save."}
+    )
+    eval_case_dir: str = field(
+        default="",
+        metadata={"help": "Eval case directory; per-step plans land in <case>/eval/<run>-step<N>."}
+    )
+    eval_prepared_dir: str = field(
+        default="",
+        metadata={"help": "Directory holding prepared <benchmark>.json eval data."}
+    )
+    eval_concurrency: int = field(
+        default=32,
+        metadata={"help": "Concurrent eval generation requests against the rollout server. Kept modest: the training actors share this GPU."}
+    )
+    eval_score_python: str = field(
+        default="/usr/bin/python3.12",
+        metadata={"help": "Python used for the one-time scorer preflight when writing eval state."}
+    )
     ckpt_path: str = field(
         default="./ckpt/checkpoints_distill"
     )

@@ -196,6 +196,29 @@ class OnPolicyKDTrainer:
         self._extra_checkpoint_steps = {int(x) for x in self.args.train.resume_checkpoint_steps.split(",") if x.strip()}
         if any(x <= 0 for x in self._extra_checkpoint_steps) or self.args.train.pause_after_updates < 0:
             raise ValueError("Checkpoint/pause steps must be positive")
+        # In-process eval generation is validated here, before any GPU hour is
+        # spent: a broken eval setup must abort the run, not surface at step 40.
+        # A failed generation mid-run only skips that step's cells, loudly.
+        self._eval_on_ckpt_steps: set = set()
+        if self.args.train.eval_on_checkpoint:
+            from kdflow.utils.eval_on_checkpoint import parse_steps
+            self._eval_on_ckpt_steps = set(parse_steps(self.args.train.eval_on_checkpoint_steps))
+            save_steps = self.args.train.save_steps
+            covered = set(self._extra_checkpoint_steps)
+            for step in sorted(self._eval_on_ckpt_steps):
+                if not (step in covered or (save_steps > 0 and step % save_steps == 0)):
+                    raise ValueError(
+                        f"Eval step {step} has no checkpoint save: add it to "
+                        "resume_checkpoint_steps or make save_steps divide it"
+                    )
+            for label in ("eval_case_dir", "eval_prepared_dir"):
+                path = Path(getattr(self.args.train, label) or "")
+                if not path.is_dir():
+                    raise ValueError(f"{label} must be an existing directory, got {path}")
+                if label == "eval_prepared_dir":
+                    for benchmark in ("gsm8k", "math500", "mbpp", "live-code-bench-v6"):
+                        if not (path / f"{benchmark}.json").is_file():
+                            raise ValueError(f"prepared eval data missing: {path / (benchmark + '.json')}")
         self._init_loggers()
     
     def _init_loggers(self) -> None:
@@ -501,6 +524,24 @@ class OnPolicyKDTrainer:
 
                 if self.args.train.enable_sleep:
                     self.student.sleep()
+
+                # In-process eval: the rollout server still holds exactly this
+                # step's weights, so generate the benchmark cells now instead of
+                # saving 32 GiB and reloading them elsewhere. Blocking is
+                # intentional; a failure skips the cells loudly, never the run.
+                if self._eval_on_ckpt_steps and self.completed_optimizer_updates in self._eval_on_ckpt_steps:
+                    try:
+                        from kdflow.utils.eval_on_checkpoint import run as run_ckpt_eval
+                        ckpt_eval_summary = run_ckpt_eval(
+                            self,
+                            step_dir=os.path.join(self.args.train.save_path, f"step{self.global_step}"),
+                        )
+                        self.strategy.log(f"Checkpoint eval done: {ckpt_eval_summary}")
+                    except Exception as exc:
+                        self.strategy.log(
+                            f"Checkpoint eval FAILED at updates {self.completed_optimizer_updates}; "
+                            f"training continues: {exc!r}"
+                        )
 
                 step_wall_time = time.time() - step_started
                 previous_step_seconds = step_wall_time
