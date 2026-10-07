@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 MAD_SCALE = 1.4826
+LOCAL_SHRINK_PSEUDOCOUNT = 4.0
 GATE_SP_MIN = 0.50
 GATE_RP_MIN = 0.02
 GATE_ALPHA_MIN = 0.10
@@ -110,12 +111,24 @@ def v_between(rates: Sequence[float], weights: Sequence[float]) -> float:
     return math.fsum(w * (r - mean) ** 2 for r, w in zip(rates, weights)) / total
 
 
-def v_within(weights: Sequence[float], sigma2: float) -> float:
-    """``(k - 1) * sigma2 / W_c`` — the exact trace form of the spec."""
-    total = math.fsum(weights)
-    if total <= 0.0 or len(weights) < 2:
+def v_within(weights: Sequence[float], sigma2: Sequence[float]) -> float:
+    """``(1/W_c) tr(C^T W C Sigma_c)`` with ``Sigma_c = diag(sigma2(i) / w_i)``.
+
+    ``sigma2`` may be a per-atom sequence. When every entry is equal the result
+    collapses to the old homoskedastic closed form ``(k-1) sigma2 / W_c``,
+    which :func:`v_within_from_trace` is still used to cross-check. Under the
+    position-dependent model the closed form is **not** used: it would ignore
+    that ``tr(C^T W C Sigma) = sum_i (C^T W C)_ii sigma2(i) / w_i``.
+    """
+    center, total = weighted_center_operator(weights)
+    count = len(weights)
+    if count == 0 or total <= 0.0 or len(sigma2) != count:
         return 0.0
-    return (len(weights) - 1) * sigma2 / total
+    trace = 0.0
+    for i in range(count):
+        diagonal = sum(center[j][i] * weights[j] * center[j][i] for j in range(count))
+        trace += diagonal * sigma2[i] / weights[i]
+    return trace / total
 
 
 def v_within_from_trace(weights: Sequence[float], sigma2: float) -> float:
@@ -178,6 +191,104 @@ def ema(previous: float, batch: float, rho: float) -> float:
     return rho * previous + (1.0 - rho) * batch
 
 
+def local_sigma2(rates: Sequence[float], weights: Sequence[float],
+                 window: int, global_sigma2: float) -> list[float]:
+    """Per-atom ``sigma2_hat`` from a sliding window of adjacent differences.
+
+    The window is centred on atom ``i`` and only ever sees pairs that are *not*
+    inside a single candidate span's own estimate, so this stays independent of
+    the span under test. Each local MAD is shrunk towards the global EMA with a
+    pseudo-count of four pairs, because a short window's MAD is otherwise very
+    noisy:
+
+        sigma2_local(i) = (n * s2_local + 4 * sigma2_global) / (n + 4)
+
+    ``global_sigma2`` is the position-independent EMA for this sample, so the
+    method degrades to the old behaviour when the data really is homoskedastic.
+    """
+    count = len(rates)
+    result = []
+    half = max(1, window // 2)
+    for i in range(count):
+        # pairs j -> j+1 with |j - i| < half
+        z_values = []
+        for j in range(max(0, i - half), min(count - 1, i + half)):
+            w_left, w_right = weights[j], weights[j + 1]
+            if w_left <= 0.0 or w_right <= 0.0:
+                continue
+            scale = 1.0 / w_left + 1.0 / w_right
+            if scale <= 0.0:
+                continue
+            z_values.append((rates[j + 1] - rates[j]) / math.sqrt(scale))
+        if not z_values:
+            result.append(global_sigma2)
+            continue
+        mad = median(z_values)
+        local = (MAD_SCALE * median([abs(value - mad) for value in z_values])) ** 2
+        pairs = float(len(z_values))
+        if local <= 0.0:
+            result.append(global_sigma2)
+            continue
+        # Shrink in log space, not linearly: sigma2 spans orders of magnitude
+        # across a response (measured 19x), so a linear pull towards a global
+        # value that is itself far off biases the local estimate towards the
+        # wrong scale. The geometric form is scale-invariant.
+        weight = pairs / (pairs + LOCAL_SHRINK_PSEUDOCOUNT)
+        result.append(math.exp(weight * math.log(local)
+                               + (1.0 - weight) * math.log(global_sigma2)))
+    return result
+
+
+def quantile(values: Sequence[float], fraction: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    position = min(len(ordered) - 1, max(0, int(round(fraction * (len(ordered) - 1)))))
+    return ordered[position]
+
+
+def describe(values: Sequence[float]) -> dict[str, float]:
+    """Tail summary that can falsify the Gaussian-SURE model, not just report it."""
+    usable = [v for v in values if math.isfinite(v)]
+    if not usable:
+        return {'count': 0}
+    mean = math.fsum(usable) / len(usable)
+    variance = math.fsum((v - mean) ** 2 for v in usable) / len(usable)
+    centre = median(usable)
+    mad = median([abs(v - centre) for v in usable])
+    # Kurtosis against a robust scale; a tied/degenerate MAD falls back to the
+    # standard deviation so a heavy tail is never silently reported as zero.
+    scale = MAD_SCALE * mad
+    if scale <= 0.0:
+        scale = math.sqrt(variance)
+    kurtosis = (math.fsum((v - centre) ** 4 for v in usable) / len(usable) / scale ** 4
+                if scale > 0.0 else 0.0)
+    return {
+        'count': float(len(usable)),
+        'mean': mean,
+        'std': math.sqrt(variance),
+        'median': centre,
+        'mad': mad,
+        'p90': quantile(usable, 0.90),
+        'p95': quantile(usable, 0.95),
+        'p99': quantile(usable, 0.99),
+        'p999': quantile(usable, 0.999),
+        'max': max(usable),
+        'kurtosis_median_scaled': kurtosis,
+    }
+
+
+def standardized_residuals(rates: Sequence[float], weights: Sequence[float],
+                           sigma2: Sequence[float]) -> list[float]:
+    """``u_i = residual_i / sqrt(sigma2_hat(i) / w_i)``; residual is centred per span."""
+    residual = [r - weighted_mean(rates, weights) for r in rates]
+    result = []
+    for value, w, s2 in zip(residual, weights, sigma2):
+        denominator = math.sqrt(s2 / w) if w > 0.0 and s2 > 0.0 else float('nan')
+        result.append(value / denominator if denominator > 0.0 else float('nan'))
+    return result
+
+
 def risk_reduction(risk_at_zero: float, risk_at_alpha: float,
                    trace_h_sigma: float, eps: float) -> float:
     """``R_p``; inputs come from GRASS, which owns ``H_c`` and ``Rhat_c``."""
@@ -196,7 +307,8 @@ class SpanRow:
     s_p: float
     span_residual_scale: float
     r_sigma: float
-    sigma2_used: float
+    sigma2_min: float
+    sigma2_max: float
     r_p: float | None
     alpha_star: float | None
     gate_pass: bool | None
@@ -208,7 +320,8 @@ class SpanRow:
             'weight_total': self.weight_total, 'rate_mean': self.rate_mean,
             'v_between': self.v_between, 'v_within': self.v_within, 's_p': self.s_p,
             'span_residual_scale': self.span_residual_scale, 'r_sigma': self.r_sigma,
-            'sigma2_used': self.sigma2_used, 'r_p': self.r_p, 'alpha_star': self.alpha_star,
+            'sigma2_min': self.sigma2_min, 'sigma2_max': self.sigma2_max,
+            'r_p': self.r_p, 'alpha_star': self.alpha_star,
             'gate_pass': self.gate_pass, 'gate_missing': self.gate_missing,
         }
 
@@ -220,15 +333,18 @@ def sliding_spans(atom_count: int, max_span: int) -> Iterable[tuple[int, int]]:
 
 
 def evaluate_sample(index: int, rates: Sequence[float], weights: Sequence[float],
-                    sigma2: float, max_span: int, eps: float,
+                    sigma2: Sequence[float], max_span: int, eps: float,
                     risk_by_span: dict[tuple[int, int], dict[str, float]] | None,
                     gates: dict[str, float]) -> list[SpanRow]:
     rows: list[SpanRow] = []
     for start, length in sliding_spans(len(rates), max_span):
         span_rates = rates[start:start + length]
         span_weights = weights[start:start + length]
+        span_sigma2 = sigma2[start:start + length]
         v_btw = v_between(span_rates, span_weights)
-        v_with = v_within(span_weights, sigma2)
+        v_with = v_within(span_weights, span_sigma2)
+        residual_scale = span_residual_scale(span_rates, span_weights)
+        mean_sigma2 = math.fsum(span_sigma2) / len(span_sigma2) if span_sigma2 else 0.0
         extras = (risk_by_span or {}).get((start, length), {})
         r_p = extras.get('r_p')
         alpha_star = extras.get('alpha_star')
@@ -245,10 +361,12 @@ def evaluate_sample(index: int, rates: Sequence[float], weights: Sequence[float]
             rate_mean=weighted_mean(span_rates, span_weights),
             v_between=v_btw, v_within=v_with,
             s_p=poolability(v_btw, v_with, eps),
-            span_residual_scale=span_residual_scale(span_rates, span_weights),
-            r_sigma=(span_residual_scale(span_rates, span_weights) / sigma2
-                     if sigma2 > 0.0 else float('inf')),
-            sigma2_used=sigma2, r_p=r_p, alpha_star=alpha_star,
+            span_residual_scale=residual_scale,
+            r_sigma=(residual_scale / mean_sigma2
+                     if mean_sigma2 > 0.0 else float('inf')),
+            sigma2_min=min(span_sigma2) if span_sigma2 else 0.0,
+            sigma2_max=max(span_sigma2) if span_sigma2 else 0.0,
+            r_p=r_p, alpha_star=alpha_star,
             gate_pass=gate, gate_missing=missing,
         ))
     return rows
@@ -288,6 +406,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help='JSONL from the probe --dump-atoms flag')
     parser.add_argument('--max-span', type=int, default=4)
     parser.add_argument('--rho', type=float, default=0.9, help='EMA coefficient for sigma2')
+    parser.add_argument('--sigma-window', type=int, default=11,
+                        help='sliding window (in atoms) for the local robust sigma2')
+    parser.add_argument('--noise-model', choices=('local', 'global'), default='local',
+                        help='local = position-dependent sigma2 shrunk to the global EMA; '
+                             'global = the earlier homoskedastic model, kept as a control')
     parser.add_argument('--eps', type=float, default=1e-12)
     parser.add_argument('--gate-s-p', dest='gate_s_p', type=float, default=GATE_SP_MIN)
     parser.add_argument('--gate-r-p', dest='gate_r_p', type=float, default=GATE_RP_MIN)
@@ -312,6 +435,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     sigma2 = 0.0
     samples = 0
     degenerate = 0
+    rate_pool: list[float] = []
+    standardized_pool: list[float] = []
+    sigma_ratio_pool: list[float] = []
     source = Path(args.atoms)
     with source.open(encoding='utf-8') as handle:
         for line in handle:
@@ -328,17 +454,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             samples += 1
             if sigma2 <= 0.0:
                 degenerate += 1
+            index = int(record.get('index', samples - 1))
+            if args.noise_model == 'global':
+                local = [sigma2] * len(rates)
+            else:
+                local = local_sigma2(rates, weights, args.sigma_window, sigma2)
+            rate_pool.extend(rates)
+            standardized_pool.extend(standardized_residuals(rates, weights, local))
+            sigma_ratio_pool.extend(local[atom] / sigma2 if sigma2 > 0.0 else float('nan')
+                                    for atom in range(len(rates)))
             rows.extend(evaluate_sample(
-                int(record.get('index', samples - 1)), rates, weights, sigma2,
-                args.max_span, args.eps, risk_by_sample.get(int(record.get('index', samples - 1))),
-                gates))
+                index, rates, weights, local, args.max_span, args.eps,
+                risk_by_sample.get(index), gates))
 
     payload = {
         'source': str(source), 'samples': samples, 'max_span': args.max_span,
         'rho': args.rho, 'eps': args.eps, 'sigma2_final': sigma2,
+        'noise_model': args.noise_model, 'sigma_window': args.sigma_window,
         'sigma2_degenerate_samples': degenerate, 'gates': gates,
         'gate_enforced': False,
-        'note_sigma_units': ('1.4826*MAD(z) estimates sigma; sigma2_used = that squared'),
+        'note_sigma_units': ('1.4826*MAD(z) estimates sigma; sigma2 = that squared'),
+        'rate_distribution': describe(rate_pool),
+        'standardized_residual_distribution': describe(standardized_pool),
+        'sigma2_local_over_global': describe(sigma_ratio_pool),
         'summary': summarise(rows), 'spans': [row.as_dict() for row in rows],
     }
     out_path = Path(args.out)
@@ -347,6 +485,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print('ANALYZE_SAMPLES: %d  degenerate_sigma2: %d  sigma2_final: %.6g'
           % (samples, degenerate, sigma2), flush=True)
+    print('ANALYZE_NOISE_MODEL: %s window=%d' % (args.noise_model, args.sigma_window),
+          flush=True)
     summary = payload['summary']
     print('ANALYZE_SPANS: %d  S_p mean=%s  min=%s  max=%s'
           % (summary['spans'], summary['s_p_mean'], summary['s_p_min'], summary['s_p_max']),
@@ -356,6 +496,16 @@ def main(argv: Sequence[str] | None = None) -> int:
               % (length, stats['count'], stats['s_p_mean'], stats['s_p_min'], stats['s_p_max']),
               flush=True)
     print('ANALYZE_R_SIGMA mean=%s' % summary['r_sigma_mean'], flush=True)
+    ratio = payload['sigma2_local_over_global']
+    if ratio.get('count'):
+        print('ANALYZE_SIGMA_SPREAD: local/global median=%.3f p95=%.3f max=%.3f'
+              % (ratio['median'], ratio['p95'], ratio['max']), flush=True)
+    standardized = payload['standardized_residual_distribution']
+    if standardized.get('count'):
+        print('ANALYZE_U: median=%.3f MAD=%.3f p99=%.3f p99.9=%.3f max=%.3f kurtosis=%.2f'
+              % (standardized['median'], standardized['mad'], standardized['p99'],
+                 standardized['p999'], standardized['max'],
+                 standardized['kurtosis_median_scaled']), flush=True)
     print('ANALYZE_GATE: enforced=false evaluated=%d pass=%d (log only)'
           % (summary['gate_evaluated_spans'], summary['gate_pass_spans']), flush=True)
     print('ANALYZE_ARTIFACT=%s' % out_path, flush=True)
