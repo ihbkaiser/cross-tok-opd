@@ -750,15 +750,34 @@ def test_gram_diagnostics_survive_a_nan_gram_diagonal():
     # eigvalsh spreads one NaN cell across every eigenvalue of its block, so the PSD
     # report has to drop the whole block rather than average a value that describes no
     # real block.
+    #
+    # The tables are built from a clean Gram because grass_chunk_tables rejects a
+    # non-finite head outright; the corrupt Gram reaches the diagnostic only on a path
+    # that bypasses that check. That separation is the point: this asserts the
+    # diagnostic defends itself rather than relying on the caller's validation.
     n = 12
     partition = ((0, 6), (6, 12))
     rate, weight = _credits(n, seed=84)
+    tables = grass_chunk_tables(
+        rate, weight, _chunked_gram(partition, _psd(n, 84)), partition, 0.2
+    )
     gram = _nan_diagonal_gram(partition, n, 84, count=2)
-    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
     metrics = chunk_gram_diagnostics(gram, tables, max_sampled=4)
     for key, value in metrics.items():
         assert torch.isfinite(torch.as_tensor(value)).all(), f"{key} was {value}"
     assert float(metrics["mp_opd_grass_chunk_gram_diagonal_non_finite"]) == 2.0
+
+
+def test_a_non_finite_head_gram_is_rejected_before_the_diagnostics_run():
+    # grass_chunk_tables refuses a non-finite head, so a corrupt Gram cannot silently
+    # reach the cost computation. This is the upstream guard the diagnostic above
+    # cannot rely on.
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=86)
+    gram = _nan_diagonal_gram(partition, n, 86, count=1)
+    with pytest.raises(ValueError, match="finite"):
+        grass_chunk_tables(rate, weight, gram, partition, 0.2)
 
 
 def test_gram_diagnostics_report_zero_when_every_sampled_block_is_corrupt():
@@ -767,8 +786,10 @@ def test_gram_diagnostics_report_zero_when_every_sampled_block_is_corrupt():
     n = 8
     partition = ((0, 4), (4, 8))
     rate, weight = _credits(n, seed=85)
+    tables = grass_chunk_tables(
+        rate, weight, _chunked_gram(partition, _psd(n, 85)), partition, 0.2
+    )
     gram = torch.full((n, n), float("nan"), dtype=torch.float64)
-    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
     metrics = chunk_gram_diagnostics(gram, tables, max_sampled=2)
     for key in (
         "mp_opd_grass_chunk_gram_sampled_min_eigenvalue",

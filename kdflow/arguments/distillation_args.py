@@ -196,7 +196,7 @@ class DistillationArguments:
     mp_opd_mode: str = field(
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
-                              "kernel", "grass", "grass_chunk", "dpca"]},
+                              "kernel", "grass", "grass_chunk", "airs", "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
