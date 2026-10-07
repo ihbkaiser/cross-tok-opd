@@ -55,13 +55,16 @@ def test_a_singleton_chunk_is_returned_unchanged():
 
 
 def test_a_chunk_with_no_conflict_is_left_exactly_alone():
-    # A Gram whose off-diagonal entries all have the sign of the credit product
-    # means no pair interferes, so ALIGN must be the identity, not approximately.
+    # Conflict is r_i r_j H_ij < 0, so with positive credits it takes POSITIVE
+    # off-diagonal Gram entries to be conflict-free. Writing the off-diagonals
+    # negative here, as an earlier version of this test did, describes the most
+    # conflicting chunk there is rather than a quiet one.
     gram = torch.tensor(
-        [[2.0, -1.0, -1.0], [-1.0, 3.0, -1.0], [-1.0, -1.0, 4.0]], dtype=torch.float32
+        [[2.0, 1.0, 1.0], [1.0, 3.0, 1.0], [1.0, 1.0, 4.0]], dtype=torch.float32
     )
     rate = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32)
     result = align_chunk(rate, gram)
+    assert result.conflict_fraction_pre == 0.0
     assert result.projections == 0
     assert torch.allclose(result.rate, rate, atol=1e-6)
 
@@ -76,10 +79,24 @@ def test_conflict_is_detected_from_the_credit_product_not_only_the_gram_sign():
     assert conflicting.conflict_fraction_pre > 0.0
     assert conflicting.projections > 0
 
-    # Flipping one credit makes the negative off-diagonal pair multiply out positive.
+    # Flipping the middle credit does not simply remove the conflicts. The pair that
+    # carried the most negative Gram entry, (0,1), now multiplies out positive and is
+    # exempt, while the pair whose Gram entry was POSITIVE, (1,2), becomes a conflict.
+    # That swap is the actual claim: the credit product decides, not the Gram sign.
     flipped = align_chunk(torch.tensor([1.0, -1.0, 1.0]), gram)
-    assert flipped.conflict_fraction_pre == 0.0
-    assert flipped.projections == 0
+    assert flipped.conflict_fraction_pre == pytest.approx(1.0 / 3.0)
+    # Exactly one of the three unordered pairs conflicts, and it is the one whose
+    # credit product is negative: (1,2) at -0.5, not (0,1) whose Gram entry is -1.
+    rates = torch.tensor([1.0, -1.0, 1.0])
+    scores = {
+        (i, j): float(rates[i]) * float(rates[j]) * float(gram[i, j])
+        for i, j in [(0, 1), (0, 2), (1, 2)]
+    }
+    assert scores[(0, 1)] == pytest.approx(1.0)
+    assert scores[(1, 2)] == pytest.approx(-0.5)
+    conflicting_pairs = [pair for pair, score in scores.items() if score < 0]
+    assert conflicting_pairs == [(1, 2)]
+    assert flipped.conflict_fraction_pre == len(conflicting_pairs) / 3.0
 
 
 def test_the_projection_removes_the_conflict_it_fires_on():
@@ -174,7 +191,10 @@ def test_a_degenerate_reference_diagonal_is_skipped_and_counted():
     rate = torch.tensor([1.0, 1.0], dtype=torch.float32)
     result = align_chunk(rate, gram)
     assert result.skipped_degenerate_diagonal == 1
-    assert result.projections == 0
+    # Row 1 still projects against atom 0, whose diagonal is fine, so the degenerate
+    # entry removes one projection and not both. Asserting zero projections here would
+    # be asserting that ALIGN skips healthy references too.
+    assert result.projections == 1
     assert torch.isfinite(result.rate).all()
 
 
@@ -295,11 +315,12 @@ def test_conflict_can_survive_a_full_sweep_on_a_severely_conflicting_chunk():
 
 
 def test_conflict_is_removed_on_its_own_when_it_can_be():
-    # On a chunk with mild conflict the sweep does clear it. The stronger, more
-    # useful statement - that a sweep never leaves it worse, and that it can fail to
-    # clear a severe conflict - is asserted separately below.
+    # On a chunk whose conflict is mild enough for one sweep to absorb, the metric
+    # does reach zero. The stronger, more useful statements - that a sweep never
+    # leaves it worse, and that a severe chunk survives a full sweep - are asserted
+    # separately below, so this one is free to state the clean case.
     gram = torch.tensor(
-        [[1.0, -0.95, -0.95], [-0.95, 1.0, -0.95], [-0.95, -0.95, 1.0]],
+        [[2.0, -1.0, -1.0], [-1.0, 3.0, -1.0], [-1.0, -1.0, 4.0]],
         dtype=torch.float32,
     )
     rate = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32)
@@ -368,11 +389,12 @@ def test_projection_and_skip_fractions_are_consistent():
     assert projections <= considered
     expected = projections / considered if considered else 0.0
     assert stats["projection_fraction"] == pytest.approx(expected)
-    # Every ordered pair in a chunk of m atoms is m-1, so two 3-atom chunks
-    # contribute four each before the skips.
+    # Each atom of an m-atom chunk is compared against all m-1 others, so a 3-atom
+    # chunk offers 6 ordered pairs and two chunks offer 12. An earlier version of
+    # this test expected 8, which counted unordered pairs and then halved again.
     assert considered + stats["skipped_zero_reference"] + stats[
         "skipped_degenerate_diagonal"
-    ] <= 8
+    ] <= 12
 
 
 # ---------------------------------------------------------------------------
@@ -421,12 +443,12 @@ def test_relative_l2_change_is_zero_when_nothing_is_projected():
     partition = ((0, 3), (3, 6))
     gram = torch.tensor(
         [
-            [2.0, -1.0, -1.0, 0.0, 0.0, 0.0],
-            [-1.0, 3.0, -1.0, 0.0, 0.0, 0.0],
-            [-1.0, -1.0, 4.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 2.0, -1.0, -1.0],
-            [0.0, 0.0, 0.0, -1.0, 3.0, -1.0],
-            [0.0, 0.0, 0.0, -1.0, -1.0, 4.0],
+            [2.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+            [1.0, 3.0, 1.0, 0.0, 0.0, 0.0],
+            [1.0, 1.0, 4.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0, 3.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0, 1.0, 4.0],
         ],
         dtype=torch.float32,
     )
