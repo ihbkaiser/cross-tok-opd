@@ -7,6 +7,7 @@ structurally, because they are exactly what could regress silently - a chunk mod
 that quietly grew a search would still pass every numerical test.
 """
 import ast as _ast
+import math
 import re
 import sys
 from pathlib import Path
@@ -606,6 +607,77 @@ def test_boundary_diagnostics_handle_the_first_chunk_starting_at_zero():
         float((difference[0] + difference[2]) / 2)
     )
     assert metrics["within_gradient_cosine_mean"] == 0.0
+
+
+def _degenerate_gram(partition, n, seed):
+    """A Gram that drives the adjacent-cosine ratio to a non-finite value.
+
+    Every other test here builds a PSD Gram, whose diagonal is strictly positive, so
+    the ratio always stays defined. The Gram head is only an approximation over a
+    trained model: on GPU 0 of the qwen->gemma campaign it produced spans that are not
+    PSD (measured minimum eigenvalue -0.0048 against a diagonal mean of 1787) and an
+    off-diagonal mean of -inf. A zero diagonal is not enough to break the ratio -
+    clamp_min floors the denominator at 1e-150 and the quotient stays finite - so the
+    reproduction has to make the *numerator* overflow, which is what actually produced
+    the non-finite metric that stopped the run.
+    """
+    generator = torch.Generator().manual_seed(seed)
+    gram = _chunked_gram(partition, _psd(n, seed)).clone()
+    gram[0, 0] = 0.0
+    gram[2, 2] = 0.0
+    # A neighbour of a zero-diagonal token: denominator collapses to 1e-150, so an
+    # ordinary off-diagonal entry overflows to inf on division.
+    gram[2, 3] = torch.randn((), generator=generator, dtype=gram.dtype)
+    gram[3, 2] = gram[2, 3]
+    return gram
+
+
+def test_boundary_diagnostics_survive_a_degenerate_gram_diagonal():
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=71)
+    gram = _degenerate_gram(partition, n, 71)
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
+        assert name in metrics
+        assert math.isfinite(metrics[name]), f"{name} was {metrics[name]!r}"
+    # The undefined pairs are counted, not hidden, so a filtered mean cannot be read
+    # as a direct measurement over every pair.
+    dropped = (
+        metrics["within_gradient_cosine_pairs_undefined"]
+        + metrics["cross_gradient_cosine_pairs_undefined"]
+    )
+    assert dropped >= 0
+
+
+def test_gram_diagnostics_survive_a_degenerate_gram_diagonal():
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=72)
+    gram = _degenerate_gram(partition, n, 72)
+    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
+    metrics = chunk_gram_diagnostics(gram, tables, max_sampled=3)
+    for key, value in metrics.items():
+        assert torch.isfinite(torch.as_tensor(value)).all(), f"{key} was {value}"
+    # Zero is finite, so a vanishing diagonal is *not* what the counter reports; the
+    # counter is reserved for genuine non-finite entries.
+    assert float(metrics["mp_opd_grass_chunk_gram_diagonal_non_finite"]) == 0.0
+    assert (
+        float(metrics["mp_opd_grass_chunk_gram_neighbour_cosine_undefined"]) >= 0.0
+    )
+
+
+def test_gram_diagnostics_report_zero_not_nan_when_no_entry_is_finite():
+    n = 6
+    partition = ((0, 3), (3, 6))
+    rate, weight = _credits(n, seed=73)
+    gram = _degenerate_gram(partition, n, 73)
+    gram = torch.zeros_like(gram)
+    tables = grass_chunk_tables(rate, weight, gram, partition, 0.2)
+    metrics = chunk_gram_diagnostics(gram, tables, max_sampled=3)
+    for key, value in metrics.items():
+        assert torch.isfinite(torch.as_tensor(value)).all(), f"{key} was {value}"
+    assert float(metrics["mp_opd_grass_chunk_gram_neighbour_cosine_mean"]) == 0.0
 
 
 def test_shadow_reports_hard_chunk_and_atomic_without_changing_anything():

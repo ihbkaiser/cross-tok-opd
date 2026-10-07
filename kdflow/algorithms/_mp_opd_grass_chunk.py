@@ -579,9 +579,22 @@ def chunk_boundary_diagnostics(
         diagonal = torch.diagonal(h)
         denominator = (diagonal[:-1] * diagonal[1:]).clamp_min(1e-300).sqrt()
         cosine = h[:-1, 1:] / denominator
+        # The Gram head is an approximation, so its diagonal can carry zero, NaN or
+        # inf. The raw ratio is then undefined for that pair, and mean() propagates
+        # a single non-finite value into the whole metric - including cases where the
+        # offending pair lies outside the selected population and should not have
+        # contributed at all. Averaging over the defined pairs only, and publishing
+        # how many pairs were dropped, keeps a filtered mean from being read as a
+        # direct measurement: the dropped pairs are exactly the least reliable ones.
+        defined = torch.isfinite(cosine)
+        cosine = torch.where(defined, cosine, torch.zeros_like(cosine))
         for name, selection in (("within", inside), ("cross", ~inside)):
-            if bool(selection.any()):
-                metrics[f"{name}_gradient_cosine_mean"] = float(cosine[selection].mean())
+            metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
+                (selection & ~defined).sum()
+            )
+            kept = selection & defined
+            if bool(kept.any()):
+                metrics[f"{name}_gradient_cosine_mean"] = float(cosine[kept].mean())
     return metrics
 
 
@@ -697,9 +710,22 @@ def chunk_gram_diagnostics(
     """
     h = gram.detach().to(torch.float64)
     diagonal = torch.diagonal(h)
+    # Same reasoning as chunk_boundary_diagnostics: an approximate Gram can carry a
+    # non-finite diagonal entry, and mean() would propagate it. Reduce over the finite
+    # entries and publish the count that was excluded.
+    diagonal_finite = diagonal[torch.isfinite(diagonal)]
     metrics = {
-        "mp_opd_grass_chunk_gram_diagonal_mean": diagonal.mean(),
-        "mp_opd_grass_chunk_gram_diagonal_max": diagonal.max(),
+        "mp_opd_grass_chunk_gram_diagonal_mean": (
+            diagonal_finite.mean()
+            if diagonal_finite.numel()
+            else diagonal.new_zeros(())
+        ),
+        "mp_opd_grass_chunk_gram_diagonal_max": (
+            diagonal_finite.max() if diagonal_finite.numel() else diagonal.new_zeros(())
+        ),
+        "mp_opd_grass_chunk_gram_diagonal_non_finite": diagonal.new_tensor(
+            float(diagonal.numel() - diagonal_finite.numel())
+        ),
     }
     indices = [
         index for index, (start, end) in enumerate(tables.partition) if end - start >= 2
@@ -730,9 +756,18 @@ def chunk_gram_diagnostics(
         ).clamp_min(1e-300).sqrt()
         cosines.append((block[rows, columns] / denominator).reshape(-1))
     cosine = cosines[0] if len(cosines) == 1 else torch.cat(cosines)
-    metrics["mp_opd_grass_chunk_gram_neighbour_cosine_mean"] = cosine.mean()
+    defined = torch.isfinite(cosine)
+    cosine_finite = cosine[defined]
+    metrics["mp_opd_grass_chunk_gram_neighbour_cosine_mean"] = (
+        cosine_finite.mean() if cosine_finite.numel() else cosine.new_zeros(())
+    )
+    metrics["mp_opd_grass_chunk_gram_neighbour_cosine_undefined"] = cosine.new_tensor(
+        float(cosine.numel() - cosine_finite.numel())
+    )
     metrics["mp_opd_grass_chunk_gram_neighbour_cosine_negative_fraction"] = (
-        (cosine < 0).to(torch.float64).mean()
+        (cosine_finite < 0).to(torch.float64).mean()
+        if cosine_finite.numel()
+        else cosine.new_zeros(())
     )
     return {key: value.detach() for key, value in metrics.items()}
 
