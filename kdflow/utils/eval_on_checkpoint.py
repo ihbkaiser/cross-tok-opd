@@ -54,6 +54,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 __all__ = [
     "DEFAULT_STEPS",
+    "DEFAULT_BENCHMARKS",
+    "DEFAULT_SEEDS",
     "parse_steps",
     "served_model_id",
     "server_record",
@@ -66,6 +68,14 @@ __all__ = [
 # The historical milestone convention: 40, 80, ..., 280, plus the final 312.
 # Note `ec --steps 40..312` stops at 280; 312 must be listed explicitly.
 DEFAULT_STEPS = (40, 80, 120, 160, 200, 240, 280, 312)
+DEFAULT_BENCHMARKS = ("gsm8k", "math500", "mbpp", "live-code-bench-v6")
+DEFAULT_SEEDS = (42, 43, 44)
+# Prefill burst sizing: 64 concurrent large requests crashed the
+# training-state scheduler twice while 8 survived on a clean server. Wall time
+# is decode-bound and barely moves with chunk size, so 16 quarters the burst
+# that killed without meaningfully slowing the eval. Not a tuned constant: a
+# canary decides whether it holds on a training-state server.
+DEFAULT_MICRO_BATCH = 16
 
 
 def parse_steps(text: str) -> List[int]:
@@ -234,10 +244,10 @@ def adapt_router_output(output: dict) -> dict:
 
 
 def _generate_cell(*, E, cell: Path, items: Dict[str, Any], benchmark: str, seed: int,
-                   served_model: str, contract: Dict[str, Any],
+                   served_model: str, contract: Dict[str, Any], micro_batch: int,
                    render_texts: Callable[[Dict[str, Any]], Dict[str, str]],
                    generate_texts: Callable[[List[str], List[dict]], List[dict]]) -> int:
-    """Generate one cell, resuming a valid marker and never repairing a live journal."""
+    """Generate one cell in small prompt chunks, resuming a valid marker only."""
     cell.mkdir(parents=True, exist_ok=True)
     manifest = cell / "contract.json"
     if manifest.exists():
@@ -268,28 +278,37 @@ def _generate_cell(*, E, cell: Path, items: Dict[str, Any], benchmark: str, seed
 
     # The recorded payload is unchanged from the direct-chat version: same
     # messages, same seed rule, same hash. Only the transport differs.
+    # Prompts go out in small chunks: one giant generate call lands thousands
+    # of large prefills on the scheduler at once, which is the burst pattern
+    # that crashed two training runs.
+    if micro_batch < 1:
+        raise ValueError(f"eval micro batch must be positive, got {micro_batch}")
     ordered = list(items.values())
     payload_of = {}
     for item in ordered:
         payload_of[item["id"]] = E.generation_payload(served_model, item, benchmark, seed)
     texts = render_texts(items)
-    params = [router_sampling_params(E, benchmark, payload_of[item["id"]]) for item in ordered]
-    prompt_texts = [texts[item["id"]] for item in ordered]
-    outputs = generate_texts(prompt_texts, params)
-    if len(outputs) != len(ordered):
-        raise RuntimeError(
-            f"eval cell {benchmark}/{seed} returned {len(outputs)} of {len(ordered)} outputs"
-        )
-    with responses_path.open("w") as handle:
-        for item, output in zip(ordered, outputs):
+    rows: List[dict] = []
+    for start in range(0, len(ordered), micro_batch):
+        group = ordered[start:start + micro_batch]
+        params = [router_sampling_params(E, benchmark, payload_of[item["id"]]) for item in group]
+        prompt_texts = [texts[item["id"]] for item in group]
+        outputs = generate_texts(prompt_texts, params)
+        if len(outputs) != len(group):
+            raise RuntimeError(
+                f"eval cell {benchmark}/{seed} returned {len(outputs)} of {len(group)} outputs"
+            )
+        for item, output in zip(group, outputs):
             response = adapt_router_output(output)
             E.validate_response(response)
-            row = {
+            rows.append({
                 "id": item["id"],
                 "seed": seed,
                 "request_sha256": E.digest(E.encoded(payload_of[item["id"]])),
                 "response": response,
-            }
+            })
+    with responses_path.open("w") as handle:
+        for row in rows:
             handle.write(json.dumps(row) + "\n")
             handle.flush()
 
@@ -324,8 +343,14 @@ def run(trainer, *, step_dir: str) -> Dict[str, Any]:
     prepared_dir = Path(args.eval_prepared_dir)
     if not case_dir.is_dir():
         raise ValueError(f"eval_case_dir is not a directory: {case_dir}")
-    benchmarks = ["gsm8k", "math500", "mbpp", "live-code-bench-v6"]
-    seeds = [42, 43, 44]
+    benchmarks = [b.strip() for b in str(getattr(args, "eval_benchmarks", "") or "").split(",") if b.strip()] or list(DEFAULT_BENCHMARKS)
+    unknown = [b for b in benchmarks if b not in DEFAULT_BENCHMARKS]
+    if unknown:
+        raise ValueError(f"unknown eval benchmarks: {unknown}")
+    seeds = [int(s) for s in str(getattr(args, "eval_seeds", "") or "").split(",") if s.strip()] or list(DEFAULT_SEEDS)
+    micro_batch = int(getattr(args, "eval_micro_batch_size", DEFAULT_MICRO_BATCH))
+    if micro_batch < 1:
+        raise ValueError(f"eval micro batch must be positive, got {micro_batch}")
     data: Dict[str, Any] = {}
     for benchmark in benchmarks:
         path = prepared_dir / f"{benchmark}.json"
@@ -427,7 +452,7 @@ def run(trainer, *, step_dir: str) -> Dict[str, Any]:
                 counts[f"{benchmark}/{seed}"] = _generate_cell(
                     E=E, cell=_cell_dir(root, job_id, benchmark, seed),
                     items=items_by_bench[benchmark], benchmark=benchmark, seed=seed,
-                    served_model=model, contract=contract,
+                    served_model=model, contract=contract, micro_batch=micro_batch,
                     render_texts=render_texts, generate_texts=generate_texts,
                 )
     finally:

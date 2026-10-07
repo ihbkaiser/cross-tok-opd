@@ -127,12 +127,13 @@ def test_generate_cell_round_trip_and_resume(tmp_path):
     render_texts, generate_texts = _fakes(calls)
     cell = tmp_path / "cell"
     n = M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                         served_model="eval-gemma", contract=contract,
+                         served_model="eval-gemma", contract=contract, micro_batch=2,
                          render_texts=render_texts, generate_texts=generate_texts)
     assert n == 3
-    assert len(calls) == 1
-    prompts, params = calls[0]
+    assert [len(prompts) for prompts, _ in calls] == [2, 1]
+    prompts = [p for batch, _ in calls for p in batch]
     assert prompts == ["TEXT:q0", "TEXT:q1", "TEXT:q2"]
+    params = [p for _, batch in calls for p in batch]
     assert [p["sampling_seed"] for p in params] == [
         FakeE.generation_payload("eval-gemma", items[f"q{i}"], "gsm8k", 42)["seed"]
         for i in range(3)
@@ -151,7 +152,7 @@ def test_generate_cell_round_trip_and_resume(tmp_path):
     # A valid marker resumes without touching the server again.
     calls.clear()
     assert M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                            served_model="eval-gemma", contract=contract,
+                            served_model="eval-gemma", contract=contract, micro_batch=2,
                             render_texts=render_texts, generate_texts=generate_texts) == 3
     assert calls == []
 
@@ -162,12 +163,12 @@ def test_generate_cell_refuses_contract_drift(tmp_path):
     render_texts, generate_texts = _fakes([])
     cell = tmp_path / "cell"
     M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                     served_model="eval-gemma", contract=contract,
+                     served_model="eval-gemma", contract=contract, micro_batch=2,
                      render_texts=render_texts, generate_texts=generate_texts)
     with pytest.raises(ValueError):
         M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
                          served_model="eval-gemma",
-                         contract={**contract, "plan_sha256": "other"},
+                         contract={**contract, "plan_sha256": "other"}, micro_batch=2,
                          render_texts=render_texts, generate_texts=generate_texts)
 
 
@@ -179,7 +180,7 @@ def test_generate_cell_refuses_interrupted_spool(tmp_path):
     with pytest.raises(ValueError, match="interrupted generation spool"):
         M._generate_cell(E=FakeE, cell=cell, items={"q0": _item(0)}, benchmark="gsm8k",
                          seed=42, served_model="eval-gemma",
-                         contract={"plan_sha256": "p"},
+                         contract={"plan_sha256": "p"}, micro_batch=1,
                          render_texts=render_texts, generate_texts=generate_texts)
 
 
@@ -212,3 +213,29 @@ def test_render_prompt_texts_uses_the_given_template():
     assert texts == {"a": "T:solve 0", "b": "T:solve 1"}
     with pytest.raises(ValueError):
         M.render_prompt_texts(lambda messages, **kw: "", items)
+
+
+def test_generate_cell_chunks_prompts_and_preserves_order(tmp_path):
+    items = {f"q{i}": _item(i) for i in range(7)}
+    contract = {"plan_sha256": "p", "server": {"kind": "t"}}
+    calls = []
+    render_texts, generate_texts = _fakes(calls)
+    cell = tmp_path / "cell"
+    n = M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
+                         served_model="eval-gemma", contract=contract, micro_batch=3,
+                         render_texts=render_texts, generate_texts=generate_texts)
+    assert n == 7
+    assert [len(prompts) for prompts, _ in calls] == [3, 3, 1]
+    rows = [json.loads(line) for line in (cell / "responses.jsonl").read_text().splitlines()]
+    assert [r["id"] for r in rows] == [f"q{i}" for i in range(7)]
+    marker = json.loads((cell / "generation-complete.json").read_text())
+    assert marker["count"] == 7
+
+
+def test_generate_cell_rejects_non_positive_micro_batch(tmp_path):
+    render_texts, generate_texts = _fakes([])
+    with pytest.raises(ValueError, match="micro batch"):
+        M._generate_cell(E=FakeE, cell=tmp_path / "cell", items={"q0": _item(0)},
+                         benchmark="gsm8k", seed=42, served_model="eval-gemma",
+                         contract={"plan_sha256": "p"}, micro_batch=0,
+                         render_texts=render_texts, generate_texts=generate_texts)

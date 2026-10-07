@@ -127,6 +127,18 @@ class TrainingArguments:
         default="/usr/bin/python3.12",
         metadata={"help": "Python used for the one-time scorer preflight when writing eval state."}
     )
+    eval_micro_batch_size: int = field(
+        default=16,
+        metadata={"help": "Prompts per eval generate call. Small chunks keep prefill bursts off the scheduler cliff; wall time is decode-bound and barely moves."}
+    )
+    eval_benchmarks: str = field(
+        default="",
+        metadata={"help": "Comma-separated eval benchmarks; empty means all four. Narrowing is for canaries, not production."}
+    )
+    eval_seeds: str = field(
+        default="",
+        metadata={"help": "Comma-separated eval seeds; empty means 42,43,44. Narrowing is for canaries, not production."}
+    )
     ckpt_path: str = field(
         default="./ckpt/checkpoints_distill"
     )
