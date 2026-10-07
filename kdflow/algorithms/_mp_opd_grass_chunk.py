@@ -67,6 +67,11 @@ STRADDLE_SINGLETON = "singleton"
 STRADDLE_MAJORITY = "majority"
 STRADDLE_POLICIES = (STRADDLE_SINGLETON, STRADDLE_MAJORITY)
 
+# Slack on the |cos| <= 1 bound, so reconstruction noise in a PSD Gram does not get
+# counted as degeneracy. Eight orders of magnitude above float64 epsilon: still far
+# below any value the clamped-off population can reach.
+CHUNK_COSINE_TOLERANCE = 1e-8
+
 
 def hard_chunk_credits(
     rate: torch.Tensor, weight: torch.Tensor, partition: Sequence[tuple[int, int]]
@@ -591,20 +596,19 @@ def chunk_boundary_diagnostics(
         # dropped count is published: a filtered mean must not be read as a direct
         # measurement, since the dropped pairs are exactly the least reliable ones.
         defined = torch.isfinite(cosine)
-        # A cosine from a Gram is bounded by 1 in exact arithmetic, so anything past
-        # that bound is a degenerate pair rather than a large angle. Flooring the
-        # denominator at 1e-300 lets the quotient reach 1e150, and a mean over a
-        # population of such values is dominated by pairs that describe no geometry.
-        # Clamping keeps the mean finite and the count says how many were clamped,
-        # so a run cannot report a healthy-looking average built on junk pairs.
-        finite_cosine = torch.where(defined, cosine, torch.zeros_like(cosine))
-        out_of_range = defined & (finite_cosine.abs() > 1.0)
-        cosine = finite_cosine.clamp(-1.0, 1.0)
+        # A cosine of a Gram is bounded by 1 in exact arithmetic, so a value past that
+        # is a degenerate pair rather than a large angle. The tolerance is float noise,
+        # not a slack: flooring the denominator at 1e-300 lets the quotient reach 1e308
+        # while still being finite, and a mean over a population of those overflows
+        # float64 in the sum, turning one healthy isfinite into an infinite metric.
+        # Clamping bounds the mean; the count and the maximum say how much was clamped.
+        magnitude = cosine.abs()
+        out_of_range = defined & (magnitude > 1.0 + CHUNK_COSINE_TOLERANCE)
+        cosine = torch.where(defined, cosine, torch.zeros_like(cosine)).clamp(-1.0, 1.0)
         metrics["gradient_cosine_out_of_range"] = float(out_of_range.sum())
-        if bool(out_of_range.any()):
-            metrics["gradient_cosine_max_abs"] = float(
-                finite_cosine.abs()[out_of_range].max()
-            )
+        metrics["gradient_cosine_max_abs"] = (
+            float(magnitude[defined].max()) if bool(defined.any()) else 0.0
+        )
         for name, selection in (("within", inside), ("cross", ~inside)):
             metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
                 (selection[:, None] & ~defined).sum()

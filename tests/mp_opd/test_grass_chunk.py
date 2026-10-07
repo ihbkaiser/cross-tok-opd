@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from kdflow.algorithms._mp_opd_grass_chunk import (
+    CHUNK_COSINE_TOLERANCE,
     STRADDLE_MAJORITY,
     STRADDLE_SINGLETON,
     AtomChunkAssignment,
@@ -802,9 +803,9 @@ def test_gram_diagnostics_report_zero_when_every_sampled_block_is_corrupt():
 
 
 def test_boundary_cosines_are_clamped_because_a_cosine_cannot_exceed_one():
-    # Flooring the denominator at 1e-300 lets the quotient reach 1e150. That is finite
-    # and would pass every isfinite guard, while describing no geometry at all. The
-    # mean must stay inside [-1, 1] and the junk pairs must be counted.
+    # Flooring the denominator at 1e-300 lets the quotient reach a value that is still
+    # finite and therefore passes every isfinite guard, while describing no geometry.
+    # The mean must stay inside [-1, 1] and the junk pairs must be counted.
     n = 8
     partition = ((0, 4), (4, 8))
     rate, weight = _credits(n, seed=91)
@@ -816,13 +817,41 @@ def test_boundary_cosines_are_clamped_because_a_cosine_cannot_exceed_one():
     for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
         assert -1.0 <= metrics[name] <= 1.0, f"{name} was {metrics[name]}"
     assert metrics["gradient_cosine_out_of_range"] > 0.0
-    assert "gradient_cosine_max_abs" in metrics
+    assert metrics["gradient_cosine_max_abs"] > 1.0
+
+
+def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
+    # The failure this guards against: with the denominator floored at 1e-150, an
+    # off-diagonal entry of 1e158 gives a cosine of 1e308 - finite, so it survives every
+    # isfinite check - and summing two of them overflows float64, so the mean comes out
+    # infinite even though every input passed. Reproduced exactly, because this is the
+    # one path no isfinite guard can catch on its own.
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=93)
+    gram = torch.eye(n, dtype=torch.float64) * 1e160
+    for position in range(n):
+        gram[position, position] = 1e-160
+    gram[1, 2] = gram[2, 1] = 1e158
+    gram[4, 5] = gram[5, 4] = 1e158
+    # Confirm the unguarded mean really is infinite, so the test is not vacuous.
+    diagonal = torch.diagonal(gram)
+    denominator = (diagonal[:-1] * diagonal[1:]).clamp_min(1e-300).sqrt()
+    raw = (gram[:-1, 1:] / denominator).reshape(-1)
+    assert torch.isfinite(raw).all(), "the reproduction needs finite-but-huge cosines"
+    assert not torch.isfinite(raw.mean()), "the reproduction needs a mean that overflows"
+
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
+        assert math.isfinite(metrics[name]), f"{name} was {metrics[name]!r}"
+    assert metrics["gradient_cosine_out_of_range"] > 0.0
     assert metrics["gradient_cosine_max_abs"] > 1.0
 
 
 def test_a_healthy_gram_reports_no_out_of_range_pairs():
     # The counter is only meaningful if a clean Gram leaves it at zero; otherwise it
-    # cannot distinguish a degenerate run from a normal one.
+    # cannot distinguish a degenerate run from a normal one. PSD reconstruction pushes
+    # some cosines a few ulp past 1, which the tolerance absorbs.
     n = 10
     partition = ((0, 5), (5, 10))
     rate, weight = _credits(n, seed=92)
@@ -830,7 +859,7 @@ def test_a_healthy_gram_reports_no_out_of_range_pairs():
         rate, weight, _chunked_gram(partition, _psd(n, 92)), partition
     )
     assert metrics["gradient_cosine_out_of_range"] == 0.0
-    assert "gradient_cosine_max_abs" not in metrics
+    assert metrics["gradient_cosine_max_abs"] <= 1.0 + CHUNK_COSINE_TOLERANCE
 
 
 def test_shadow_reports_hard_chunk_and_atomic_without_changing_anything():
