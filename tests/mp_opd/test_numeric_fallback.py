@@ -1,5 +1,4 @@
 """Numeric guardrail downgrades: warnings and atomic fallbacks, not dead runs.
-
 The geometry modes (grass, grass_chunk, align, trust_r) route through one
 guarded block in `_partition_loss`:
 
@@ -17,12 +16,15 @@ CPU image as the other suites.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import torch
 
 from kdflow.algorithms.mp_opd import MetaPartitionedOPD
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeTokenizer:
@@ -187,3 +189,16 @@ def test_trust_b_concatenates_covered_prefixes_only():
     assert torch.isfinite(metrics["mp_opd_trust_lambda"])
     assert "mp_opd_numeric_fallback_fraction" not in metrics
     assert float(metrics["mp_opd_trust_scope"]) == 1.0
+
+
+def test_trust_needs_flags_are_all_consumed():
+    # Regression test for a real launch failure: output_hidden_states was
+    # enabled for trust modes but the branch slicing student_hiddens_flat out
+    # of the student output still gated on grass_needs_hidden alone, so every
+    # trust run received hidden=None and died on step 0. A needs-flag that is
+    # defined but never consumed is the same bug wearing a different name, so
+    # every consumption site is asserted, not just counted.
+    source = (ROOT / "kdflow" / "algorithms" / "mp_opd.py").read_text()
+    assert "output_hidden_states=self.grass_needs_hidden or self.trust_needs_hidden" in source
+    assert "if self.grass_needs_hidden or self.trust_needs_hidden:" in source
+    assert "or self.trust_needs_logits or self.mode" in source
