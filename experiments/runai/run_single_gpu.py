@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "airs"}
 limit = int(limit)
 assert 0 <= limit <= 312
 

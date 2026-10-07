@@ -7,8 +7,8 @@ MODE="${2:?Missing mode}"
 LIMIT="${3:?Missing update limit}"
 [[ "$GPU" =~ ^[0-9]+$ ]] && (( GPU <= 7 )) || { echo "GPU must be a numeric slot 0..7" >&2; exit 2; }
 case "$MODE" in
-  atomic|fixed|random|soft|gbv|dpca|grass|grass_chunk) ;;
-  *) echo "Mode must be one of: atomic fixed random soft gbv dpca grass grass_chunk" >&2; exit 2 ;;
+  atomic|fixed|random|soft|gbv|dpca|grass|grass_chunk|airs) ;;
+  *) echo "Mode must be one of: atomic fixed random soft gbv dpca grass grass_chunk airs" >&2; exit 2 ;;
 esac
 [[ "$LIMIT" =~ ^[0-9]+$ ]] && (( 10#$LIMIT <= 312 )) || { echo "Limit must be an integer 0..312 (0 means full)" >&2; exit 2; }
 
