@@ -1040,7 +1040,10 @@ class MetaPartitionedOPD:
         metrics["mp_opd_dpca_advantage_clamped_frac"] = (
             (advantages.detach().abs() >= config.adv_clamp).float().mean()
         )
-        metrics["mp_opd_dpca_atoms"] = torch.as_tensor(float(len(atoms)))
+        # Every metric from here up must live on the objective's device.
+        # training_step stacks them into one tensor, and torch.as_tensor(float)
+        # silently lands on CPU.
+        metrics["mp_opd_dpca_atoms"] = torch.as_tensor(float(len(atoms)), device=prior.device)
         return loss, metrics
 
     def _partition_loss(
@@ -1464,13 +1467,6 @@ class MetaPartitionedOPD:
             metrics["loss"] = (1 - self.args.kd.kd_ratio) * ce_loss + self.args.kd.kd_ratio * kd_loss
         # One device/host synchronization on the healthy path. Preserve the
         # offending metric name on failure without synchronizing every scalar.
-        _devs = {str(v.device) for v in metrics.values()}
-        if len(_devs) > 1:
-            print(
-                "[metric-dev] "
-                + " ".join(f"{k}={v.device}" for k, v in metrics.items()),
-                flush=True,
-            )
         finite = torch.stack([torch.isfinite(v.detach()).all() for v in metrics.values()])
         if not finite.all():
             for key, ok in zip(metrics, finite.cpu().tolist()):
