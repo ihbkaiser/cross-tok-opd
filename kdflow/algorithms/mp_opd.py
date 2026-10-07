@@ -206,7 +206,17 @@ def _behavior_parity_metrics(
         raise RuntimeError("behavior logprobs contain infinity")
     # Synthetic terminal events are represented by NaN and intentionally have
     # no behavior probability. Infinity is never a valid sentinel.
-    real = ~torch.isnan(behavior_log_probs)
+    finite = torch.isfinite(behavior_log_probs)
+    # SGLang leaves some output_token_logprobs slots at exactly 0.0, and the trainer
+    # already reports those as unfilled rather than as p=1. There is no comparison to
+    # make on them: a genuine log-probability of exactly 0.0 would mean p == 1.0
+    # exactly, which a softmax does not produce, so scoring such a slot measures the
+    # magnitude of log p instead of an engine/trainer mismatch. That difference is
+    # not cosmetic - a handful of them in one batch pushed p99 past its gate and
+    # killed an otherwise healthy 312-update run at step 75.
+    unfilled = finite & (behavior_log_probs == 0.0)
+    real = finite & ~unfilled
+    unfilled_fraction = unfilled.float().mean() if unfilled.numel() else real.new_zeros(())
     if not real.any():
         return {}
     logits = student_logits.detach().float()
@@ -263,6 +273,7 @@ def _behavior_parity_metrics(
         "trajectory_logprob_abs_max": maximum,
         "trajectory_logprob_above_0p5_fraction": (delta > 0.5).float().mean(),
         "trajectory_logprob_closer_to_raw_fraction": closer_to_raw,
+        "trajectory_logprob_unfilled_fraction": unfilled_fraction,
     }
 
 
@@ -1273,6 +1284,17 @@ class MetaPartitionedOPD:
             torch.ones_like(prior),
             config,
         )
+        # dpca_policy_loss reduces with a token mean, but mp_opd's contract is that
+        # a mode's per-sample loss is a SUM over its tokens: every other mode ends in
+        # .sum(), and training_step divides the batch total by avg_token_num to get
+        # the token mean. Returning the mean here made that divide the second time,
+        # so DPCA's loss and gradient were smaller by the sample's token count -
+        # measured at ~370x on loss and ~150x on grad_norm against the atomic arm
+        # on the same seed and data. Undo the reduction here rather than inside the
+        # objective, so dpca_policy_loss keeps the token-mean semantics upstream uses.
+        covered_tokens = prior.numel()
+        if covered_tokens > 0:
+            loss = loss * covered_tokens
         metrics = dpca_metrics_to_tensors(metrics, prior.device)
         metrics["mp_opd_dpca_advantage_mean"] = advantages.detach().mean()
         metrics["mp_opd_dpca_advantage_abs_max"] = advantages.detach().abs().max()
