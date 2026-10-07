@@ -980,6 +980,27 @@ class MetaPartitionedOPD:
                 f"{credits.student_token_nll.numel()} student loss tokens"
             )
         prior = prior.detach()
+        if sample_index < 3:
+            _b = behaviour[sample_index]
+            _nan = torch.nonzero(torch.isnan(_b), as_tuple=False).flatten()
+            _mask_true = int(loss_mask.sum().item())
+            _nll_n = int(credits.student_token_nll.numel())
+            print(
+                "[dpca-diag] idx=%d stu_len=%d mask_true=%d prior_n=%d nll_n=%d counts=%d "
+                "behav_nan=%d nan_pos=%s mask_minus_nll=%d"
+                % (
+                    sample_index,
+                    int(_b.numel()),
+                    _mask_true,
+                    int(prior.numel()),
+                    _nll_n,
+                    int(credits.weight.long().sum().item()),
+                    int(_nan.numel()),
+                    _nan[:16].tolist(),
+                    _mask_true - _nll_n,
+                ),
+                flush=True,
+            )
         if not torch.isfinite(prior).all():
             raise RuntimeError(
                 "mp_opd dpca received non-finite behaviour log-probabilities inside the loss "
