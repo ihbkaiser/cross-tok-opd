@@ -197,7 +197,7 @@ class DistillationArguments:
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
                               "kernel", "grass", "grass_chunk", "airs", "align",
-                              "dpca"]},
+                              "trust_r", "trust_b", "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -458,7 +458,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "align", "dpca"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "align", "trust_r", "trust_b", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -584,14 +584,17 @@ class DistillationArguments:
                     "operator, and no such composition is defined"
                 )
             if (
-                self.mp_opd_mode in {"grass_chunk", "align"}
+                self.mp_opd_mode in {"grass_chunk", "align", "trust_r", "trust_b"}
                 and self.mp_opd_credit_transform != "identity"
             ):
                 # Same reasoning as GRASS-DP, applied to chunk-local shrinkage.
+                # TRUST joins the set because it consumes the raw rates: a
+                # cross-atom operator would be silently ignored, so a run that
+                # asks for both is not the run the recipe names.
                 raise ValueError(
-                    "mp_opd_mode='grass_chunk' requires "
-                    "mp_opd_credit_transform='identity'; the chunk-local shrinkage is "
-                    "not composed with a cross-atom operator"
+                    f"mp_opd_mode={self.mp_opd_mode!r} requires "
+                    "mp_opd_credit_transform='identity'; the method consumes "
+                    "raw atom rates, which no cross-atom operator may rewrite"
                 )
             if self.mp_opd_mode == "airs" and self.mp_opd_credit_transform != "identity":
                 # AIRS is a per-atom scalar shrinkage of the credit, exactly like

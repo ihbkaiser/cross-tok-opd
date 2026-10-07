@@ -78,6 +78,14 @@ from ._mp_opd_align import (
     align_chunks,
     align_metrics,
 )
+from ._mp_opd_trust import (
+    TRUST_EPS_G,
+    strict_mask,
+    trust_batch_metrics,
+    trust_calibrate,
+    trust_response_loss,
+    trust_response_metrics,
+)
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -103,6 +111,13 @@ _CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "align"})
 # shares only the noise estimator, because the method note fixes the same MAD-of-
 # adjacent-differences scale so the two methods are compared under one noise model.
 _AIRS_MODES = frozenset({"airs"})
+
+# TRUST calibrates mismatch credits against strict ones in the GRASS head
+# geometry, so it needs the same logits and head-input hidden states and the
+# same exact Gram. It needs neither the SURE noise state (no shrinkage) nor
+# the upstream alignment (the partition is the atomizer's own strict/mismatch
+# split), so it stays out of both sets above.
+_TRUST_MODES = frozenset({"trust_r", "trust_b"})
 
 
 def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
@@ -382,6 +397,20 @@ class MetaPartitionedOPD:
         if not (self.align_eps_h >= 0.0):
             raise ValueError(
                 f"mp_opd_align_eps_h must be non-negative, got {self.align_eps_h}"
+            )
+        # TRUST reads cross-atom dot products, which the diag ablation zeroes by
+        # construction: every dot would vanish and every lambda with it. A mode
+        # that can never act must not run silently.
+        if self.mode in _TRUST_MODES and self.grass_geometry != "exact_head":
+            raise ValueError(
+                "mp_opd trust modes require mp_opd_grass_geometry='exact_head'"
+            )
+        self.trust_needs_logits = self.mode in _TRUST_MODES
+        self.trust_needs_hidden = self.mode in _TRUST_MODES
+        self.trust_eps_g = float(getattr(self.args.kd, "mp_opd_trust_eps_g", TRUST_EPS_G))
+        if not (self.trust_eps_g >= 0.0):
+            raise ValueError(
+                f"mp_opd_trust_eps_g must be non-negative, got {self.trust_eps_g}"
             )
         self.airs_noise = (
             GrassNoiseEstimator(
@@ -942,6 +971,323 @@ class MetaPartitionedOPD:
         )
         return soft_partition_loss(credits.current_nll, effective), metrics
 
+    # Per-response TRUST values below; the training loop averages them over the
+    # micro-batch, which is exactly the batch summary the spec asks for.
+    _TRUST_RESPONSE_METRIC_NAMES = {
+        "strict_span_count": "mp_opd_trust_response_strict_span_count_mean",
+        "mismatch_span_count": "mp_opd_trust_response_mismatch_span_count_mean",
+        "strict_atom_count": "mp_opd_trust_response_strict_atom_count_mean",
+        "mismatch_atom_count": "mp_opd_trust_response_mismatch_atom_count_mean",
+        "strict_token_count": "mp_opd_trust_response_strict_token_count_mean",
+        "mismatch_token_count": "mp_opd_trust_response_mismatch_token_count_mean",
+        "strict_span_fraction": "mp_opd_trust_response_strict_span_fraction_mean",
+        "mismatch_span_fraction": "mp_opd_trust_response_mismatch_span_fraction_mean",
+        "has_strict": "mp_opd_trust_response_has_strict_fraction",
+        "has_mismatch": "mp_opd_trust_response_has_mismatch_fraction",
+        "has_both": "mp_opd_trust_response_has_both_fraction",
+        "zero_strict": "mp_opd_trust_response_zero_strict_fraction",
+        "zero_mismatch": "mp_opd_trust_response_zero_mismatch_fraction",
+        "cosine": "mp_opd_trust_cosine_mean",
+        "cosine_negative": "mp_opd_trust_cosine_negative_fraction",
+        "mismatch_to_strict_norm_ratio": "mp_opd_trust_mismatch_to_strict_norm_ratio_mean",
+        "lambda": "mp_opd_trust_lambda_mean",
+        "lambda_zero": "mp_opd_trust_lambda_zero_fraction",
+        "lambda_gt1": "mp_opd_trust_lambda_gt1_fraction",
+        "calibrated": "mp_opd_trust_calibrated_response_fraction",
+        "calibrated_mismatch_norm_ratio": "mp_opd_trust_calibrated_mismatch_norm_ratio_mean",
+        "update_cosine_pre_post": "mp_opd_trust_update_cosine_pre_post",
+        "update_norm_ratio_post_pre": "mp_opd_trust_update_norm_ratio_post_pre",
+        "scope": "mp_opd_trust_scope",
+    }
+
+    def _trust_static_metrics(self, credits, head) -> dict:
+        return {
+            "mp_opd_trust_exact_geometry": credits.rate.new_tensor(1.0),
+            "mp_opd_trust_gram_symmetry_error": credits.rate.new_tensor(
+                head.symmetry_error
+            ),
+            "mp_opd_trust_atom_token_count": credits.rate.new_tensor(
+                float(head.token_count)
+            ),
+            "mp_opd_trust_softcap": credits.rate.new_tensor(
+                float(self.grass_softcap or 0.0)
+            ),
+            "mp_opd_trust_head_bias": credits.rate.new_tensor(
+                float(self.grass_head_bias)
+            ),
+        }
+
+    def _trust_r_loss(
+        self,
+        credits,
+        atoms,
+        *,
+        student_logits: torch.Tensor | None,
+        student_labels: torch.Tensor | None,
+        student_hidden: torch.Tensor | None,
+    ):
+        """TRUST-R: scale this response's mismatch update by strict agreement.
+
+        The calibration unit is the response, which is exactly what
+        ``_partition_loss`` is called with, so no restructuring is needed: the
+        strict/mismatch split comes from the atomizer boundary types, the Gram
+        is the GRASS exact head Gram over all atoms, and the loss keeps the
+        strict side whole while the mismatch side takes the detached lambda.
+        """
+        if student_logits is None or student_labels is None:
+            raise RuntimeError(
+                "mp_opd trust modes require the student logits and labels"
+            )
+        if student_hidden is None:
+            raise RuntimeError(
+                "mp_opd trust modes require the student LM-head hidden states"
+            )
+        if credits.student_token_nll is None:
+            raise RuntimeError(
+                "mp_opd trust modes require per-token student NLL"
+            )
+        if credits.student_token_nll.numel() != student_logits.shape[0]:
+            raise ValueError(
+                "per-token student NLL and student logits disagree on token count"
+            )
+
+        device = credits.rate.device
+        is_strict = strict_mask([atom.boundary_type for atom in atoms]).to(device)
+        n = len(atoms)
+        atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
+        covered = atom_ranges[-1][1]
+        head = chunk_head_gram(
+            student_logits[:covered],
+            student_hidden[:covered],
+            student_labels[:covered],
+            atom_ranges,
+            [(0, n)],
+            selected_log_prob=(-credits.student_token_nll[:covered]).detach(),
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=False,
+        )
+        with torch.no_grad():
+            q = credits.rate.detach().to(torch.float32)
+            gram = head.gram.detach().to(torch.float32)
+            result = trust_calibrate(
+                q[is_strict],
+                q[~is_strict],
+                gram[is_strict][:, is_strict],
+                gram[~is_strict][:, ~is_strict],
+                gram[is_strict][:, ~is_strict],
+                eps_g=self.trust_eps_g,
+            )
+        loss = trust_response_loss(
+            credits.current_nll, credits.rate, is_strict, ~is_strict, result
+        )
+        token_counts = torch.tensor(
+            [atom.student_token_count for atom in atoms],
+            dtype=torch.float32,
+            device=device,
+        )
+        raw = trust_response_metrics(result, is_strict, token_counts, scope="response")
+        metrics = {
+            self._TRUST_RESPONSE_METRIC_NAMES[key]: credits.rate.new_tensor(value)
+            for key, value in raw.items()
+        }
+        metrics.update(self._trust_static_metrics(credits, head))
+        return loss, metrics
+
+    def _trust_b_loss(self, stash) -> tuple:
+        """TRUST-B: one lambda for the whole micro-batch.
+
+        A per-sample call cannot see cross-response Gram terms, so the sample
+        loop stashes this micro-batch's responses and the calibration runs once
+        here, over the concatenated token axis. The head is shared across
+        responses, so inner products between one response's atoms and another's
+        are well defined; each atom still reads its own response's forward
+        quantities. Returned coverage values are exact means over the stashed
+        responses and must bypass the loop's sum-then-mean averaging.
+        """
+        rates, nlls, logit_rows, hidden_rows, label_rows, tok_nlls = [], [], [], [], [], []
+        masks, counts = [], []
+        offset = 0
+        atom_ranges: list[tuple[int, int]] = []
+        for credits, atoms, stu_logits, stu_labels, hidden in stash:
+            if hidden is None:
+                raise RuntimeError(
+                    "mp_opd trust_b requires the student LM-head hidden states"
+                )
+            rates.append(credits.rate)
+            nlls.append(credits.current_nll)
+            logit_rows.append(stu_logits)
+            hidden_rows.append(hidden)
+            label_rows.append(stu_labels)
+            tok_nlls.append(credits.student_token_nll)
+            mask = strict_mask([atom.boundary_type for atom in atoms])
+            masks.append(mask)
+            counts.append(
+                torch.tensor(
+                    [atom.student_token_count for atom in atoms], dtype=torch.float32
+                )
+            )
+            for atom in atoms:
+                atom_ranges.append(
+                    (atom.student_start + offset, atom.student_end + offset)
+                )
+            offset += int(stu_logits.shape[0])
+        device = rates[0].device
+        rate_all = torch.cat(rates)
+        nll_all = torch.cat(nlls)
+        head = chunk_head_gram(
+            torch.cat(logit_rows),
+            torch.cat(hidden_rows),
+            torch.cat(label_rows),
+            tuple(atom_ranges),
+            [(0, sum(len(atoms) for _, atoms, _, _, _ in stash))],
+            selected_log_prob=(-torch.cat(tok_nlls)).detach(),
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=False,
+        )
+        is_strict = torch.cat(masks).to(device)
+        with torch.no_grad():
+            q = rate_all.detach().to(torch.float32)
+            gram = head.gram.detach().to(torch.float32)
+            result = trust_calibrate(
+                q[is_strict],
+                q[~is_strict],
+                gram[is_strict][:, is_strict],
+                gram[~is_strict][:, ~is_strict],
+                gram[is_strict][:, ~is_strict],
+                eps_g=self.trust_eps_g,
+            )
+        loss = trust_response_loss(nll_all, rate_all, is_strict, ~is_strict, result)
+        n_resp = len(stash)
+        totals = {
+            "strict_span_count": sum(float(m.sum()) for m in masks),
+            "mismatch_span_count": sum(float((~m).sum()) for m in masks),
+            "strict_atom_count": sum(float(m.sum()) for m in masks),
+            "mismatch_atom_count": sum(float((~m).sum()) for m in masks),
+            "strict_token_count": sum(float(c[m].sum()) for m, c in zip(masks, counts)),
+            "mismatch_token_count": sum(float(c[~m].sum()) for m, c in zip(masks, counts)),
+        }
+        totals["strict_span_fraction"] = totals["strict_span_count"] / max(
+            totals["strict_span_count"] + totals["mismatch_span_count"], 1
+        )
+        totals["mismatch_span_fraction"] = totals["mismatch_span_count"] / max(
+            totals["strict_span_count"] + totals["mismatch_span_count"], 1
+        )
+        raw = trust_batch_metrics(result, totals)
+        ref = rate_all
+        metrics = {
+            "mp_opd_trust_response_strict_span_count_mean": ref.new_tensor(
+                totals["strict_span_count"] / n_resp
+            ),
+            "mp_opd_trust_response_mismatch_span_count_mean": ref.new_tensor(
+                totals["mismatch_span_count"] / n_resp
+            ),
+            "mp_opd_trust_response_strict_atom_count_mean": ref.new_tensor(
+                totals["strict_atom_count"] / n_resp
+            ),
+            "mp_opd_trust_response_mismatch_atom_count_mean": ref.new_tensor(
+                totals["mismatch_atom_count"] / n_resp
+            ),
+            "mp_opd_trust_response_strict_token_count_mean": ref.new_tensor(
+                totals["strict_token_count"] / n_resp
+            ),
+            "mp_opd_trust_response_mismatch_token_count_mean": ref.new_tensor(
+                totals["mismatch_token_count"] / n_resp
+            ),
+            "mp_opd_trust_response_strict_span_fraction_mean": ref.new_tensor(
+                totals["strict_span_fraction"]
+            ),
+            "mp_opd_trust_response_mismatch_span_fraction_mean": ref.new_tensor(
+                totals["mismatch_span_fraction"]
+            ),
+            "mp_opd_trust_response_has_strict_fraction": ref.new_tensor(
+                sum(float(m.any()) for m in masks) / n_resp
+            ),
+            "mp_opd_trust_response_has_mismatch_fraction": ref.new_tensor(
+                sum(float((~m).any()) for m in masks) / n_resp
+            ),
+            "mp_opd_trust_response_has_both_fraction": ref.new_tensor(
+                sum(float(m.any() and (~m).any()) for m in masks) / n_resp
+            ),
+            "mp_opd_trust_response_zero_strict_fraction": ref.new_tensor(
+                sum(float(not m.any()) for m in masks) / n_resp
+            ),
+            "mp_opd_trust_response_zero_mismatch_fraction": ref.new_tensor(
+                sum(float(not (~m).any()) for m in masks) / n_resp
+            ),
+            "mp_opd_trust_cosine_mean": ref.new_tensor(raw["cosine"]),
+            "mp_opd_trust_cosine_negative_fraction": ref.new_tensor(
+                float(raw["cosine"] < 0.0)
+            ),
+            "mp_opd_trust_mismatch_to_strict_norm_ratio_mean": ref.new_tensor(
+                raw["mismatch_to_strict_norm_ratio"]
+            ),
+            "mp_opd_trust_lambda_mean": ref.new_tensor(raw["lambda"]),
+            "mp_opd_trust_lambda_zero_fraction": ref.new_tensor(
+                float(raw["lambda"] <= 0.0)
+            ),
+            "mp_opd_trust_lambda_gt1_fraction": ref.new_tensor(
+                float(raw["lambda"] > 1.0)
+            ),
+            # Batch-level calibration covers the responses that have both sides;
+            # when the batch does not calibrate, no response does.
+            "mp_opd_trust_calibrated_response_fraction": ref.new_tensor(
+                float(result.calibrated)
+                * sum(float(m.any() and (~m).any()) for m in masks)
+                / n_resp
+            ),
+            "mp_opd_trust_calibrated_mismatch_norm_ratio_mean": ref.new_tensor(
+                raw["calibrated_mismatch_norm_ratio"]
+            ),
+            "mp_opd_trust_update_cosine_pre_post": ref.new_tensor(
+                raw["update_cosine_pre_post"]
+            ),
+            "mp_opd_trust_update_norm_ratio_post_pre": ref.new_tensor(
+                raw["update_norm_ratio_post_pre"]
+            ),
+            "mp_opd_trust_scope": ref.new_tensor(1.0),
+            "mp_opd_trust_batch_strict_span_count": ref.new_tensor(
+                raw["batch_strict_span_count"]
+            ),
+            "mp_opd_trust_batch_mismatch_span_count": ref.new_tensor(
+                raw["batch_mismatch_span_count"]
+            ),
+            "mp_opd_trust_batch_strict_atom_count": ref.new_tensor(
+                raw["batch_strict_atom_count"]
+            ),
+            "mp_opd_trust_batch_mismatch_atom_count": ref.new_tensor(
+                raw["batch_mismatch_atom_count"]
+            ),
+            "mp_opd_trust_batch_strict_token_count": ref.new_tensor(
+                raw["batch_strict_token_count"]
+            ),
+            "mp_opd_trust_batch_mismatch_token_count": ref.new_tensor(
+                raw["batch_mismatch_token_count"]
+            ),
+            "mp_opd_trust_batch_strict_span_fraction": ref.new_tensor(
+                raw["batch_strict_span_fraction"]
+            ),
+            "mp_opd_trust_batch_mismatch_span_fraction": ref.new_tensor(
+                raw["batch_mismatch_span_fraction"]
+            ),
+            "mp_opd_trust_cosine": ref.new_tensor(raw["cosine"]),
+            "mp_opd_trust_mismatch_to_strict_norm_ratio": ref.new_tensor(
+                raw["mismatch_to_strict_norm_ratio"]
+            ),
+            "mp_opd_trust_lambda": ref.new_tensor(raw["lambda"]),
+            "mp_opd_trust_batch_has_strict": ref.new_tensor(raw["batch_has_strict"]),
+            "mp_opd_trust_batch_has_mismatch": ref.new_tensor(
+                raw["batch_has_mismatch"]
+            ),
+            "mp_opd_trust_batch_calibrated": ref.new_tensor(raw["batch_calibrated"]),
+            "mp_opd_trust_calibrated_mismatch_norm_ratio": ref.new_tensor(
+                raw["calibrated_mismatch_norm_ratio"]
+            ),
+        }
+        metrics.update(self._trust_static_metrics(rate_all, head))
+        return loss, metrics
+
     def _grass_chunk_loss(
         self,
         credits,
@@ -1499,6 +1845,15 @@ class MetaPartitionedOPD:
                 teacher_ids=teacher_ids,
             )
 
+        if self.mode == "trust_r":
+            return self._trust_r_loss(
+                credits,
+                atoms,
+                student_logits=student_logits,
+                student_labels=student_labels,
+                student_hidden=student_hidden,
+            )
+
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
         )
@@ -1603,7 +1958,7 @@ class MetaPartitionedOPD:
             # GRASS needs the state the LM head actually consumes, so the last
             # decoder hidden state is retained instead of reconstructed. Off for
             # every other mode: it costs a full [batch, seq, hidden] tensor.
-            output_hidden_states=self.grass_needs_hidden,
+            output_hidden_states=self.grass_needs_hidden or self.trust_needs_hidden,
             **mm_kwargs,
         )
         student_logits_flat = output["logits"][student_loss_mask]
@@ -1661,6 +2016,8 @@ class MetaPartitionedOPD:
         rate_values = []
         extra_sums: dict[str, torch.Tensor] = {}
         stu_offset = tea_offset = 0
+        trust_b_stash: list = []
+        trust_b_metrics: dict[str, torch.Tensor] = {}
         valid_samples = 0
         for batch_index in range(student_input_ids.shape[0]):
             stu_mask = student_loss_mask[batch_index]
@@ -1693,27 +2050,46 @@ class MetaPartitionedOPD:
                 tea_logits,
                 torch.tensor(tea_ids, device=tea_logits.device),
             )
-            sample_loss, sample_metrics = self._partition_loss(
-                credits,
-                atoms,
-                micro_batch,
-                batch_index,
-                diagnostics=diagnostics_due,
-                diagnostic_seed=int(sample_key, 16),
-                student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits or self.grass_needs_logits or self.mode == "dpca") else None,
-                student_labels=stu_label_tensor,
-                student_hidden=(
-                    None
-                    if student_hiddens_flat is None
-                    else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count]
-                ),
-                student_ids=(
-                    stu_ids if self.mode in _CHUNK_SOURCE_MODES else None
-                ),
-                teacher_ids=(
-                    tea_ids if self.mode in _CHUNK_SOURCE_MODES else None
-                ),
-            )
+            if self.mode == "trust_b":
+                # TRUST-B calibrates the whole micro-batch at once: a per-sample
+                # call cannot see the cross-response Gram terms the batch dot
+                # products need. Stash this response and calibrate after the
+                # loop; the telemetry below still runs per response.
+                trust_b_stash.append(
+                    (
+                        credits,
+                        atoms,
+                        stu_logits,
+                        stu_label_tensor,
+                        None
+                        if student_hiddens_flat is None
+                        else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count],
+                    )
+                )
+                sample_loss = student_logits_flat.sum() * 0.0
+                sample_metrics = {}
+            else:
+                sample_loss, sample_metrics = self._partition_loss(
+                    credits,
+                    atoms,
+                    micro_batch,
+                    batch_index,
+                    diagnostics=diagnostics_due,
+                    diagnostic_seed=int(sample_key, 16),
+                    student_logits=stu_logits if (diagnostics_due or self.gbv_needs_logits or self.grass_needs_logits or self.trust_needs_logits or self.mode == "dpca") else None,
+                    student_labels=stu_label_tensor,
+                    student_hidden=(
+                        None
+                        if student_hiddens_flat is None
+                        else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count]
+                    ),
+                    student_ids=(
+                        stu_ids if self.mode in _CHUNK_SOURCE_MODES else None
+                    ),
+                    teacher_ids=(
+                        tea_ids if self.mode in _CHUNK_SOURCE_MODES else None
+                    ),
+                )
             total_loss = total_loss + sample_loss
             for key, value in sample_metrics.items():
                 extra_sums[key] = extra_sums.get(key, value.new_zeros(())) + value
@@ -1729,6 +2105,10 @@ class MetaPartitionedOPD:
             teacher_lengths.extend(atom.teacher_token_count for atom in atoms)
             credit_values.append(credits.base_credit)
             rate_values.append(credits.rate)
+
+        if self.mode == "trust_b" and trust_b_stash:
+            trust_b_loss, trust_b_metrics = self._trust_b_loss(trust_b_stash)
+            total_loss = total_loss + trust_b_loss
 
         kd_loss = total_loss / avg_token_num
         metrics = {
@@ -1766,6 +2146,9 @@ class MetaPartitionedOPD:
             metrics[f"mp_opd_invalid_reason_{reason}"] = kd_loss.new_tensor(float(count))
         for key, value in extra_sums.items():
             metrics[key] = value / max(valid_samples, 1)
+        # TRUST-B values are already exact micro-batch means and singletons;
+        # the sum-then-mean above must not touch them a second time.
+        metrics.update(trust_b_metrics)
         if self.args.kd.kd_ratio < 1:
             ce_labels = student_labels[student_loss_mask]
             ce_loss = compute_cross_entropy(student_logits_flat, ce_labels, reduction="sum") / avg_token_num
