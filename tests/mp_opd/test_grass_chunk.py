@@ -817,7 +817,9 @@ def test_boundary_cosines_are_clamped_because_a_cosine_cannot_exceed_one():
     for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
         assert -1.0 <= metrics[name] <= 1.0, f"{name} was {metrics[name]}"
     assert metrics["gradient_cosine_out_of_range"] > 0.0
-    assert metrics["gradient_cosine_max_abs"] > 1.0
+    # The maximum is read off the clamped cosine, so it cannot be the reason a step
+    # fails; degeneracy is carried by the counts instead of by a magnitude.
+    assert metrics["gradient_cosine_max_abs"] <= 1.0
 
 
 def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
@@ -850,7 +852,11 @@ def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
     for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
         assert math.isfinite(metrics[name]), f"{name} was {metrics[name]!r}"
     assert metrics["gradient_cosine_out_of_range"] > 0.0
-    assert metrics["gradient_cosine_max_abs"] > 1.0
+    assert metrics["gradient_cosine_max_abs"] <= 1.0
+    # Every metric this function returns must be finite, because a non-finite one aborts
+    # training over a measurement the optimiser never consumed.
+    for key, value in metrics.items():
+        assert math.isfinite(value), f"{key} was {value!r}"
 
 
 def test_boundary_diagnostics_measure_adjacent_pairs_and_nothing_else():

@@ -603,16 +603,19 @@ def chunk_boundary_diagnostics(
         # dropped count is published: a filtered mean must not be read as a direct
         # measurement, since the dropped pairs are exactly the least reliable ones.
         defined = torch.isfinite(cosine)
-        # A cosine of a Gram is bounded by 1 in exact arithmetic, so a value past that
-        # is a degenerate pair rather than a large angle. The tolerance is float noise,
-        # not a slack, because with the correct normalisation a healthy Gram stays well
-        # inside the bound; anything past it is published rather than absorbed.
         magnitude = cosine.abs()
         out_of_range = defined & (magnitude > 1.0 + CHUNK_COSINE_TOLERANCE)
         cosine = torch.where(defined, cosine, torch.zeros_like(cosine)).clamp(-1.0, 1.0)
+        # Degeneracy is reported as counts, never as a magnitude. A maximum taken over
+        # the unclamped cosine went to infinity on a run and aborted it: the run died on
+        # a measurement, not on anything the optimiser consumed. The counts say how many
+        # pairs were impossible or out of range, which is the fact worth acting on, and
+        # the maximum is read off the clamped cosine so it cannot be the reason a step
+        # fails.
         metrics["gradient_cosine_out_of_range"] = float(out_of_range.sum())
+        metrics["gradient_cosine_non_finite_pairs"] = float((~defined).sum())
         metrics["gradient_cosine_max_abs"] = (
-            float(magnitude[defined].max()) if bool(defined.any()) else 0.0
+            float(cosine.abs().max()) if bool(cosine.numel()) else 0.0
         )
         for name, selection in (("within", inside), ("cross", ~inside)):
             metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
@@ -825,8 +828,15 @@ def chunk_gram_diagnostics(
     cosine = cosines[0] if len(cosines) == 1 else torch.cat(cosines)
     defined = torch.isfinite(cosine)
     cosine_finite = cosine[defined]
+    # Clamped before the reduction, not after: every element being finite is not enough,
+    # because a mean over finite values overflows float64 in the sum and returns an
+    # infinite metric for an entirely finite population.
+    cosine_finite = cosine_finite.clamp(-1.0, 1.0)
     metrics["mp_opd_grass_chunk_gram_neighbour_cosine_mean"] = (
         cosine_finite.mean() if cosine_finite.numel() else cosine.new_zeros(())
+    )
+    metrics["mp_opd_grass_chunk_gram_neighbour_cosine_out_of_range"] = cosine.new_tensor(
+        float((cosine[defined].abs() > 1.0 + CHUNK_COSINE_TOLERANCE).sum())
     )
     metrics["mp_opd_grass_chunk_gram_neighbour_cosine_undefined"] = cosine.new_tensor(
         float(cosine.numel() - cosine_finite.numel())
