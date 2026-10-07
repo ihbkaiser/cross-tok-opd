@@ -2006,7 +2006,7 @@ class MetaPartitionedOPD:
             **mm_kwargs,
         )
         student_logits_flat = output["logits"][student_loss_mask]
-        if self.grass_needs_hidden:
+        if self.grass_needs_hidden or self.trust_needs_hidden:
             # The hidden state is the input of the head at the position that produced
             # each logit row, so it is masked with exactly the same index as the
             # logits. Only the last entry is the head input; the per-layer stack is
