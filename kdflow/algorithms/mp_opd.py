@@ -1464,6 +1464,13 @@ class MetaPartitionedOPD:
             metrics["loss"] = (1 - self.args.kd.kd_ratio) * ce_loss + self.args.kd.kd_ratio * kd_loss
         # One device/host synchronization on the healthy path. Preserve the
         # offending metric name on failure without synchronizing every scalar.
+        _devs = {str(v.device) for v in metrics.values()}
+        if len(_devs) > 1:
+            print(
+                "[metric-dev] "
+                + " ".join(f"{k}={v.device}" for k, v in metrics.items()),
+                flush=True,
+            )
         finite = torch.stack([torch.isfinite(v.detach()).all() for v in metrics.values()])
         if not finite.all():
             for key, ok in zip(metrics, finite.cpu().tolist()):
