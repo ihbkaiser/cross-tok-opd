@@ -30,6 +30,9 @@ MICRO_B=${MICRO_B:-2}
 DIAGNOSTICS=${DIAGNOSTICS:-0}
 CHECKPOINTS=${CHECKPOINTS:-$UPDATES}
 PREFIX=${PREFIX:-dpca-pilot}
+# Off by default so an existing run is not silently given a new artifact tree.
+# TENSORBOARD=1 writes event files under <save_path>/tensorboard for that run.
+TENSORBOARD=${TENSORBOARD:-0}
 RUNS=${RUNS:-"atomic dpca"}
 VRAM_IDLE_MIB=${VRAM_IDLE_MIB:-2048}
 export MP_SHARED_ROOT=${MP_SHARED_ROOT:-$SHARE/SimCT}
@@ -159,6 +162,7 @@ run_one() {  # $1=mode $2=tag $3=seed
       MP_DPCA_ADV_CLAMP="$DPCA_ADV_CLAMP" \
       MP_DPCA_AGG="$DPCA_AGG" \
       MP_MICRO_TRAIN_BATCH_SIZE="$MICRO_B" \
+      MP_TENSORBOARD="$TENSORBOARD" \
       MP_OPD_DIAGNOSTICS="$DIAGNOSTICS" \
       MP_CHECKPOINT_STEPS="$CHECKPOINTS" MP_RESUME=0 MP_PREFLIGHT_ONLY=0 \
       MP_SOURCE_COMMIT="$(git rev-parse HEAD)" \

@@ -409,6 +409,20 @@ try:
 
     # Diagnostic backend with Gemma attention softcapping.
     args = cli.init_args()
+    # TensorBoard is off by default and no runai entry point turns it on, so a run
+    # that wants the curves has to ask for them here. Set the nested field after
+    # init_args for the same reason as max_len below: the flag is nested under
+    # args.log, so there is no flat --log.use_tensorboard on the command line.
+    if os.environ.get("MP_TENSORBOARD", "0") == "1":
+        args.log.use_tensorboard = True
+        tb_dir = os.environ.get("MP_TENSORBOARD_DIR", "").strip()
+        if tb_dir:
+            args.log.tensorboard_log_dir = tb_dir
+        print(
+            "TENSORBOARD_ON dir=%s"
+            % (args.log.tensorboard_log_dir or os.path.join(args.train.save_path, "tensorboard")),
+            flush=True,
+        )
     if os.environ.get('MP_MAX_LEN'):
         # init_args raises max_len back to prompt_max_len + generate_max_len, so the flag
         # alone would leave a manifest that disagrees with what actually ran. Bind the
