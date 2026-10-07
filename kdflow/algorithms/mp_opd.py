@@ -997,6 +997,10 @@ class MetaPartitionedOPD:
             raise RuntimeError("mp_opd dpca sample has no atom-covered loss position")
         prior = prior[covered]
         token_nll = token_nll[covered]
+        # behaviour logprobs are collated on CPU while credits come from the
+        # student forward on CUDA. DPCA mixes both in one objective, so align them
+        # here or the metrics dict ends up with tensors on two devices.
+        prior = prior.to(device=token_nll.device)
 
         if not torch.isfinite(prior).all():
             raise RuntimeError(
