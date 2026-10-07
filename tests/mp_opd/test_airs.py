@@ -97,10 +97,14 @@ def test_snr_regimes_follow_the_specification():
     lam = out["lambda"].tolist()
     assert lam[0] == pytest.approx(0.0, abs=1e-12)
     assert lam[1] == pytest.approx(0.5, rel=1e-12)
-    assert 0.99 < lam[2] < 1.0
+    # r = 10 with sigma_i^2 = 1 is SNR 100, so lambda is 0.99 exactly - it approaches 1
+    # but never reaches it, and it must never exceed 1 either.
+    assert lam[2] == pytest.approx(0.99, rel=1e-12)
+    assert 0.99 < 1.0
     snr = out["snr"].tolist()
     assert snr[0] == pytest.approx(1.0, rel=1e-12)
     assert snr[1] == pytest.approx(2.0, rel=1e-12)
+    assert snr[2] == pytest.approx(100.0, rel=1e-12)
 
 
 def test_zero_credit_is_neutral_rather_than_division_by_zero():
@@ -255,41 +259,42 @@ def test_non_finite_rate_is_rejected():
 def test_mode_is_registered_in_the_argument_validation():
     from kdflow.arguments.distillation_args import DistillationArguments
 
+    # __post_init__ is where this dataclass validates; there is no validate() method,
+    # so constructing the arguments is the assertion.
     args = DistillationArguments(kd_algorithm="mp_opd", mp_opd_mode="airs")
-    args.validate()
     assert args.mp_opd_mode == "airs"
+    assert args.mp_opd_credit_transform == "identity"
 
 
 def test_airs_rejects_a_cross_atom_credit_operator():
     # AIRS shrinks each atom on its own; composing it with a cross-atom operator
     # would change which atoms are mixed, so the combination must fail closed rather
-    # than run something the recipe does not name.
+    # than run something the recipe does not name. "causal_kernel" is the real
+    # cross-atom operator in the advertised choices - "kernel" is a mode, not a
+    # transform, and would fail for an unrelated reason.
     from kdflow.arguments.distillation_args import DistillationArguments
 
-    args = DistillationArguments(
-        kd_algorithm="mp_opd",
-        mp_opd_mode="airs",
-        mp_opd_credit_transform="kernel",
-    )
     with pytest.raises(ValueError, match="airs"):
-        args.validate()
+        DistillationArguments(
+            kd_algorithm="mp_opd",
+            mp_opd_mode="airs",
+            mp_opd_credit_transform="causal_kernel",
+        )
 
 
 def test_airs_rejects_an_out_of_range_ema_rate():
     from kdflow.arguments.distillation_args import DistillationArguments
 
-    args = DistillationArguments(
-        kd_algorithm="mp_opd", mp_opd_mode="airs", mp_opd_airs_sigma_rho=1.0
-    )
     with pytest.raises(ValueError, match="mp_opd_airs_sigma_rho"):
-        args.validate()
+        DistillationArguments(
+            kd_algorithm="mp_opd", mp_opd_mode="airs", mp_opd_airs_sigma_rho=1.0
+        )
 
 
 def test_loss_path_never_builds_a_gram_or_a_span():
     # Structural, because a numeric test cannot tell an independent per-atom rule
     # from one that quietly pools neighbours and happens to give the same answer on
     # the chosen inputs.
-    tree = _ast.parse(source)
     body = _function_body("_airs_loss")
     for forbidden in ("grass_span_costs", "grass_partition", "chunk_", "gram", "dpca"):
         assert forbidden not in body, f"_airs_loss must not reference {forbidden}"

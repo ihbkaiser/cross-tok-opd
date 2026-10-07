@@ -801,6 +801,38 @@ def test_gram_diagnostics_report_zero_when_every_sampled_block_is_corrupt():
     assert float(metrics["mp_opd_grass_chunk_gram_sampled_blocks_non_finite"]) > 0.0
 
 
+def test_boundary_cosines_are_clamped_because_a_cosine_cannot_exceed_one():
+    # Flooring the denominator at 1e-300 lets the quotient reach 1e150. That is finite
+    # and would pass every isfinite guard, while describing no geometry at all. The
+    # mean must stay inside [-1, 1] and the junk pairs must be counted.
+    n = 8
+    partition = ((0, 4), (4, 8))
+    rate, weight = _credits(n, seed=91)
+    gram = torch.eye(n, dtype=torch.float64) * 4.0
+    gram[0, 0] = 0.0
+    gram[2, 3] = 1e6
+    gram[3, 2] = 1e6
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    for name in ("within_gradient_cosine_mean", "cross_gradient_cosine_mean"):
+        assert -1.0 <= metrics[name] <= 1.0, f"{name} was {metrics[name]}"
+    assert metrics["gradient_cosine_out_of_range"] > 0.0
+    assert "gradient_cosine_max_abs" in metrics
+    assert metrics["gradient_cosine_max_abs"] > 1.0
+
+
+def test_a_healthy_gram_reports_no_out_of_range_pairs():
+    # The counter is only meaningful if a clean Gram leaves it at zero; otherwise it
+    # cannot distinguish a degenerate run from a normal one.
+    n = 10
+    partition = ((0, 5), (5, 10))
+    rate, weight = _credits(n, seed=92)
+    metrics = chunk_boundary_diagnostics(
+        rate, weight, _chunked_gram(partition, _psd(n, 92)), partition
+    )
+    assert metrics["gradient_cosine_out_of_range"] == 0.0
+    assert "gradient_cosine_max_abs" not in metrics
+
+
 def test_shadow_reports_hard_chunk_and_atomic_without_changing_anything():
     n = 6
     rate, weight = _credits(n, seed=67, spread=3.0)

@@ -1610,7 +1610,25 @@ class MetaPartitionedOPD:
         # offending metric name on failure without synchronizing every scalar.
         finite = torch.stack([torch.isfinite(v.detach()).all() for v in metrics.values()])
         if not finite.all():
-            for key, ok in zip(metrics, finite.cpu().tolist()):
-                if not ok:
-                    raise FloatingPointError(f"non-finite MP-OPD metric: {key}")
+            offenders = [
+                (key, float(value))
+                for key, value, ok in zip(metrics, metrics.values(), finite.cpu().tolist())
+                if not ok
+            ]
+            # Name every offender with its value, and the companion counters of the same
+            # family. A single name is not enough to locate a guard that failed: the
+            # value distinguishes NaN from +-inf, and the counters say how much of the
+            # population the guard dropped, which is what decides whether the guard or
+            # its input is at fault.
+            detail = "; ".join(f"{key}={value!r}" for key, value in offenders)
+            family = "; ".join(
+                f"{key}={float(metrics[key])!r}"
+                for key in metrics
+                if isinstance(key, str)
+                and any(word in key for word in ("non_finite", "out_of_range", "undefined", "max_abs"))
+            )
+            raise FloatingPointError(
+                f"non-finite MP-OPD metric: {detail}"
+                + (f" | guards: {family}" if family else "")
+            )
         return metrics

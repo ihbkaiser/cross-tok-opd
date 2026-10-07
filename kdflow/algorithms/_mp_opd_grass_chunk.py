@@ -591,10 +591,26 @@ def chunk_boundary_diagnostics(
         # dropped count is published: a filtered mean must not be read as a direct
         # measurement, since the dropped pairs are exactly the least reliable ones.
         defined = torch.isfinite(cosine)
-        cosine = torch.where(defined, cosine, torch.zeros_like(cosine))
+        # A cosine from a Gram is bounded by 1 in exact arithmetic, so anything past
+        # that bound is a degenerate pair rather than a large angle. Flooring the
+        # denominator at 1e-300 lets the quotient reach 1e150, and a mean over a
+        # population of such values is dominated by pairs that describe no geometry.
+        # Clamping keeps the mean finite and the count says how many were clamped,
+        # so a run cannot report a healthy-looking average built on junk pairs.
+        finite_cosine = torch.where(defined, cosine, torch.zeros_like(cosine))
+        out_of_range = defined & (finite_cosine.abs() > 1.0)
+        cosine = finite_cosine.clamp(-1.0, 1.0)
+        metrics["gradient_cosine_out_of_range"] = float(out_of_range.sum())
+        if bool(out_of_range.any()):
+            metrics["gradient_cosine_max_abs"] = float(
+                finite_cosine.abs()[out_of_range].max()
+            )
         for name, selection in (("within", inside), ("cross", ~inside)):
             metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
                 (selection[:, None] & ~defined).sum()
+            )
+            metrics[f"{name}_gradient_cosine_out_of_range"] = float(
+                (selection[:, None] & out_of_range).sum()
             )
             kept = selection[:, None] & defined
             if bool(kept.any()):
