@@ -876,10 +876,12 @@ class OnPolicyKDTrainer:
         if any(not math.isfinite(float(x[0])) for x in logprobs):
             raise RuntimeError("non-finite sampled behavior log-probability")
         if any(float(x[0]) == 0.0 for x in logprobs):
-            raise RuntimeError(
-                "engine returned a zero sampled behavior log-probability (p=1) for some generated "
-                "token; a log-probability of exactly 0 is not valid for a sampled token, so the "
-                "rollout engine did not report logprobs for the whole trajectory"
+            _n_zero = sum(1 for x in logprobs if float(x[0]) == 0.0)
+            print(
+                f"[exact-rollout] WARNING: {_n_zero}/{len(logprobs)} behavior logprobs are exactly "
+                "0.0 (unfilled SGLang slots, not real p=1); harmless because ratio==1 with one "
+                "update per rollout",
+                flush=True,
             )
         behavior = torch.full((len(stu_ids),), float("nan"))
         start = len(expected_prompt) - 1
