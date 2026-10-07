@@ -57,7 +57,9 @@ def parse_log(text: str) -> Tuple[List[Tuple[int, Dict[str, float]]], int]:
 
 
 def select_keys(
-    records: Iterable[Tuple[int, Dict[str, float]]], wanted: Iterable[str]
+    records: Iterable[Tuple[int, Dict[str, float]]],
+    wanted: Iterable[str],
+    include_rest: bool = True,
 ) -> List[str]:
     """Keys present in every record, in the requested order first.
 
@@ -72,7 +74,8 @@ def select_keys(
     for _, metrics in records[1:]:
         common &= set(metrics)
     ordered = [k for k in wanted if k in common]
-    ordered += sorted(common - set(ordered))
+    if include_rest:
+        ordered += sorted(common - set(ordered))
     return ordered
 
 
@@ -117,11 +120,20 @@ def main() -> None:
         "empty_response_fraction",
         "collapse_bad_streak",
     ]
-    keys = select_keys(records, headline if not args.all_keys else [])
+    keys = select_keys(records, headline, include_rest=args.all_keys)
 
     from torch.utils.tensorboard import SummaryWriter
 
     args.out.mkdir(parents=True, exist_ok=True)
+    # This tool always rebuilds from step 1, so a refresh would otherwise leave
+    # the previous event file beside the new one and TensorBoard would read every
+    # step twice, from two files. Only the event files this tool produces are
+    # removed, and only files, never directories, so pointing --out at a run's
+    # real tensorboard directory cannot destroy anything else in it.
+    for stale in args.out.glob("events.out.tfevents.*"):
+        if stale.is_file():
+            stale.unlink()
+
     writer = SummaryWriter(log_dir=str(args.out))
     for step, metrics in records:
         for key in keys:
