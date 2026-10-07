@@ -1246,13 +1246,6 @@ class MetaPartitionedOPD:
         if int(counts.sum().item()) != prior.numel():
             raise ValueError("atom student token counts do not cover the atom-selected response")
 
-        advantages = dpca_atom_advantages(
-            credits.teacher_log_score,
-            counts,
-            prior,
-            config.adv_clamp,
-        )
-
         # The current policy's log-probability has to be recomputed on the same
         # tempered distribution the engine sampled from. credits.student_token_nll
         # is built from raw logits, so reusing it would put pi_theta on one side of
@@ -1270,12 +1263,37 @@ class MetaPartitionedOPD:
                 f"tempered student log-probs cover {current_log_probs.numel()} tokens "
                 f"but the loss mask selects {mask_count}"
             )
-        token_nll = -current_log_probs[covered].to(prior.device)
-        if token_nll.numel() != prior.numel():
+        current_log_probs = current_log_probs[covered].to(prior.device)
+        if current_log_probs.numel() != prior.numel():
             raise ValueError(
-                f"atom-selected student log-probs cover {token_nll.numel()} tokens "
+                f"atom-selected student log-probs cover {current_log_probs.numel()} tokens "
                 f"but the atom-selected prior covers {prior.numel()}"
             )
+
+        # SGLang 0.5.11 leaves a measurable share of its output_token_logprobs slots
+        # at exactly 0.0: 10-16% of the loss mask here, reproduced on an L4 with a
+        # 0.5B model, so this is the engine's bookkeeping rather than anything about
+        # this run's setup. Those slots are unfilled placeholders, not p=1 - across
+        # every request probed the maximum log-probability is exactly 0.0 while the
+        # real values sit several nats lower. Left in place they enter L_S as zero
+        # and shrink the denominator of the likelihood ratio, which is what made the
+        # semantic prior partly fabricated. On-policy the token was drawn from this
+        # very distribution, so the recomputed value is the correct one for those
+        # positions, and parity shows the two agree to about 0.007 nats wherever
+        # both exist.
+        unfilled_prior = prior == 0.0
+        unfilled_fraction = unfilled_prior.float().mean()
+        if bool(unfilled_prior.any()):
+            prior = torch.where(unfilled_prior, current_log_probs, prior)
+
+        advantages = dpca_atom_advantages(
+            credits.teacher_log_score,
+            counts,
+            prior,
+            config.adv_clamp,
+        )
+
+        token_nll = -current_log_probs
 
         loss, metrics = dpca_policy_loss(
             prior,
@@ -1301,6 +1319,7 @@ class MetaPartitionedOPD:
         metrics["mp_opd_dpca_advantage_clamped_frac"] = (
             (advantages.detach().abs() >= config.adv_clamp).float().mean()
         )
+        metrics["mp_opd_dpca_unfilled_prior_fraction"] = unfilled_fraction
         # Every metric from here up must live on the objective's device.
         # training_step stacks them into one tensor, and torch.as_tensor(float)
         # silently lands on CPU.
