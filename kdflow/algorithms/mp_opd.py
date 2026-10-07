@@ -69,6 +69,11 @@ from ._mp_opd_grass_chunk import (
     run_chunk_assignment,
 )
 from ._mp_opd_grass_span import grass_cosine
+from ._mp_opd_airs import (
+    airs_metrics,
+    airs_precision_buckets,
+    airs_shrinkage,
+)
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -81,6 +86,11 @@ from ._mp_opd_training_diagnostics import (
 # the partition; GRASS-Chunk takes it from the upstream alignment. Both need the
 # same logits, the same head-input hidden states and the same noise-scale state.
 _GRASS_MODES = frozenset({"grass", "grass_chunk"})
+
+# AIRS needs none of the GRASS machinery: no logits, no hidden states, no Gram. It
+# shares only the noise estimator, because the method note fixes the same MAD-of-
+# adjacent-differences scale so the two methods are compared under one noise model.
+_AIRS_MODES = frozenset({"airs"})
 
 
 def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
@@ -344,6 +354,17 @@ class MetaPartitionedOPD:
         )
         self.grass_softcap = self._detect_final_logit_softcap()
         self.grass_head_bias = self._detect_head_bias()
+        self.airs_warmup_steps = int(getattr(self.args.kd, "mp_opd_airs_warmup_steps", 20))
+        self.airs_noise = (
+            GrassNoiseEstimator(
+                rho=float(getattr(self.args.kd, "mp_opd_airs_sigma_rho", 0.99)),
+                min_adjacent_pairs=int(
+                    getattr(self.args.kd, "mp_opd_airs_sigma_min_pairs", 8)
+                ),
+            )
+            if self.mode in _AIRS_MODES
+            else None
+        )
         # Cross-atom credit operator. Atomic *is* the identity operator here, so
         # mode 'atomic' and mode 'kernel' with transform 'identity' share one path.
         self.credit_spec: CreditTransformSpec = credit_transform_from_args(self.args.kd)
@@ -483,6 +504,14 @@ class MetaPartitionedOPD:
         # early steps of a resumed run look like the atomic failure signature.
         if self.grass_noise is not None:
             state["mp_opd_grass_noise"] = self.grass_noise.state_dict()
+        # AIRS has its own noise state and its own warm-up counter. Both have to
+        # survive a resume: a reset counter would replay the warm-up, and a reset
+        # estimator would restart the EMA from a deflated variance.
+        if self.airs_noise is not None:
+            state["mp_opd_airs_noise"] = self.airs_noise.state_dict()
+        # The warm-up position is read off student_updates, which is already in the
+        # state and is counted once per optimizer update, so a resume continues the
+        # warm-up where it stopped instead of replaying it.
         return state
 
     def load_training_state_dict(self, state):
@@ -490,6 +519,8 @@ class MetaPartitionedOPD:
         self.energy_updates=state["energy_updates"]
         if self.grass_noise is not None and "mp_opd_grass_noise" in state:
             self.grass_noise.load_state_dict(state["mp_opd_grass_noise"])
+        if self.airs_noise is not None and "mp_opd_airs_noise" in state:
+            self.airs_noise.load_state_dict(state["mp_opd_airs_noise"])
 
     def note_optimizer_updates(self, count):
         self.student_updates += count
@@ -581,6 +612,67 @@ class MetaPartitionedOPD:
         )
         output = self.credit_spec.transform(batch, training=True)
         return output.effective_credit, output.diagnostics
+
+    def _airs_loss(self, credits, atoms, *, sample_index=None):
+        """AIRS: shrink each atomic credit toward zero by its own reliability.
+
+        The whole method is the substitution ``r -> lambda * r`` where
+        ``lambda_i = [1 - sigma2 / (w_i * r_i^2)]_+``. No atom is merged with
+        another, no span is formed and no Gram is built, so the update keeps the
+        atomic supervision resolution and changes nothing else in the loss.
+
+        Credit mass is deliberately *not* restored afterwards: renormalising to
+        the original weighted mass would divide out exactly the suppression the
+        method exists to apply.
+        """
+        if self.airs_noise is None:
+            raise RuntimeError("mp_opd airs mode requires the AIRS noise estimator")
+        # One noise update per valid response, matching GRASS, so the two methods
+        # see the same estimator driven by the same statistic.
+        noise = self.airs_noise.update(credits.rate, credits.weight)
+        # Measured in optimizer updates, not micro-batches: with grad accumulation a
+        # micro-batch counter would end a 20-step warm-up after roughly one step and
+        # make the configured length a lie. student_updates is the same counter the
+        # checkpoint carries, so a resume does not replay the warm-up.
+        completed_updates = int(self.student_updates)
+        enabled = completed_updates >= self.airs_warmup_steps
+        shrinkage = airs_shrinkage(
+            credits.rate,
+            credits.weight,
+            self.airs_noise.sigma2,
+            enabled=enabled,
+        )
+        metrics = airs_metrics(
+            credits.rate, credits.weight, shrinkage, enabled=enabled
+        )
+        metrics.update(airs_precision_buckets(credits.weight, shrinkage))
+        metrics.update(
+            {
+                "mp_opd_airs_noise_valid_pairs": credits.rate.new_tensor(
+                    float(noise["valid_pairs"])
+                ),
+                "mp_opd_airs_noise_sigma_batch": credits.rate.new_tensor(
+                    float(noise["sigma_batch"])
+                ),
+                "mp_opd_airs_noise_sigma_batch_variance": credits.rate.new_tensor(
+                    float(noise["sigma_batch_variance"])
+                ),
+                "mp_opd_airs_noise_sigma2": credits.rate.new_tensor(
+                    float(self.airs_noise.sigma2)
+                ),
+                "mp_opd_airs_noise_z_abs_mean": credits.rate.new_tensor(
+                    float(noise["z_abs_mean"])
+                ),
+                "mp_opd_airs_noise_z_abs_p99": credits.rate.new_tensor(
+                    float(noise["z_abs_quantile"])
+                ),
+                "mp_opd_airs_warmup_remaining": credits.rate.new_tensor(
+                    float(max(self.airs_warmup_steps - completed_updates, 0))
+                ),
+            }
+        )
+        loss = soft_partition_loss(credits.current_nll, shrinkage["credit"])
+        return loss, metrics
 
     def _grass_loss(
         self,
@@ -1212,9 +1304,13 @@ class MetaPartitionedOPD:
             )
             return hard_loss_with_metrics(gbv_selected)
 
+        if self.mode == "airs":
+            return self._airs_loss(
+                credits, atoms, sample_index=sample_index
+            )
+
         if self.mode == "grass":
-            return self._grass_loss(
-                credits,
+            return self._grass_loss(                credits,
                 atoms,
                 student_logits=student_logits,
                 student_labels=student_labels,

@@ -330,6 +330,24 @@ class DistillationArguments:
         metadata={"help": "Diagnostic-only: also report hard chunk pooling and atomic "
                           "on the same batches. Never changes the update."},
     )
+    mp_opd_airs_warmup_steps: int = field(
+        default=20,
+        metadata={"help": "Optimizer updates during which AIRS keeps lambda=1 and only "
+                          "estimates the noise scale. Fix this before the run and log it; "
+                          "starting from a large arbitrary sigma^2 would suppress most "
+                          "atomic updates at the start of training."},
+    )
+    mp_opd_airs_sigma_rho: float = field(
+        default=0.99,
+        metadata={"help": "EMA rate of the AIRS noise variance. AIRS reuses the GRASS "
+                          "MAD-of-adjacent-differences estimator so both methods share "
+                          "one noise model."},
+    )
+    mp_opd_airs_sigma_min_pairs: int = field(
+        default=8,
+        metadata={"help": "Valid adjacent pairs below which the batch does not identify "
+                          "a scale and the previous estimate is kept."},
+    )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
     mp_opd_energy_lr: float = field(default=1e-3)
@@ -433,7 +451,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "dpca"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -567,4 +585,25 @@ class DistillationArguments:
                     "mp_opd_mode='grass_chunk' requires "
                     "mp_opd_credit_transform='identity'; the chunk-local shrinkage is "
                     "not composed with a cross-atom operator"
+                )
+            if self.mp_opd_mode == "airs" and self.mp_opd_credit_transform != "identity":
+                # AIRS is a per-atom scalar shrinkage of the credit, exactly like
+                # GRASS in that respect. Composing it with a cross-atom operator
+                # would change which atoms the operator mixes, so fail closed
+                # rather than run something the recipe does not name.
+                raise ValueError(
+                    "mp_opd_mode='airs' requires mp_opd_credit_transform='identity'; "
+                    "the per-atom shrinkage is not composed with a cross-atom operator"
+                )
+            if not 0.0 <= float(self.mp_opd_airs_sigma_rho) < 1.0:
+                raise ValueError(
+                    "mp_opd_airs_sigma_rho must lie in [0, 1); AIRS reuses the GRASS "
+                    "noise estimator, whose EMA is only debiased below 1"
+                )
+            if self.mp_opd_airs_sigma_min_pairs < 1:
+                raise ValueError("mp_opd_airs_sigma_min_pairs must be positive")
+            if self.mp_opd_airs_warmup_steps < 0:
+                raise ValueError(
+                    "mp_opd_airs_warmup_steps must be nonnegative; the warm-up only "
+                    "disables shrinkage, and a negative length is meaningless"
                 )
