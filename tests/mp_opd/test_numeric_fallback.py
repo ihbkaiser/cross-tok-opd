@@ -148,3 +148,42 @@ def test_healthy_path_reports_zero_fallback():
     assert float(metrics["mp_opd_numeric_fallback_fraction"]) == 0.0
     assert bool(torch.isfinite(loss))
     assert float(metrics["mp_opd_trust_scope"]) == 0.0
+
+
+def _stash_response(n_atoms, boundaries, n_token_rows, seed):
+    generator = torch.Generator().manual_seed(seed)
+    atoms = [
+        _atom("one_to_one" if i % 2 == 0 else "multi_token", start, end)
+        for i, (start, end) in enumerate(boundaries)
+    ]
+    credits = SimpleNamespace(
+        rate=torch.randn(n_atoms, generator=generator, dtype=torch.float32),
+        weight=torch.ones(n_atoms),
+        base_credit=torch.ones(n_atoms),
+        current_nll=torch.randn(n_atoms, generator=generator, dtype=torch.float32),
+        student_token_nll=torch.randn(n_token_rows, generator=generator, dtype=torch.float32),
+    )
+    return (
+        credits,
+        atoms,
+        torch.randn(n_token_rows, 5, generator=generator, dtype=torch.float32),
+        torch.randint(0, 5, (n_token_rows,), generator=generator),
+        torch.randn(n_token_rows, 4, generator=generator, dtype=torch.float32),
+    )
+
+
+def test_trust_b_concatenates_covered_prefixes_only():
+    # Each response's token rows extend past its atoms (trailing masked
+    # tokens). Concatenating whole rows would leave those as gaps between the
+    # rebased ranges and the Gram routine would fail closed; only the covered
+    # prefixes may join the shared axis.
+    algo = _make_algo("trust_b")
+    stash = [
+        _stash_response(2, [(0, 2), (2, 4)], 6, seed=11),
+        _stash_response(2, [(0, 1), (1, 3)], 4, seed=12),
+    ]
+    loss, metrics = algo._trust_b_loss(stash)
+    assert bool(torch.isfinite(loss))
+    assert torch.isfinite(metrics["mp_opd_trust_lambda"])
+    assert "mp_opd_numeric_fallback_fraction" not in metrics
+    assert float(metrics["mp_opd_trust_scope"]) == 1.0

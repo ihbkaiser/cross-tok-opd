@@ -1006,19 +1006,19 @@ class MetaPartitionedOPD:
         "scope": "mp_opd_trust_scope",
     }
 
-    def _trust_static_metrics(self, credits, head) -> dict:
+    def _trust_static_metrics(self, rate, head) -> dict:
         return {
-            "mp_opd_trust_exact_geometry": credits.rate.new_tensor(1.0),
-            "mp_opd_trust_gram_symmetry_error": credits.rate.new_tensor(
+            "mp_opd_trust_exact_geometry": rate.new_tensor(1.0),
+            "mp_opd_trust_gram_symmetry_error": rate.new_tensor(
                 head.symmetry_error
             ),
-            "mp_opd_trust_atom_token_count": credits.rate.new_tensor(
+            "mp_opd_trust_atom_token_count": rate.new_tensor(
                 float(head.token_count)
             ),
-            "mp_opd_trust_softcap": credits.rate.new_tensor(
+            "mp_opd_trust_softcap": rate.new_tensor(
                 float(self.grass_softcap or 0.0)
             ),
-            "mp_opd_trust_head_bias": credits.rate.new_tensor(
+            "mp_opd_trust_head_bias": rate.new_tensor(
                 float(self.grass_head_bias)
             ),
         }
@@ -1097,7 +1097,7 @@ class MetaPartitionedOPD:
             self._TRUST_RESPONSE_METRIC_NAMES[key]: credits.rate.new_tensor(value)
             for key, value in raw.items()
         }
-        metrics.update(self._trust_static_metrics(credits, head))
+        metrics.update(self._trust_static_metrics(credits.rate, head))
         return loss, metrics
 
     def _trust_b_loss(self, stash) -> tuple:
@@ -1120,12 +1120,18 @@ class MetaPartitionedOPD:
                 raise RuntimeError(
                     "mp_opd trust_b requires the student LM-head hidden states"
                 )
+            # Mirror the single-response path: only the atom-covered token prefix
+            # joins the concatenated axis. Appending whole per-sample rows would
+            # leave each sample's trailing uncovered tokens (masked EOS) as gaps
+            # between the rebased ranges, and the Gram routine fails closed on gaps.
+            local_ranges = [(atom.student_start, atom.student_end) for atom in atoms]
+            covered_here = local_ranges[-1][1]
             rates.append(credits.rate)
             nlls.append(credits.current_nll)
-            logit_rows.append(stu_logits)
-            hidden_rows.append(hidden)
-            label_rows.append(stu_labels)
-            tok_nlls.append(credits.student_token_nll)
+            logit_rows.append(stu_logits[:covered_here])
+            hidden_rows.append(hidden[:covered_here])
+            label_rows.append(stu_labels[:covered_here])
+            tok_nlls.append(credits.student_token_nll[:covered_here])
             mask = strict_mask([atom.boundary_type for atom in atoms])
             masks.append(mask)
             counts.append(
@@ -1137,7 +1143,7 @@ class MetaPartitionedOPD:
                 atom_ranges.append(
                     (atom.student_start + offset, atom.student_end + offset)
                 )
-            offset += int(stu_logits.shape[0])
+            offset += int(covered_here)
         device = rates[0].device
         rate_all = torch.cat(rates)
         nll_all = torch.cat(nlls)
@@ -2151,7 +2157,27 @@ class MetaPartitionedOPD:
             rate_values.append(credits.rate)
 
         if self.mode == "trust_b" and trust_b_stash:
-            trust_b_loss, trust_b_metrics = self._trust_b_loss(trust_b_stash)
+            try:
+                trust_b_loss, trust_b_metrics = self._trust_b_loss(trust_b_stash)
+            except (ValueError, RuntimeError, FloatingPointError) as error:
+                if type(error).__name__ == "OutOfMemoryError" or (
+                    isinstance(error, RuntimeError)
+                    and "out of memory" in str(error).lower()
+                ):
+                    raise
+                print(
+                    f"[mp-opd] NUMERIC_FALLBACK mode=trust_b reason={type(error).__name__}: "
+                    f"{error}; uncalibrated atomic fallback",
+                    flush=True,
+                )
+                trust_b_loss = sum(
+                    (c.rate.detach() * c.current_nll).sum()
+                    for c, _, _, _, _ in trust_b_stash
+                )
+                trust_b_metrics = {
+                    "mp_opd_numeric_fallback_fraction": total_loss.new_tensor(1.0),
+                    "mp_opd_trust_scope": total_loss.new_tensor(1.0),
+                }
             total_loss = total_loss + trust_b_loss
 
         kd_loss = total_loss / avg_token_num
