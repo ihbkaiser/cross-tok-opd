@@ -50,7 +50,7 @@ def test_multi_rank_refused_before_checkpoint(tmp_path, monkeypatch):
     assert not list(tmp_path.iterdir())
 
 
-def test_original_gate_remains_strict():
+def test_parity_mismatch_warns_with_flag_instead_of_raising(capsys):
     source = Path(__file__).resolve().parents[2] / "kdflow/algorithms/mp_opd.py"
     tree = ast.parse(source.read_text())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
@@ -60,7 +60,10 @@ def test_original_gate_remains_strict():
     gate = namespace[fn.name]
     logits, labels = torch.zeros(100, 4), torch.zeros(100, dtype=torch.long)
     behavior = logits.log_softmax(-1)[:, 0]
-    gate(logits, labels, behavior, 1.)
+    healthy = gate(logits, labels, behavior, 1.)
+    assert float(healthy["trajectory_logprob_parity_failed"]) == 0.0
     behavior[:5] += .85
-    with pytest.raises(RuntimeError, match="parity failed"):
-        gate(logits, labels, behavior, 1.)
+    mismatch = gate(logits, labels, behavior, 1.)
+    assert float(mismatch["trajectory_logprob_parity_failed"]) == 1.0
+    assert mismatch["trajectory_logprob_abs_p99"] > 0.5
+    assert "PARITY_WARNING" in capsys.readouterr().out

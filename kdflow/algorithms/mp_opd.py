@@ -267,9 +267,13 @@ def _behavior_parity_metrics(
     mean = delta.mean()
     maximum = delta.max()
     p99 = torch.quantile(delta, 0.99)
-    # Backend/precision tails can contain isolated finite outliers. Fail on a
-    # distributional mismatch while preserving the tail as diagnostics.
-    if mean > 0.1 or p99 > 0.5:
+    # Backend/precision tails can contain isolated finite outliers. A large
+    # distributional mismatch is logged loudly but no longer kills the run: this
+    # function is diagnostic-only (its outputs never enter the loss), so failing
+    # here destroyed training over telemetry. The flag below preserves the tripwire
+    # as data instead of as an exit code.
+    parity_failed = bool(mean > 0.1 or p99 > 0.5)
+    if parity_failed:
         diagnosis = ""
         if torch.isfinite(closer_to_raw) and closer_to_raw.item() > 0.1:
             diagnosis = (
@@ -277,10 +281,11 @@ def _behavior_parity_metrics(
                 f"{closer_to_raw.item():.4f} means the engine returned RAW, unscaled "
                 "logprobs for part or all of the trajectory (expected <= 0.04)"
             )
-        raise RuntimeError(
-            "behavior/trainer logprob parity failed: "
+        print(
+            "[mp-opd] PARITY_WARNING behavior/trainer logprob parity failed: "
             f"mean={mean.item():.6f}, p99={p99.item():.6f}, max={maximum.item():.6f}"
-            + diagnosis
+            + diagnosis,
+            flush=True,
         )
     return {
         "trajectory_logprob_abs_mean": mean,
@@ -289,6 +294,7 @@ def _behavior_parity_metrics(
         "trajectory_logprob_above_0p5_fraction": (delta > 0.5).float().mean(),
         "trajectory_logprob_closer_to_raw_fraction": closer_to_raw,
         "trajectory_logprob_unfilled_fraction": unfilled_fraction,
+        "trajectory_logprob_parity_failed": delta.new_tensor(float(parity_failed)),
     }
 
 
@@ -1815,44 +1821,82 @@ class MetaPartitionedOPD:
                 credits, atoms, sample_index=sample_index
             )
 
-        if self.mode == "grass":
-            return self._grass_loss(                credits,
-                atoms,
-                student_logits=student_logits,
-                student_labels=student_labels,
-                student_hidden=student_hidden,
+        if self.mode in {"grass", "grass_chunk", "align", "trust_r"}:
+            # Numeric guardrails are warnings here, not run killers. A geometry
+            # failure on finite inputs falls back to the atomic credits the
+            # atomic mode trains on -- a well-defined update, never a zeroed or
+            # NaN one. The fallback fraction below makes a systematically broken
+            # mode visible instead of hiding it: a persistently high fraction
+            # means the mode fails for this data, not that samples had episodes.
+            # Non-finite inputs raise immediately instead: no finite loss can
+            # come out of them, and letting the call through would additionally
+            # poison stateful estimators (GRASS noise EMA) before failing.
+            # CUDA out-of-memory is re-raised unconditionally: it is a resource
+            # failure, and a fallback loop around it would retry until the node
+            # burns.
+            watched = [credits.rate, credits.weight, credits.current_nll]
+            if credits.student_token_nll is not None:
+                watched.append(credits.student_token_nll)
+            if not all(bool(torch.isfinite(t).all()) for t in watched):
+                raise FloatingPointError(
+                    f"mp_opd {self.mode} received non-finite inputs at sample "
+                    f"{sample_index}; no finite loss exists, not falling back"
+                )
+            fell_back = ""
+            try:
+                if self.mode == "grass":
+                    loss, metrics = self._grass_loss(                credits,
+                        atoms,
+                        student_logits=student_logits,
+                        student_labels=student_labels,
+                        student_hidden=student_hidden,
+                    )
+                elif self.mode == "grass_chunk":
+                    loss, metrics = self._grass_chunk_loss(
+                        credits,
+                        atoms,
+                        student_logits=student_logits,
+                        student_labels=student_labels,
+                        student_hidden=student_hidden,
+                        student_ids=student_ids,
+                        teacher_ids=teacher_ids,
+                    )
+                elif self.mode == "align":
+                    loss, metrics = self._align_loss(
+                        credits,
+                        atoms,
+                        student_logits=student_logits,
+                        student_labels=student_labels,
+                        student_hidden=student_hidden,
+                        student_ids=student_ids,
+                        teacher_ids=teacher_ids,
+                    )
+                else:
+                    loss, metrics = self._trust_r_loss(
+                        credits,
+                        atoms,
+                        student_logits=student_logits,
+                        student_labels=student_labels,
+                        student_hidden=student_hidden,
+                    )
+            except (ValueError, RuntimeError, FloatingPointError) as error:
+                if type(error).__name__ == "OutOfMemoryError" or (
+                    isinstance(error, RuntimeError)
+                    and "out of memory" in str(error).lower()
+                ):
+                    raise
+                fell_back = f"{type(error).__name__}: {error}"
+            if fell_back:
+                print(
+                    f"[mp-opd] NUMERIC_FALLBACK mode={self.mode} sample={sample_index} "
+                    f"reason={fell_back}; atomic fallback",
+                    flush=True,
+                )
+                loss, metrics = credit_operator_loss(fixed_partition(n, 1))
+            metrics["mp_opd_numeric_fallback_fraction"] = credits.rate.new_tensor(
+                float(bool(fell_back))
             )
-
-        if self.mode == "grass_chunk":
-            return self._grass_chunk_loss(
-                credits,
-                atoms,
-                student_logits=student_logits,
-                student_labels=student_labels,
-                student_hidden=student_hidden,
-                student_ids=student_ids,
-                teacher_ids=teacher_ids,
-            )
-
-        if self.mode == "align":
-            return self._align_loss(
-                credits,
-                atoms,
-                student_logits=student_logits,
-                student_labels=student_labels,
-                student_hidden=student_hidden,
-                student_ids=student_ids,
-                teacher_ids=teacher_ids,
-            )
-
-        if self.mode == "trust_r":
-            return self._trust_r_loss(
-                credits,
-                atoms,
-                student_logits=student_logits,
-                student_labels=student_labels,
-                student_hidden=student_hidden,
-            )
+            return loss, metrics
 
         _b, _w, rates, valid = span_tables(
             credits.base_credit, credits.weight, self.max_span_length
@@ -2175,8 +2219,17 @@ class MetaPartitionedOPD:
                 if isinstance(key, str)
                 and any(word in key for word in ("non_finite", "out_of_range", "undefined", "max_abs"))
             )
-            raise FloatingPointError(
-                f"non-finite MP-OPD metric: {detail}"
-                + (f" | guards: {family}" if family else "")
-            )
+            family = f" | guards: {family}" if family else ""
+            # The objective itself has no fallback: training on a non-finite loss
+            # would silently destroy the weights, so it stays fatal while pure
+            # telemetry degrades to a warning.
+            if any(key in ("loss", "kd_loss") for key, _ in offenders):
+                raise FloatingPointError(f"non-finite MP-OPD loss: {detail}{family}")
+            for key, value in offenders:
+                print(
+                    f"[mp-opd] METRIC_WARNING dropping non-finite metric {key}={value!r}"
+                    f"{family}; training continues",
+                    flush=True,
+                )
+                del metrics[key]
         return metrics
