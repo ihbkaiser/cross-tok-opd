@@ -538,9 +538,11 @@ class OnPolicyKDTrainer:
                         )
                         self.strategy.log(f"Checkpoint eval done: {ckpt_eval_summary}")
                     except Exception as exc:
+                        import traceback as _traceback
+
                         self.strategy.log(
                             f"Checkpoint eval FAILED at updates {self.completed_optimizer_updates}; "
-                            f"training continues: {exc!r}"
+                            f"training continues: {exc!r}\n{_traceback.format_exc()}"
                         )
 
                 step_wall_time = time.time() - step_started
