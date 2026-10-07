@@ -35,6 +35,14 @@ _ORIG_STREAM_OUTPUT_GENERATION = None
 _AUDIT_MAX_LINES = 20
 _AUDIT_LINES = 0
 
+# Separate cap for the unconditional probe below. The disagreement audit can only
+# speak about requests where output_token_logprobs_val is non-empty, so "no audit
+# lines" is ambiguous between "clean" and "nothing was ever inspected". This
+# counter prints structure for the first N requests regardless, which is what
+# separates those two readings.
+_ALWAYS_MAX_LINES = 12
+_ALWAYS_LINES = 0
+
 
 def process_batch_result_prefill_patched(
     self: "Scheduler",
@@ -327,11 +335,32 @@ def _audit_stream_output_logprobs(
     deliberately not gated by an env var: the engine runs as a separate Ray
     actor, so an ``MP_*`` flag never reaches this process.
     """
-    global _AUDIT_LINES
+    global _AUDIT_LINES, _ALWAYS_LINES
     for req in reqs:
         if req is skip_req or not getattr(req, "return_logprob", False):
             continue
         vals = getattr(req, "output_token_logprobs_val", None) or []
+        if _ALWAYS_LINES < _ALWAYS_MAX_LINES:
+            _ALWAYS_LINES += 1
+            zeros = [i for i, v in enumerate(vals) if v == 0.0]
+            span = (
+                "none"
+                if not zeros
+                else "%d..%d(n=%d,run=%s)"
+                % (zeros[0], zeros[-1], len(zeros), zeros[-1] - zeros[0] + 1 == len(zeros))
+            )
+            _audit_emit(
+                "[logprob-always] pid=%d rid=%s vals=%d n_zero=%d span=%s head=%s tail=%s"
+                % (
+                    os.getpid(),
+                    getattr(req, "rid", "?"),
+                    len(vals),
+                    len(zeros),
+                    span,
+                    ["%.4g" % v for v in vals[:4]],
+                    ["%.4g" % v for v in vals[-4:]],
+                )
+            )
         if not vals:
             continue
         ids = len(req.output_ids_through_stop)

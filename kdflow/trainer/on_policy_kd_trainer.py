@@ -63,6 +63,55 @@ def format_eta(seconds):
     return "unknown" if seconds is None else str(timedelta(seconds=int(max(0.0, seconds)))).split(".")[0]
 
 
+# Bounded structural probe for the 0.0 behaviour log-prob slots. The count alone
+# cannot tell a whole tail dropped from the response, a leading shift, or decode
+# steps that never filled their row, and those three have different fixes.
+_ZERO_PROBE_LINES = 0
+_ZERO_PROBE_MAX = 12
+
+
+def _probe_zero_slots(logprobs, label: str = "") -> None:
+    """Print the shape of the zero-valued slots, not just how many there are.
+
+    Whether the zeros are one contiguous run, several runs, or scattered singles
+    decides where to look next: a contiguous trailing run points at truncation or
+    a short buffer, a leading run at an offset shift, and scattered singles at
+    rows the sampler never wrote. Only the first few samples are printed so a
+    pathological response cannot flood the log.
+    """
+    global _ZERO_PROBE_LINES
+    if _ZERO_PROBE_LINES >= _ZERO_PROBE_MAX:
+        return
+    _ZERO_PROBE_LINES += 1
+    values = [float(x[0]) for x in logprobs]
+    zeros = [i for i, v in enumerate(values) if v == 0.0]
+    runs = []
+    for i in zeros:
+        if runs and runs[-1][1] == i - 1:
+            runs[-1][1] = i
+        else:
+            runs.append([i, i])
+    heads = runs[:4]
+    run_text = ",".join("%d-%d" % (a, b) for a, b in heads) or "none"
+    nonzero = [v for v in values if v != 0.0]
+    print(
+        "[exact-rollout] ZERO-PROBE %s n=%d n_zero=%d n_runs=%d first_runs=%s "
+        "nonzero_min=%.4g nonzero_max=%.4g head4=%s tail4=%s"
+        % (
+            label,
+            len(values),
+            len(zeros),
+            len(runs),
+            run_text,
+            min(nonzero) if nonzero else float("nan"),
+            max(nonzero) if nonzero else float("nan"),
+            ["%.4g" % v for v in values[:4]],
+            ["%.4g" % v for v in values[-4:]],
+        ),
+        flush=True,
+    )
+
+
 class OnPolicyKDTrainer:
     """
     Ray-based trainer for on-policy knowledge distillation.
@@ -883,6 +932,7 @@ class OnPolicyKDTrainer:
                 "still enter the DPCA semantic prior, so a loss that needs them fails closed.",
                 flush=True,
             )
+            _probe_zero_slots(logprobs)
         behavior = torch.full((len(stu_ids),), float("nan"))
         start = len(expected_prompt) - 1
         behavior[start:start + len(sampled)] = torch.tensor([float(x[0]) for x in logprobs])
