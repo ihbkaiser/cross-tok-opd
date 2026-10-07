@@ -85,7 +85,6 @@ opts.update(
     eval_on_checkpoint_steps=os.environ.get("MP_EVAL_STEPS", "40,80,120,160,200,240,280,312"),
     eval_case_dir=os.environ.get("MP_EVAL_CASE_DIR", ""),
     eval_prepared_dir=os.environ.get("MP_EVAL_PREPARED_DIR", ""),
-    eval_concurrency=int(os.environ.get("MP_EVAL_CONCURRENCY", "32")),
     eval_score_python=os.environ.get("MP_EVAL_SCORE_PYTHON", "/usr/bin/python3.12"),
     mp_opd_offload_adam_moments=os.environ.get("MP_OFFLOAD_ADAM_MOMENTS", "0") == "1",
     mp_opd_host_mask=os.environ.get("MP_OPD_HOST_MASK", "0") == "1",

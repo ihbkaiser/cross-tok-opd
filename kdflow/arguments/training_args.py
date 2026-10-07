@@ -123,10 +123,6 @@ class TrainingArguments:
         default="",
         metadata={"help": "Directory holding prepared <benchmark>.json eval data."}
     )
-    eval_concurrency: int = field(
-        default=32,
-        metadata={"help": "Concurrent eval generation requests against the rollout server. Kept modest: the training actors share this GPU."}
-    )
     eval_score_python: str = field(
         default="/usr/bin/python3.12",
         metadata={"help": "Python used for the one-time scorer preflight when writing eval state."}

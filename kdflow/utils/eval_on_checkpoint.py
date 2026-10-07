@@ -6,6 +6,17 @@ the policy for the current step is already loaded in the trainer's rollout
 server, so re-serialising tens of GiB and reading it back only to produce the
 same weights is pure overhead.
 
+Generation goes through `rollout_group.generate`, the exact request path the
+training rollout uses (same router, same pacing, same batching). An earlier
+version drove the actor's `/v1/chat/completions` endpoint directly with a
+concurrent burst and killed the scheduler twice on training-state servers
+while the same burst survived on clean ones, so the direct path is abandoned:
+only the path the training loop itself exercises every step is trusted here.
+The router takes rendered text, so the driver renders each item's chat messages
+with the tokenizer from the same checkpoint directory the server loaded --
+same template file, same string -- and records the original messages payload
+unchanged for hashing.
+
 This module produces the same on-disk contract that `run_cell` produces --
 `plan.json`, `state.json`, and per cell `contract.json`, `responses.jsonl`,
 `generation-complete.json` -- so the existing scoring path picks the cells up
@@ -38,15 +49,17 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from concurrent import futures as cfutures
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 __all__ = [
     "DEFAULT_STEPS",
     "parse_steps",
     "served_model_id",
     "server_record",
+    "render_prompt_texts",
+    "router_sampling_params",
+    "adapt_router_output",
     "run",
 ]
 
@@ -162,9 +175,68 @@ def _cell_contract(plan_hash: str, job: Dict[str, Any], data: Dict[str, Any],
     }
 
 
+def render_prompt_texts(apply_chat_template: Callable[..., str],
+                         items: Dict[str, Any]) -> Dict[str, str]:
+    """Render each item's messages to the exact text the server would generate from.
+
+    `apply_chat_template` is the tokenizer's bound method; taking it as a
+    parameter keeps this pure and unit-testable. It must be the tokenizer from
+    the checkpoint directory the serving process loaded, with the same kwargs
+    the chat endpoint applies (`add_generation_prompt=True`,
+    `enable_thinking=False`), otherwise the rendered text is a different
+    request wearing the same hash.
+    """
+    texts = {}
+    for item_id, item in items.items():
+        text = apply_chat_template(
+            item["messages"], tokenize=False, add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        if not isinstance(text, str) or not text:
+            raise ValueError(f"empty rendered prompt for item {item_id!r}")
+        texts[item_id] = text
+    return texts
+
+
+def router_sampling_params(E, benchmark: str, payload: dict) -> dict:
+    """Sampling params for the router path, carrying the contract seed.
+
+    Temperature/top_p/max_tokens mirror the recorded payload; the per-item
+    seed travels as `sampling_seed`, the same key the training rollout uses
+    for stateless request RNG.
+    """
+    return {
+        "temperature": payload["temperature"],
+        "top_p": payload["top_p"],
+        "max_new_tokens": payload["max_tokens"],
+        "sampling_seed": payload["seed"],
+    }
+
+
+def adapt_router_output(output: dict) -> dict:
+    """Rewrap a router `/generate` output into the OpenAI response envelope.
+
+    The scorer and `validate_response` read `choices[0].finish_reason` and
+    `choices[0].message.content`; both come verbatim from the server, only the
+    envelope is reconstructed. An unknown finish reason fails loudly instead
+    of being coerced, because the truncation accounting depends on it.
+    """
+    meta = output.get("meta_info") or {}
+    reason = meta.get("finish_reason")
+    if isinstance(reason, dict):
+        reason = reason.get("type")
+    if reason not in ("stop", "length"):
+        raise ValueError(f"Unexpected router finish reason: {reason!r}")
+    text = output.get("text")
+    if not isinstance(text, str):
+        raise ValueError("Router response missing text")
+    return {"choices": [{"finish_reason": reason, "message": {"content": text}}]}
+
+
 def _generate_cell(*, E, cell: Path, items: Dict[str, Any], benchmark: str, seed: int,
-                   base_url: str, served_model: str, contract: Dict[str, Any],
-                   concurrency: int) -> int:
+                   served_model: str, contract: Dict[str, Any],
+                   render_texts: Callable[[Dict[str, Any]], Dict[str, str]],
+                   generate_texts: Callable[[List[str], List[dict]], List[dict]]) -> int:
     """Generate one cell, resuming a valid marker and never repairing a live journal."""
     cell.mkdir(parents=True, exist_ok=True)
     manifest = cell / "contract.json"
@@ -194,18 +266,32 @@ def _generate_cell(*, E, cell: Path, items: Dict[str, Any], benchmark: str, seed
             "inspect it before retrying"
         )
 
-    payload_of: Dict[str, dict] = {}
+    # The recorded payload is unchanged from the direct-chat version: same
+    # messages, same seed rule, same hash. Only the transport differs.
+    ordered = list(items.values())
+    payload_of = {}
+    for item in ordered:
+        payload_of[item["id"]] = E.generation_payload(served_model, item, benchmark, seed)
+    texts = render_texts(items)
+    params = [router_sampling_params(E, benchmark, payload_of[item["id"]]) for item in ordered]
+    prompt_texts = [texts[item["id"]] for item in ordered]
+    outputs = generate_texts(prompt_texts, params)
+    if len(outputs) != len(ordered):
+        raise RuntimeError(
+            f"eval cell {benchmark}/{seed} returned {len(outputs)} of {len(ordered)} outputs"
+        )
     with responses_path.open("w") as handle:
-        with cfutures.ThreadPoolExecutor(max_workers=concurrency) as pool:
-            pending = {}
-            for item in items.values():
-                payload = E.generation_payload(served_model, item, benchmark, seed)
-                payload_of[item["id"]] = payload
-                pending[pool.submit(_generate_one, E, base_url, item["id"], seed, payload)] = item["id"]
-            for future in cfutures.as_completed(pending):
-                row = future.result()
-                handle.write(json.dumps(row) + "\n")
-                handle.flush()
+        for item, output in zip(ordered, outputs):
+            response = adapt_router_output(output)
+            E.validate_response(response)
+            row = {
+                "id": item["id"],
+                "seed": seed,
+                "request_sha256": E.digest(E.encoded(payload_of[item["id"]])),
+                "response": response,
+            }
+            handle.write(json.dumps(row) + "\n")
+            handle.flush()
 
     rows = [json.loads(line) for line in responses_path.read_text().splitlines() if line.strip()]
     if len(rows) != len(items):
@@ -221,17 +307,6 @@ def _generate_cell(*, E, cell: Path, items: Dict[str, Any], benchmark: str, seed
         "responses_sha256": _sha256_file(responses_path),
     })
     return len(items)
-
-
-def _generate_one(E, base_url: str, item_id: str, seed: int, payload: dict) -> Dict[str, Any]:
-    result = _json(base_url, "/v1/chat/completions", payload, timeout=600.0)
-    E.validate_response(result)
-    return {
-        "id": item_id,
-        "seed": seed,
-        "request_sha256": E.digest(E.encoded(payload)),
-        "response": result,
-    }
 
 
 def run(trainer, *, step_dir: str) -> Dict[str, Any]:
@@ -320,6 +395,25 @@ def run(trainer, *, step_dir: str) -> Dict[str, Any]:
     base_url = ray.get(trainer.rollout_group.actors[0].get_server_url.remote())
     model = served_model_id(base_url)
     server = server_record(served_model=model, step=step, checkpoint=checkpoint)
+    server["generation_path"] = "rollout-router-generate"
+
+    # The tokenizer must come from the checkpoint directory the serving
+    # process loaded: same template file, same rendered string. Anything else
+    # is a different request wearing the same hash.
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        trainer.rollout_group.model_path, trust_remote_code=True
+    )
+    render_texts = lambda items: render_prompt_texts(tokenizer.apply_chat_template, items)
+
+    def generate_texts(prompt_texts: List[str], params: List[dict]) -> List[dict]:
+        outputs = trainer.rollout_group.generate(prompt_texts, params)
+        if len(outputs) != len(prompt_texts):
+            raise RuntimeError(
+                f"router returned {len(outputs)} outputs for {len(prompt_texts)} prompts"
+            )
+        return outputs
 
     woke = False
     if bool(getattr(args, "enable_sleep", False)):
@@ -327,15 +421,14 @@ def run(trainer, *, step_dir: str) -> Dict[str, Any]:
         woke = True
     try:
         counts: Dict[str, int] = {}
-        concurrency = max(1, int(getattr(args, "eval_concurrency", 32)))
         for benchmark in benchmarks:
             for seed in seeds:
                 contract = _cell_contract(plan_hash, job, data, benchmark, seed, server, D.PROFILE)
                 counts[f"{benchmark}/{seed}"] = _generate_cell(
                     E=E, cell=_cell_dir(root, job_id, benchmark, seed),
                     items=items_by_bench[benchmark], benchmark=benchmark, seed=seed,
-                    base_url=base_url, served_model=model, contract=contract,
-                    concurrency=concurrency,
+                    served_model=model, contract=contract,
+                    render_texts=render_texts, generate_texts=generate_texts,
                 )
     finally:
         if woke:

@@ -105,59 +105,110 @@ def test_cell_contract_matches_queue_shape():
     assert mine == theirs
 
 
-def test_generate_cell_round_trip_and_resume(tmp_path, monkeypatch):
+def _fakes(calls):
+    def render_texts(items):
+        return {item_id: f"TEXT:{item_id}" for item_id in items}
+
+    def generate_texts(prompt_texts, params):
+        calls.append((list(prompt_texts), list(params)))
+        return [
+            {"text": f"OUT:{text}", "meta_info": {"finish_reason": {"type": "stop"}}}
+            for text in prompt_texts
+        ]
+
+    return render_texts, generate_texts
+
+
+def test_generate_cell_round_trip_and_resume(tmp_path):
     items = {f"q{i}": _item(i) for i in range(3)}
     contract = {"plan_sha256": "p", "checkpoint_sha256": "c", "data_sha256": "d",
                 "benchmark": "gsm8k", "seed": 42, "profile": D.PROFILE, "server": {"kind": "t"}}
     calls = []
-
-    def fake_json(base, suffix, payload=None, timeout=600.0):
-        calls.append(payload["seed"])
-        return _ok_response()
-
-    monkeypatch.setattr(M, "_json", fake_json)
+    render_texts, generate_texts = _fakes(calls)
     cell = tmp_path / "cell"
     n = M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                         base_url="http://x", served_model="eval-gemma",
-                         contract=contract, concurrency=2)
+                         served_model="eval-gemma", contract=contract,
+                         render_texts=render_texts, generate_texts=generate_texts)
     assert n == 3
-    assert len(calls) == 3
+    assert len(calls) == 1
+    prompts, params = calls[0]
+    assert prompts == ["TEXT:q0", "TEXT:q1", "TEXT:q2"]
+    assert [p["sampling_seed"] for p in params] == [
+        FakeE.generation_payload("eval-gemma", items[f"q{i}"], "gsm8k", 42)["seed"]
+        for i in range(3)
+    ]
+    assert all(p["temperature"] == 0.6 and p["top_p"] == 0.95 for p in params)
     rows = [json.loads(line) for line in (cell / "responses.jsonl").read_text().splitlines()]
     assert {r["id"] for r in rows} == set(items)
     for row in rows:
         expected = FakeE.generation_payload("eval-gemma", items[row["id"]], "gsm8k", 42)
         assert row["seed"] == 42
         assert row["request_sha256"] == FakeE.digest(FakeE.encoded(expected))
+        assert row["response"]["choices"][0]["message"]["content"] == f"OUT:TEXT:{row['id']}"
     marker = json.loads((cell / "generation-complete.json").read_text())
     assert marker["contract"] == contract
     assert marker["count"] == 3
     # A valid marker resumes without touching the server again.
     calls.clear()
     assert M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                            base_url="http://x", served_model="eval-gemma",
-                            contract=contract, concurrency=2) == 3
+                            served_model="eval-gemma", contract=contract,
+                            render_texts=render_texts, generate_texts=generate_texts) == 3
     assert calls == []
 
 
-def test_generate_cell_refuses_contract_drift(tmp_path, monkeypatch):
+def test_generate_cell_refuses_contract_drift(tmp_path):
     items = {f"q{i}": _item(i) for i in range(2)}
     contract = {"plan_sha256": "p", "server": {"kind": "t"}}
-    monkeypatch.setattr(M, "_json", lambda *a, **k: _ok_response())
+    render_texts, generate_texts = _fakes([])
     cell = tmp_path / "cell"
     M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                     base_url="http://x", served_model="eval-gemma",
-                     contract=contract, concurrency=2)
+                     served_model="eval-gemma", contract=contract,
+                     render_texts=render_texts, generate_texts=generate_texts)
     with pytest.raises(ValueError):
         M._generate_cell(E=FakeE, cell=cell, items=items, benchmark="gsm8k", seed=42,
-                         base_url="http://x", served_model="eval-gemma",
-                         contract={**contract, "plan_sha256": "other"}, concurrency=2)
+                         served_model="eval-gemma",
+                         contract={**contract, "plan_sha256": "other"},
+                         render_texts=render_texts, generate_texts=generate_texts)
 
 
 def test_generate_cell_refuses_interrupted_spool(tmp_path):
+    render_texts, generate_texts = _fakes([])
     cell = tmp_path / "cell"
     cell.mkdir()
     (cell / "responses.jsonl").write_text('{"id": "q0"}\n')
     with pytest.raises(ValueError, match="interrupted generation spool"):
         M._generate_cell(E=FakeE, cell=cell, items={"q0": _item(0)}, benchmark="gsm8k",
-                         seed=42, base_url="http://x", served_model="eval-gemma",
-                         contract={"plan_sha256": "p"}, concurrency=1)
+                         seed=42, served_model="eval-gemma",
+                         contract={"plan_sha256": "p"},
+                         render_texts=render_texts, generate_texts=generate_texts)
+
+
+def test_adapt_router_output_maps_finish_reasons():
+    stop = M.adapt_router_output({"text": "hi", "meta_info": {"finish_reason": {"type": "stop"}}})
+    assert stop["choices"][0]["finish_reason"] == "stop"
+    assert stop["choices"][0]["message"]["content"] == "hi"
+    length = M.adapt_router_output({"text": "hi", "meta_info": {"finish_reason": {"type": "length"}}})
+    assert length["choices"][0]["finish_reason"] == "length"
+    with pytest.raises(ValueError):
+        M.adapt_router_output({"text": "hi", "meta_info": {"finish_reason": {"type": "greedy"}}})
+    with pytest.raises(ValueError):
+        M.adapt_router_output({"text": "hi", "meta_info": {}})
+    with pytest.raises(ValueError):
+        M.adapt_router_output({"meta_info": {"finish_reason": {"type": "stop"}}})
+    FakeE.validate_response(stop)
+    FakeE.validate_response(length)
+
+
+def test_router_sampling_params_carry_the_contract_seed():
+    payload = FakeE.generation_payload("eval-gemma", _item(0), "math500", 43)
+    params = M.router_sampling_params(FakeE, "math500", payload)
+    assert params == {"temperature": 0.6, "top_p": 0.95, "max_new_tokens": 4096,
+                      "sampling_seed": payload["seed"]}
+
+
+def test_render_prompt_texts_uses_the_given_template():
+    items = {"a": _item(0), "b": _item(1)}
+    texts = M.render_prompt_texts(lambda messages, **kw: f"T:{messages[0]['content']}", items)
+    assert texts == {"a": "T:solve 0", "b": "T:solve 1"}
+    with pytest.raises(ValueError):
+        M.render_prompt_texts(lambda messages, **kw: "", items)
