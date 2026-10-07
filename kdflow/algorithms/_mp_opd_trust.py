@@ -29,8 +29,9 @@ Deliberate v1 deviations from the spec text, all fail-safe rather than silent:
 
 * Median/p10/p25/p75/p90 keys are not emitted. Metrics reduce per micro-batch
   by sum-then-mean, which cannot express a percentile; emitting a mean under a
-  ``_median`` key would lie about the statistic. Means and fractions are exact
-  (production uses micro_train_batch_size=1, where the mean is the value).
+  ``_median`` key would lie about the statistic. Means and fractions over the
+  micro-batch responses are exact as stated (production uses
+  micro_train_batch_size=4).
 * ``mp_opd_trust_scope`` is a float code (0.0 = response, 1.0 = batch) because
   the metric table only carries finite tensors.
 * Samples or units without both sides log 0.0 for undefined quantities (never
