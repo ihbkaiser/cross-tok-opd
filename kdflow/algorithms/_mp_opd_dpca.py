@@ -89,6 +89,30 @@ def rollout_temperature_log_probs(
     return chosen - torch.logsumexp(scaled, dim=-1)
 
 
+def dpca_atom_coverage(
+    atom_spans: Sequence[tuple[int, int]],
+    width: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Boolean mask over loss-mask positions that at least one atom owns.
+
+    The loss mask is deliberately wider than the atoms: ``trajectory_tokens``
+    appends a synthetic EOS sentinel that the atomizer excludes from credit, so
+    the mask carries positions with no atom and no engine log-prob. Everything
+    token-shaped in the objective has to be narrowed with this one mask.
+
+    ``width`` is the *unfiltered* mask width, because the tensors it will be
+    applied to are still full width at that point. Narrowing an already-narrowed
+    tensor is the mistake that makes a 236-vs-234 mismatch.
+    """
+    covered = torch.zeros(int(width), dtype=torch.bool, device=device)
+    for start, end in atom_spans:
+        covered[int(start) : int(end)] = True
+    if not bool(covered.any()):
+        raise RuntimeError("mp_opd dpca sample has no atom-covered loss position")
+    return covered
+
+
 def dpca_atom_advantages(
     teacher_log_score: torch.Tensor,
     counts: torch.Tensor,

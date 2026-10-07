@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from kdflow.algorithms._mp_opd_dpca import (
     DPCAConfig,
     dpca_atom_advantages,
+    dpca_atom_coverage,
     dpca_metrics_to_tensors,
     dpca_policy_loss,
     rollout_temperature_log_probs,
@@ -183,6 +184,34 @@ def test_mismatched_shapes_fail_closed():
         )
 
 
+def test_atom_coverage_is_full_mask_width_and_narrows_on_use():
+    """Coverage is built at the unfiltered mask width, then used to narrow.
+
+    The mask carries a synthetic EOS the atomizer excluded, so coverage is
+    strictly narrower than the tensors it selects from. If the width were taken
+    from an already-narrowed tensor, the two would disagree by exactly that gap.
+    """
+    full_width = 5
+    covered = dpca_atom_coverage([(0, 1), (1, 2), (2, 3)], full_width, torch.device("cpu"))
+
+    assert covered.numel() == full_width
+    assert covered.sum().item() == 3
+
+    full = torch.arange(full_width, dtype=torch.float32)
+    assert torch.equal(full[covered], torch.tensor([0.0, 1.0, 2.0]))
+
+
+def test_atom_coverage_marks_every_token_of_a_multi_token_atom():
+    spans = [(0, 1), (1, 4), (6, 7)]
+    covered = dpca_atom_coverage(spans, 8, torch.device("cpu"))
+    assert covered.tolist() == [True, True, True, True, False, False, True, False]
+
+
+def test_atom_coverage_fails_closed_when_nothing_is_covered():
+    with pytest.raises(RuntimeError):
+        dpca_atom_coverage([], 4, torch.device("cpu"))
+
+
 def test_chunk_total_comes_from_the_prior_not_a_separate_array():
     """L_S must be summed from the same array that supplies log p_i.
 
@@ -197,8 +226,11 @@ def test_chunk_total_comes_from_the_prior_not_a_separate_array():
 
     advantages = dpca_atom_advantages(teacher, counts, prior, adv_clamp=None)
 
-    # L_S = [-3, -7]; A = (L_T/L_S - 1) * log p_i
-    expected = torch.tensor([1.0, 2.0, 0.0, 0.0])
+    # L_S = [-3, -7]; ratios [2.0, 1.0]; A = (ratio - 1) * log p_i.
+    # A positive L_T/L_S raises the chunk's target above log p_i, and since
+    # log p_i is negative that makes the advantage more negative. The same sign
+    # shows up in test_semantic_prior_matches_the_paper_formula.
+    expected = torch.tensor([-1.0, -2.0, 0.0, 0.0])
     assert torch.allclose(advantages, expected, atol=1e-5)
 
 

@@ -1055,6 +1055,7 @@ class MetaPartitionedOPD:
         from ._mp_opd_dpca import (
             DPCAConfig,
             dpca_atom_advantages,
+            dpca_atom_coverage,
             dpca_metrics_to_tensors,
             dpca_policy_loss,
             rollout_temperature_log_probs,
@@ -1085,9 +1086,10 @@ class MetaPartitionedOPD:
         loss_mask = micro_batch["stu_loss_mask"][sample_index]
         prior = behaviour[sample_index][loss_mask]
         token_nll = credits.student_token_nll
-        if prior.numel() != token_nll.numel():
+        mask_count = prior.numel()
+        if mask_count != token_nll.numel():
             raise ValueError(
-                f"behaviour log-prob cardinality {prior.numel()} does not match the "
+                f"behaviour log-prob cardinality {mask_count} does not match the "
                 f"{token_nll.numel()} student loss tokens"
             )
         prior = prior.detach()
@@ -1100,11 +1102,11 @@ class MetaPartitionedOPD:
         # mask and atom.student_start/end index it directly, so restricting both
         # tensors to atom-covered mask positions is what keeps the semantic prior
         # and the per-atom credit aligned.
-        covered = torch.zeros(prior.numel(), dtype=torch.bool, device=prior.device)
-        for atom in atoms:
-            covered[atom.student_start : atom.student_end] = True
-        if not bool(covered.any()):
-            raise RuntimeError("mp_opd dpca sample has no atom-covered loss position")
+        covered = dpca_atom_coverage(
+            [(atom.student_start, atom.student_end) for atom in atoms],
+            prior.numel(),
+            prior.device,
+        )
         prior = prior[covered]
         token_nll = token_nll[covered]
         # behaviour logprobs are collated on CPU while credits come from the
@@ -1140,12 +1142,20 @@ class MetaPartitionedOPD:
         current_log_probs = rollout_temperature_log_probs(
             student_logits, student_labels, float(self.args.rollout.temperature)
         )
-        if current_log_probs.shape != prior.shape:
+        # student_logits was sliced by the loss mask, so this tensor spans the whole
+        # masked response and is still the pre-filter width. Compare against
+        # mask_count, then narrow with the same atom coverage the prior used.
+        if current_log_probs.numel() != mask_count:
             raise ValueError(
                 f"tempered student log-probs cover {current_log_probs.numel()} tokens "
-                f"but the atom-selected prior covers {prior.numel()}"
+                f"but the loss mask selects {mask_count}"
             )
         token_nll = -current_log_probs[covered].to(prior.device)
+        if token_nll.numel() != prior.numel():
+            raise ValueError(
+                f"atom-selected student log-probs cover {token_nll.numel()} tokens "
+                f"but the atom-selected prior covers {prior.numel()}"
+            )
 
         loss, metrics = dpca_policy_loss(
             prior,
