@@ -834,10 +834,15 @@ def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
         gram[position, position] = 1e-160
     gram[1, 2] = gram[2, 1] = 1e158
     gram[4, 5] = gram[5, 4] = 1e158
-    # Confirm the unguarded mean really is infinite, so the test is not vacuous.
+    # Confirm the unguarded mean really is infinite, so the test is not vacuous. The
+    # adjacent pairs are indexed explicitly: h[:-1, 1:] is the whole upper block, and
+    # reusing that shape here would reproduce the broadcast bug instead of the overflow.
+    pairs = torch.arange(n - 1)
     diagonal = torch.diagonal(gram)
-    denominator = (diagonal[:-1] * diagonal[1:]).clamp_min(1e-300).sqrt()
-    raw = (gram[:-1, 1:] / denominator).reshape(-1)
+    denominator = (
+        diagonal[pairs] * diagonal[pairs + 1]
+    ).clamp_min(1e-300).sqrt()
+    raw = gram[pairs, pairs + 1] / denominator
     assert torch.isfinite(raw).all(), "the reproduction needs finite-but-huge cosines"
     assert not torch.isfinite(raw.mean()), "the reproduction needs a mean that overflows"
 
@@ -846,6 +851,47 @@ def test_a_mean_of_huge_cosines_cannot_overflow_the_metric():
         assert math.isfinite(metrics[name]), f"{name} was {metrics[name]!r}"
     assert metrics["gradient_cosine_out_of_range"] > 0.0
     assert metrics["gradient_cosine_max_abs"] > 1.0
+
+
+def test_boundary_diagnostics_measure_adjacent_pairs_and_nothing_else():
+    # Regression for the bug that produced 370 "out of range" cosines on a run whose
+    # Gram was fine. h[:-1, 1:] is the whole (n-1)x(n-1) upper block, not the adjacent
+    # entries, and dividing it by a length-(n-1) denominator normalises entry (i, j+1)
+    # by sqrt(d_j * d_{j+1}) instead of sqrt(d_i * d_{j+1}). That index shift pushes
+    # |cos| past 1 on any Gram, and it made `inside` select rows of a block rather than
+    # individual pairs. Cauchy-Schwarz bounds the true adjacent cosine by 1, so a
+    # healthy Gram must come back with exactly n-1 pairs and none out of range.
+    n = 10
+    partition = ((0, 5), (5, 10))
+    rate, weight = _credits(n, seed=94)
+    generator = torch.Generator().manual_seed(94)
+    raw = torch.randn(n, n, generator=generator, dtype=torch.float64)
+    symmetric = 0.5 * (raw + raw.T)
+    _, vectors = torch.linalg.eigh(symmetric)
+    values = torch.linspace(1.0, 2.0, n, dtype=torch.float64)
+    gram = _chunked_gram(partition, vectors @ torch.diag(values) @ vectors.T)
+
+    metrics = chunk_boundary_diagnostics(rate, weight, gram, partition)
+    assert metrics["gradient_cosine_out_of_range"] == 0.0
+
+    # The published mean must equal the mean of the hand-computed adjacent cosines.
+    pairs = torch.arange(n - 1)
+    diagonal = torch.diagonal(gram)
+    adjacent = gram[pairs, pairs + 1]
+    expected = adjacent / (diagonal[pairs] * diagonal[pairs + 1]).sqrt()
+    # Chunk [0,5) owns pairs 0..3 and gives up pair 4, the single pair that reaches
+    # into the next chunk; chunk [5,10) gives up pair 9, which does not exist. So the
+    # population is 8 within and 1 cross.
+    inside = torch.ones(n - 1, dtype=torch.bool)
+    inside[4] = False
+    assert metrics["adjacent_pairs_within"] == 8.0
+    assert metrics["adjacent_pairs_cross"] == 1.0
+    assert metrics["within_gradient_cosine_mean"] == pytest.approx(
+        float(expected[inside].mean()), rel=1e-9
+    )
+    assert metrics["cross_gradient_cosine_mean"] == pytest.approx(
+        float(expected[~inside].mean()), rel=1e-9
+    )
 
 
 def test_a_healthy_gram_reports_no_out_of_range_pairs():

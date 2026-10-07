@@ -589,8 +589,15 @@ def chunk_boundary_diagnostics(
         diagonal_bad = ~torch.isfinite(diagonal)
         diagonal_safe = torch.where(diagonal_bad, torch.ones_like(diagonal), diagonal)
         metrics["gram_diagonal_non_finite"] = float(diagonal_bad.sum())
-        denominator = (diagonal_safe[:-1] * diagonal_safe[1:]).clamp_min(1e-300).sqrt()
-        cosine = h[:-1, 1:] / denominator
+        # Only the adjacent pairs belong here, one value per pair index, which is what
+        # `inside` marks. Taking the whole block h[:-1, 1:] and dividing by a length-(n-1)
+        # vector normalises entry (i, j+1) by sqrt(d_j * d_{j+1}) instead of
+        # sqrt(d_i * d_{j+1}); the index shift makes |cos| exceed 1 on any Gram, and it
+        # made this diagnostic describe something other than adjacency.
+        pairs = torch.arange(n - 1, device=h.device)
+        adjacent = h[pairs, pairs + 1]
+        denominator = (diagonal_safe[pairs] * diagonal_safe[pairs + 1]).clamp_min(1e-300).sqrt()
+        cosine = adjacent / denominator
         # A non-finite numerator still makes the ratio undefined even when the
         # denominator is clean, so the mean is taken over the finite pairs only and the
         # dropped count is published: a filtered mean must not be read as a direct
@@ -598,10 +605,8 @@ def chunk_boundary_diagnostics(
         defined = torch.isfinite(cosine)
         # A cosine of a Gram is bounded by 1 in exact arithmetic, so a value past that
         # is a degenerate pair rather than a large angle. The tolerance is float noise,
-        # not a slack: flooring the denominator at 1e-300 lets the quotient reach 1e308
-        # while still being finite, and a mean over a population of those overflows
-        # float64 in the sum, turning one healthy isfinite into an infinite metric.
-        # Clamping bounds the mean; the count and the maximum say how much was clamped.
+        # not a slack, because with the correct normalisation a healthy Gram stays well
+        # inside the bound; anything past it is published rather than absorbed.
         magnitude = cosine.abs()
         out_of_range = defined & (magnitude > 1.0 + CHUNK_COSINE_TOLERANCE)
         cosine = torch.where(defined, cosine, torch.zeros_like(cosine)).clamp(-1.0, 1.0)
@@ -611,12 +616,12 @@ def chunk_boundary_diagnostics(
         )
         for name, selection in (("within", inside), ("cross", ~inside)):
             metrics[f"{name}_gradient_cosine_pairs_undefined"] = float(
-                (selection[:, None] & ~defined).sum()
+                (selection & ~defined).sum()
             )
             metrics[f"{name}_gradient_cosine_out_of_range"] = float(
-                (selection[:, None] & out_of_range).sum()
+                (selection & out_of_range).sum()
             )
-            kept = selection[:, None] & defined
+            kept = selection & defined
             if bool(kept.any()):
                 metrics[f"{name}_gradient_cosine_mean"] = float(cosine[kept].mean())
     return metrics
