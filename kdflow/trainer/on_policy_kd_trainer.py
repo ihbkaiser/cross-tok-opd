@@ -879,8 +879,8 @@ class OnPolicyKDTrainer:
             _n_zero = sum(1 for x in logprobs if float(x[0]) == 0.0)
             print(
                 f"[exact-rollout] WARNING: {_n_zero}/{len(logprobs)} behavior logprobs are exactly "
-                "0.0 (unfilled SGLang slots, not real p=1); harmless because ratio==1 with one "
-                "update per rollout",
+                "0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They "
+                "still enter the DPCA semantic prior, so a loss that needs them fails closed.",
                 flush=True,
             )
         behavior = torch.full((len(stu_ids),), float("nan"))
