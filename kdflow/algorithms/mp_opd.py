@@ -1398,6 +1398,10 @@ class MetaPartitionedOPD:
             "mp_opd_trust_calibrated_mismatch_norm_ratio": ref.new_tensor(
                 raw["calibrated_mismatch_norm_ratio"]
             ),
+            # No fallback happened on this path: emitting 0.0 (like the
+            # dispatch wrapper does) makes the logged mean a true fraction of
+            # fallen-back micro-batches instead of a did-any-fallback flag.
+            "mp_opd_numeric_fallback_fraction": ref.new_tensor(0.0),
         }
         metrics.update(self._trust_static_metrics(
             rate_all, sym_err, sum(int(rows.shape[0]) for rows in logit_rows)

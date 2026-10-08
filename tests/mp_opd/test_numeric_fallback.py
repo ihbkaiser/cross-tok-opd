@@ -193,7 +193,7 @@ def test_trust_b_concatenates_covered_prefixes_only():
     loss, metrics = algo._trust_b_loss(stash)
     assert bool(torch.isfinite(loss))
     assert torch.isfinite(metrics["mp_opd_trust_lambda"])
-    assert "mp_opd_numeric_fallback_fraction" not in metrics
+    assert float(metrics["mp_opd_numeric_fallback_fraction"]) == 0.0
     assert float(metrics["mp_opd_trust_scope"]) == 1.0
 
 
