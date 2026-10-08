@@ -3,15 +3,24 @@
 Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đúng ô đã ghi;
 đổi ô phải sửa file này trước.
 
-## Code hiện tại
+## Hai đời toán — KHÔNG trộn lẫn khi đọc số
 
-- HEAD `7ef62e89` = audit `ef49e0ba` (GRASS pooled-mean, TRUST-B batch-64,
-  native chunks, delta-Gram trực tiếp) + fix argv `None` → `"None"`.
-- Publish HF `a72f9471`, dual verified. Mọi run/canary mới đi từ đây.
-- Chưa review toán đầy đủ: pair-decomposition của tôi (`a024d3b7`) đã bị
-  full-batch rewrite của audit thay thế; R85 (pair code) giờ là dữ liệu lịch sử.
+**TOÁN CŨ** (mọi commit tới `ccec1966`, gồm pair-Gram `a024d3b7` của tôi):
+GRASS distortion ≈ 0 (bug pooled-mean), TRUST-B calibrate theo microbatch-4,
+chunk/align chạy fixed-run baseline, guardrails warning+fallback của tôi.
+Mọi run hoàn thành + mọi milestone trong union report hiện tại đều thuộc đời này.
 
-## Đang chạy (train, toán mới)
+**TOÁN MỚI** (từ `ef49e0ba`, + fix argv `7ef62e89`):
+GRASS pooled-mean đúng (D≠0), TRUST-B một λ cho batch-64 (streaming 2 lượt),
+chunk/align native xtoken, delta-Gram trực tiếp, TRUST-B từ chối calibration lỗi
+thay vì fallback atomic. Canary limit-6 + mọi run 312 từ đây đều thuộc đời này.
+
+Quy tắc: so sánh milestone CHỈ trong cùng đời toán. Đặt baseline đời cũ cạnh
+run đời mới để kết luận "hơn/thua" là sai phương pháp — khác estimand.
+Eval và report của đời mới dùng case/group tên riêng (hậu tố `-new`), không ghi
+đè lên groups đời cũ trong union report.
+
+## Đang chạy — TOÁN MỚI
 
 | Node | GPU | UUID (đầu) | Run | Seed | Ghi chú |
 |---|---|---|---|---|---|
@@ -30,7 +39,7 @@ Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đún
 | grass_chunk-6 | R93c (ihbkaiser6/gpu3) | ⏳ chờ output |
 | trust_b-6 | R94c (nlp7) | ⏳ chờ output (code batch-64 mới, rủi ro cao nhất) |
 
-## Hoàn thành (code cũ, kèm eval)
+## Hoàn thành — TOÁN CŨ (kèm eval đời cũ, không so với đời mới)
 
 - grass baseline s42 (R23): exit 0. Eval 8/8 + milestone + dashboard.
 - grass_chunk s42 (R46): exit 0. Eval 8/8.
@@ -41,7 +50,7 @@ Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đún
 - DPCA v10 s42: rc=0. Eval 80→312 xong.
 - DPCA rerun s42 (ihbkaiser5): step 300/312 lúc thấy — kiểm exit sau.
 
-## Eval (worker riêng, gen-first)
+## Eval — TOÁN CŨ (worker riêng, gen-first; report đời cũ đóng băng ở 21 groups)
 
 - grass-baseline / grasschunk / DPCA / align-s42: xong + summaries + union report
   21 groups (`tmp/report_union_20261008.html`).
