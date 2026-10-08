@@ -80,6 +80,7 @@ from ._mp_opd_align import (
 )
 from ._mp_opd_trust import (
     TRUST_EPS_G,
+    gram_affordable,
     strict_mask,
     trust_batch_metrics,
     trust_calibrate,
@@ -1062,6 +1063,12 @@ class MetaPartitionedOPD:
         n = len(atoms)
         atom_ranges = tuple((atom.student_start, atom.student_end) for atom in atoms)
         covered = atom_ranges[-1][1]
+        if not gram_affordable(covered, int(student_logits.shape[1]), device):
+            raise ValueError(
+                "mp_opd trust_r Gram needs ~"
+                f"{covered * int(student_logits.shape[1]) * 16 / 1e9:.1f} GiB transient; "
+                "device cannot hold it, atomic fallback"
+            )
         head = chunk_head_gram(
             student_logits[:covered],
             student_hidden[:covered],
@@ -1147,6 +1154,12 @@ class MetaPartitionedOPD:
         device = rates[0].device
         rate_all = torch.cat(rates)
         nll_all = torch.cat(nlls)
+        vocab = int(torch.cat(logit_rows).shape[1])
+        if not gram_affordable(offset, vocab, device):
+            raise ValueError(
+                f"mp_opd trust_b Gram needs ~{offset * vocab * 16 / 1e9:.1f} GiB "
+                "transient; device cannot hold it, atomic fallback"
+            )
         head = chunk_head_gram(
             torch.cat(logit_rows),
             torch.cat(hidden_rows),

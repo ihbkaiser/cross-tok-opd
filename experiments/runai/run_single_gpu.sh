@@ -25,6 +25,11 @@ export PYTHONPATH="$CODE_ROOT/experiments/modal/vendor:$CODE_ROOT"
 export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export KDFLOW_TRUST_REMOTE_CODE=0 TOKENIZERS_PARALLELISM=false
 export RAY_USAGE_STATS_ENABLED=0 NCCL_CUMEM_HOST_ENABLE=0
+# A trust_b step with a very long response died at 11.73 GiB attempted on 6.34
+# GiB free with 19 GiB fragmented-but-reserved: expandable segments let those
+# pools merge instead of failing beside free memory. Recommended by the OOM
+# message itself; allocator behavior only, no numerics.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=4 PYTHONUNBUFFERED=1
 export KDFLOW_ROLLOUT_PORT_BASE="$((15000 + 1000 * GPU))"
 export KDFLOW_ROUTER_PROMETHEUS_PORT="$((20000 + 1000 * GPU))"

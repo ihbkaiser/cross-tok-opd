@@ -55,6 +55,31 @@ TRUST_EPS_G = 1e-12
 # Only used to keep norm denominators away from zero; it never decides whether
 # a unit calibrates or what lambda it gets.
 TRUST_EPS_NORM = 1e-12
+# Transient multiplier for one exact-Gram build: the [tokens, vocab] window,
+# its Jacobian, the probabilities, and the vocabulary product temporaries.
+# A step whose estimate exceeds half the free device memory degrades to the
+# atomic fallback (loudly counted) instead of attempting an allocation the
+# device cannot hold. Killed a 171-step trust_b run at 11.73 GiB attempted on
+# 6.34 GiB free; the fallback that would have saved it did not exist yet.
+TRUST_GRAM_TRANSIENT_FACTOR = 4.0
+TRUST_GRAM_FREE_FRACTION = 0.5
+
+
+def gram_affordable(n_tokens: int, vocab: int, device: torch.device) -> bool:
+    """Whether one exact Gram build fits in the currently free device memory.
+
+    Estimates ``n_tokens * vocab`` fp32 entries times the transient factor and
+    requires it under half the free bytes. On a device without memory info
+    (CPU tests) everything is affordable; the production guard this provides
+    is against the allocation, not the math.
+    """
+    if n_tokens <= 0 or vocab <= 0:
+        raise ValueError("gram affordability needs positive token and vocab counts")
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return True
+    free_bytes, _ = torch.cuda.mem_get_info(device)
+    need_bytes = float(n_tokens) * float(vocab) * 4.0 * TRUST_GRAM_TRANSIENT_FACTOR
+    return need_bytes <= float(free_bytes) * TRUST_GRAM_FREE_FRACTION
 
 
 @dataclass(frozen=True)

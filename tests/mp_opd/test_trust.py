@@ -15,6 +15,7 @@ import torch
 
 from kdflow.algorithms._mp_opd_trust import (
     TRUST_EPS_G,
+    gram_affordable,
     strict_mask,
     trust_batch_metrics,
     trust_calibrate,
@@ -313,8 +314,7 @@ def test_gram_blocks_match_materialized_head_gradients():
     assert result.lam == pytest.approx(max(0.0, float((gs_direct @ gm_direct.T).sum()) / float((gm_direct @ gm_direct.T).sum())))
 
 
-def test_full_call_pattern_through_chunk_head_gram():
-    # The exact call mp_opd makes: one chunk over all atoms, fp32 Gram out.
+def test_full_call_pattern_through_chunk_head_gram():    # The exact call mp_opd makes: one chunk over all atoms, fp32 Gram out.
     from kdflow.algorithms._mp_opd_grass_chunk import chunk_head_gram
 
     generator = torch.Generator().manual_seed(9)
@@ -340,3 +340,12 @@ def test_full_call_pattern_through_chunk_head_gram():
     )
     assert result.has_strict and result.has_mismatch
     assert result.lam >= 0.0
+
+
+def test_gram_affordable_rejects_nonsense_and_clears_cpu():
+    with pytest.raises(ValueError):
+        gram_affordable(0, 256000, torch.device("cpu"))
+    with pytest.raises(ValueError):
+        gram_affordable(100, -1, torch.device("cpu"))
+    # No memory info on CPU: the guard only constrains CUDA allocations.
+    assert gram_affordable(10**9, 10**9, torch.device("cpu")) is True
