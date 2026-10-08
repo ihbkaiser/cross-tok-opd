@@ -1,45 +1,73 @@
-# Fleet — SimCT training & eval (cập nhật 2026-10-08, sau R85)
+# Fleet — SimCT training & eval (cập nhật 2026-10-09, sau audit ef49e0ba + fix 7ef62e89)
 
 Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đúng ô đã ghi;
 đổi ô phải sửa file này trước.
 
-## Đang chạy
+## Code hiện tại
 
-| Node | GPU | UUID (đầu) | Run | Seed | Eval | Ghi chú |
-|---|---|---|---|---|---|---|
-| nlp-core-team-0-0 | 6 | `88a158ed` | trust_b 312 | 42 | TẮT | R56b, TB bật (fallback nhiều ở step dài) |
-| nlp-core-team-0-0 | 7 | `2f0fb13c` | eval align-s42 | — | worker riêng | E12, 8 plans |
-| embed-8b-training-v3-0-0 | 0 | `ce2da021` | grass 312 | 43 | TẮT | R58, TB bật |
-| embed-8b-training-v3-1-0-0 | 0 | `e74dd6de` | trust_b 312 pair-Gram | 42 | TẮT | R85, src a024d3b7, canary cho decomposition |
-| embed-8b-training-v2-0-0 | 3 | `eaed83d1` | align 312 (lần 2) | 43 | TẮT | wrapper 1731804, src eed10daf |
+- HEAD `7ef62e89` = audit `ef49e0ba` (GRASS pooled-mean, TRUST-B batch-64,
+  native chunks, delta-Gram trực tiếp) + fix argv `None` → `"None"`.
+- Publish HF `a72f9471`, dual verified. Mọi run/canary mới đi từ đây.
+- Chưa review toán đầy đủ: pair-decomposition của tôi (`a024d3b7`) đã bị
+  full-batch rewrite của audit thay thế; R85 (pair code) giờ là dữ liệu lịch sử.
 
-## Hoàn thành (chờ/kèm eval)
+## Đang chạy (train, toán mới)
 
-- grass baseline 312 (8b/GPU3, R23): exit 0. Eval 8/8 xong, milestone + dashboard có.
-- grass_chunk 312 (nlp/GPU5, R46): exit 0, run campaign hoàn chỉnh đầu tiên của mode mới. Eval 8/8 xong.
-- align 312 seed 42 (8b/GPU0, R44): exit 0. Eval 8 plans xong (E10), worker E11/E12.
-- trust_r 312 (v3/GPU0, ~01:11): exit 0, run trust đầu tiên về đích. Fallback lẻ tẻ (fraction cuối 0–9%), λ_mean ~0.055. Eval E13.
-- DPCA v10 312 (v3, pilot ngoài): rc=0. Eval 80→312 xong (chain GPU 7).
+| Node | GPU | UUID (đầu) | Run | Seed | Ghi chú |
+|---|---|---|---|---|---|
+| nlp-core-team-0-0 | 6 | `88a158ed` | grass 312 mới | 42 | R98, TB bật |
+| embed-8b-training-v3-1-0-0 | 0 | `e74dd6de` | trust_b 312 pair-Gram | 42 | R85, code cũ a024d3b7 — dữ liệu lịch sử |
+| nlp-core-team-0-0 | 4 | `49d5c3bd` | align 312 mới | 42 | R99 (chờ output) |
+| embed-8b-training-v2-0-0 | 3 | `eaed83d1` | trust_r 312 mới | 42 | R100 (chờ output) |
+
+## Canary toán mới (limit 6)
+
+| Mode | Block | Trạng thái |
+|---|---|---|
+| grass-6 | R92 (nlp6) | ✅ VERIFIED (D≠0, alpha đúng ý audit) |
+| trust_r-6 | R96b (ihbkaiser6/gpu3) | ✅ VERIFIED (λ=0.15, calibrate 100%) |
+| align-6 | R95c (nlp7) | ✅ VERIFIED |
+| grass_chunk-6 | R93c (ihbkaiser6/gpu3) | ⏳ chờ output |
+| trust_b-6 | R94c (nlp7) | ⏳ chờ output (code batch-64 mới, rủi ro cao nhất) |
+
+## Hoàn thành (code cũ, kèm eval)
+
+- grass baseline s42 (R23): exit 0. Eval 8/8 + milestone + dashboard.
+- grass_chunk s42 (R46): exit 0. Eval 8/8.
+- align s42 (R44): exit 0. Eval 8/8.
+- align s43 #2 (8b/gpu3, eed10daf): xong (R100 kiểm exitcode lúc launch).
+- trust_r s42: exit 0 (fallback 0–9% cuối). Eval E14b chain.
+- trust_b R56b s42: exit 0 (fallback dày nửa sau). Eval E15b chain.
+- DPCA v10 s42: rc=0. Eval 80→312 xong.
+- DPCA rerun s42 (ihbkaiser5): step 300/312 lúc thấy — kiểm exit sau.
+
+## Eval (worker riêng, gen-first)
+
+- grass-baseline / grasschunk / DPCA / align-s42: xong + summaries + union report
+  21 groups (`tmp/report_union_20261008.html`).
+- trust_r (E14b, 8b/gpu5), trust_b R56b (E15b, nlp/gpu5): đang chạy, gen 67/48.
 
 ## Quy ước đang hiệu lực
 
-- Eval in-process (cờ `MP_EVAL_ON_CKPT`) ĐỎ toàn fleet sau 4 vụ scheduler-crash
-  cùng chữ ký. Eval chỉ chạy bằng worker riêng đọc checkpoint đã lưu.
-- Guardrail số học ở chế độ warning + atomic fallback (từ `47a0d0bf`):
-  parity fail và metric non-finite không giết run; loss non-finite vẫn fatal.
-- Mọi run train: TensorBoard bật, micro 4, chunk source `run` (baseline).
-- Run mới luôn từ commit có memory guard (`gram_affordable`, từ `affabab6`).
+- Eval in-process ĐỎ toàn fleet (4 vụ scheduler-crash). Worker riêng + gen-first.
+- Guardrail số học: warning + atomic fallback loud; loss non-finite fatal; OOM re-raise.
+- Mọi run train: TB bật, micro 4, eval TẮT.
+- Chunk/align mới: source `xtoken` native (default audit), không projection.
+- Block paste: không heredoc lồng nhau; launch nào cũng gate UUID + VRAM + host RAM.
+- `numpy` hệ thống là moving part: scoring lệch qual thì update state (verify trước),
+  đã có `/tmp/fix_state.py` trên nlp-core.
 
 ## Đã chết / nghỉ (giữ để khỏi đào lại)
 
-- grass+eval, align+eval (8b): chết step 40, scheduler Triton-crash do eval burst.
-- trust_b (nlp-core): sống 171 step metrics khỏe, chết OOM ở step dài bất thường
-  (Gram batch 11.73 GB). Đẻ ra memory guard + expandable_segments đã revert.
-- grass_chunk (4b): chết lúc init vì RAM host bị job lạ ăn (kill-newest).
-- Canary limit-6 (8b/GPU 2): chết cùng chữ ký eval burst.
-- Repro SGLang (8b/GPU 0): đã kill, GPU đã trả.
+- grass+eval, align+eval, canary limit-6/10/16 eval-burst: scheduler Triton-crash.
+- trust_b step-171 OOM (Gram batch 11.73 GB) → memory guard → pair-Gram → audit rewrite.
+- trust_b R47/R49/R51/R53: hidden-None, tiling-gap, TorchMemorySaver (env độc),
+  expandable_segments đã revert.
+- grass_chunk 4b: OOM host (job lạ). Repro SGLang: đã kill.
+- R96 (8b/gpu3): host RAM 96% (job hàng xóm), chuyển canary sang ihbkaiser6.
 
-## GPU cho người khác mượn / bận
+## GPU người khác / mượn
 
-- 8b/GPU 2: đã cho mượn.
-- 8b/GPU 1,4,5,6 + 4b/GPU 0: job của minhpn19 / người khác, không đụng.
+- 8b/GPU 2: cho mượn. 8b/GPU 1,4,5,6 + 4b/GPU 0: job minhpn19/người khác.
+- nlp/GPU 0,1: chưa bao giờ đụng (không có UUID, không gate được).
+- ihbkaiser5: cấm dùng (DPCA xong thì thôi). ihbkaiser6 (4 GPUs): sân canary mới.
