@@ -136,14 +136,15 @@ def test_the_reference_is_the_original_contribution_and_not_a_projected_one():
     # reference is pinned by comparing against an explicit frozen copy.
     gram = torch.tensor(
         [
-            [1.0, -0.9, -0.9, -0.9],
-            [-0.9, 1.0, -0.9, -0.9],
-            [-0.9, -0.9, 1.0, -0.9],
-            [-0.9, -0.9, -0.9, 1.0],
+            [1.0, -0.3, -0.3, -0.3],
+            [-0.3, 1.0, -0.3, -0.3],
+            [-0.3, -0.3, 1.0, -0.3],
+            [-0.3, -0.3, -0.3, 1.0],
         ],
         dtype=torch.float32,
     )
     rate = torch.tensor([1.0, 1.0, 1.0, 1.0], dtype=torch.float32)
+    assert torch.linalg.eigvalsh(gram).min() > 0
     result = align_chunk(rate, gram)
     assert result.projections > 0
 

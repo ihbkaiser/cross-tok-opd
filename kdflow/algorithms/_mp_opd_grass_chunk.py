@@ -140,7 +140,7 @@ def atom_chunk_ids_from_tokens(
     for start, end in atom_ranges:
         window = [int(value) for value in token_chunk_ids[start:end]]
         present = [value for value in window if value >= 0]
-        if not present:
+        if len(window) != end-start or any(value < 0 for value in window):
             # Each unassigned atom gets its own fresh sentinel so it becomes a
             # singleton chunk rather than being merged with its neighbours.
             sentinel -= 1
@@ -169,7 +169,7 @@ def run_chunk_assignment(n: int, run_length: int) -> AtomChunkAssignment:
     """Fixed-run chunks - the alignment-free baseline of section 2.1.
 
     A fixed count is explicitly *not* the intended core chunk definition. It exists
-    so the mode can be exercised without an audited cross-tokenizer projection, and
+    for comparison with native synchronized tokenizer-string alignment, and
     every metric emitted from it carries ``chunk_source=run`` so such a run can
     never be mistaken for one on native alignment chunks.
     """
@@ -446,13 +446,9 @@ def grass_chunk_tables(
     alpha = torch.where(
         non_singleton, _chunk_strength(distortion, variance, eps_d), torch.zeros_like(variance)
     )
-    # Both statistics are identically zero for a singleton chunk: there is no
-    # second atom, so there is no within-chunk heterogeneity to observe and no
-    # within-chunk trace to sum. They are pinned to exact zero rather than left to
-    # the prefix-sum difference below, which would report the cancellation residue
-    # of sigma^2 * H_ii/w_i - sigma^2 * H_ii/w_i as if it were a real quantity.
+    # Shrinkable variance is zero for a singleton. Its atomic risk trace,
+    # sigma2 * H_ii / w_i, remains nonzero when observation noise is present.
     zeroed = torch.zeros_like(trace)
-    trace = torch.where(non_singleton, trace, zeroed)
     variance = torch.where(non_singleton, variance, zeroed)
     # Section 9.1: a tiny negative D is clamped to zero before it is used, and
     # the raw value is kept in the reported table so a real sign failure surfaces
@@ -539,6 +535,7 @@ def chunk_boundary_diagnostics(
     weight: torch.Tensor,
     gram: torch.Tensor | None,
     partition: Sequence[tuple[int, int]],
+    *, gram_is_block_diagonal: bool = False,
 ) -> dict[str, float]:
     """Section 18.7: are the upstream boundaries statistically meaningful at all?
 
@@ -552,7 +549,7 @@ def chunk_boundary_diagnostics(
     r = _as_vector("rate", rate).detach().to(torch.float64)
     w = _as_vector("weight", weight).detach().to(torch.float64)
     n = r.numel()
-    inside = torch.ones(max(n - 1, 0), dtype=torch.bool, device=r.device)
+    inside = torch.zeros(max(n - 1, 0), dtype=torch.bool, device=r.device)
     for start, end in partition:
         if end - start < 2:
             continue
@@ -562,8 +559,7 @@ def chunk_boundary_diagnostics(
         # population. Clearing the range [start, end - 1] instead would drop precisely
         # the pairs the chunk owns and keep the boundary one - the inverse of the
         # intent, and it makes the two populations describe opposite things.
-        if end - 1 < inside.numel():
-            inside[end - 1] = False
+        inside[start : end - 1] = True
     scale = (1.0 / w[:-1] + 1.0 / w[1:]).clamp_min(1e-300).sqrt()
     absolute = (r[1:] - r[:-1]).abs()
     normalized = absolute / scale
@@ -602,7 +598,10 @@ def chunk_boundary_diagnostics(
         # denominator is clean, so the mean is taken over the finite pairs only and the
         # dropped count is published: a filtered mean must not be read as a direct
         # measurement, since the dropped pairs are exactly the least reliable ones.
-        defined = torch.isfinite(cosine)
+        defined = torch.isfinite(cosine) & (diagonal[pairs] > 0) & (diagonal[pairs+1] > 0)
+        if gram_is_block_diagonal:
+            # Cross-chunk zeros are missing geometry, not measured orthogonality.
+            defined &= inside
         magnitude = cosine.abs()
         out_of_range = defined & (magnitude > 1.0 + CHUNK_COSINE_TOLERANCE)
         cosine = torch.where(defined, cosine, torch.zeros_like(cosine)).clamp(-1.0, 1.0)
@@ -656,7 +655,7 @@ def grass_chunk_metrics(
         torch.zeros_like(tables.variance),
     )
     span_ids = chunk_span_ids(tables.partition, n, r.device)
-    atomic_energy = grass_update_energy(gram, torch.arange(n, device=r.device), r)
+    atomic_energy = grass_update_energy(gram, span_ids, r)
     chunk_energy = grass_update_energy(gram, span_ids, shrunk64)
     metrics = {
         "mp_opd_grass_chunk_count": r.new_tensor(float(tables.chunk_count)),
@@ -865,8 +864,7 @@ def chunk_shadow_metrics(
     n = r.numel()
     pooled = hard_chunk_credits(r, weight, partition)
     span_ids = chunk_span_ids(partition, n, r.device)
-    atomic_ids = torch.arange(n, device=r.device)
-    atomic_energy = grass_update_energy(gram, atomic_ids, r)
+    atomic_energy = grass_update_energy(gram, span_ids, r)
     pooled_energy = grass_update_energy(gram, span_ids, pooled)
     chunk_energy = grass_update_energy(gram, span_ids, shrunk64)
     return {
@@ -876,7 +874,7 @@ def chunk_shadow_metrics(
             chunk_energy,
         ),
         "mp_opd_grass_chunk_shadow_atomic_head_cosine_to_grass": grass_cosine(
-            grass_update_energy(gram, atomic_ids, r, shrunk64), atomic_energy, chunk_energy
+            grass_update_energy(gram, span_ids, r, shrunk64), atomic_energy, chunk_energy
         ),
         "mp_opd_grass_chunk_shadow_hard_chunk_credit_l2_change": (pooled - r).norm(),
         "mp_opd_grass_chunk_shadow_hard_chunk_credit_relative_l2_change": (pooled - r).norm()

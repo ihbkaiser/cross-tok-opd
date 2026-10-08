@@ -190,7 +190,14 @@ def _row_relative_change(r: torch.Tensor, h: torch.Tensor, a: torch.Tensor) -> f
         difference = a[i].to(torch.float64).clone()
         difference[i] -= float(r[i])
         delta_sq = float(difference @ h64 @ difference)
-        total += (delta_sq**0.5) / (original_sq**0.5 + ALIGN_EPS_NORM)
+        # A rounded PSD Gram can give a tiny negative quadratic form. Reject a
+        # material violation with the exception the trainer's numeric guard
+        # handles; do not turn a diagnostic square root into a Python complex.
+        scale = float((difference.abs().unsqueeze(1) * h64.abs()
+                       * difference.abs().unsqueeze(0)).sum())
+        if delta_sq < -1e-6 * max(scale, 1e-300):
+            raise ValueError("ALIGN Gram gives a materially negative change norm")
+        total += (max(delta_sq, 0.0)**0.5) / (original_sq**0.5 + ALIGN_EPS_NORM)
         count += 1
     return total / count if count else 0.0
 

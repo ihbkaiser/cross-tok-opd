@@ -59,6 +59,7 @@ opts.update(
     teacher_tp_size=1,
     teacher_dp_size=1,
     mp_opd_mode=mode,
+    mp_opd_trust_scope=os.environ.get("MP_TRUST_SCOPE", "batch"),
     kd_algorithm=os.environ.get("MP_ALGORITHM", "mp_opd"),
     seed=int(os.environ.get("MP_SEED", "42")),
     lr_scheduler_horizon_steps=312,
@@ -97,16 +98,14 @@ opts.update(
     rollout_disable_radix_cache=os.environ.get("MP_ROLLOUT_DISABLE_RADIX_CACHE", "0") == "1",
 )
 
-# GRASS-Chunk reads the chunk from upstream alignment or from a fixed run; the
-# dataclass default is the native 'xtoken' source, which fails closed without an
-# audited projection. A run that cannot name its chunk source would therefore
-# refuse to start for a reason that looks like a bug, so the choice is explicit
-# here and echoed to the log rather than left to a default.
+# Native synchronized chunks use TokenAligner.align's tokenizer strings, without
+# a vocabulary projection. Fixed runs remain an explicit baseline. Log the source
+# because switching it changes the algorithm even if the mode name is unchanged.
 # ALIGN reads the chunk from the same source as GRASS-Chunk and applies its own
 # projection afterwards, so it inherits that choice rather than duplicating it.
 if mode in {"grass_chunk", "align"}:
     opts.update(
-        mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "run"),
+        mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "xtoken"),
         mp_opd_grass_chunk_run_length=int(os.environ.get("MP_GRASS_CHUNK_RUN_LENGTH", "2")),
         mp_opd_grass_chunk_straddle=os.environ.get("MP_GRASS_CHUNK_STRADDLE", "singleton"),
         mp_opd_grass_chunk_shadow=os.environ.get("MP_GRASS_CHUNK_SHADOW", "0") == "1",
@@ -114,13 +113,12 @@ if mode in {"grass_chunk", "align"}:
     if opts["mp_opd_grass_chunk_source"] == "xtoken":
         projection = os.environ.get("MP_XTOKEN_PROJECTION_PATH")
         expected = os.environ.get("MP_XTOKEN_PROJECTION_SHA256")
-        if not projection or not expected:
+        if bool(projection) != bool(expected):
             raise ValueError(
-                "MP_GRASS_CHUNK_SOURCE=xtoken needs MP_XTOKEN_PROJECTION_PATH and "
-                "MP_XTOKEN_PROJECTION_SHA256; set MP_GRASS_CHUNK_SOURCE=run for the "
-                "fixed-run baseline, which is not an alignment chunk"
+                "An optional projection needs both MP_XTOKEN_PROJECTION_PATH and "
+                "MP_XTOKEN_PROJECTION_SHA256; native string alignment needs neither"
             )
-        if hashlib.sha256(Path(projection).read_bytes()).hexdigest() != expected:
+        if projection and hashlib.sha256(Path(projection).read_bytes()).hexdigest() != expected:
             raise ValueError("MP_XTOKEN_PROJECTION_SHA256 does not match the file on disk")
         opts.update(xtoken_projection_path=projection, xtoken_projection_sha256=expected)
     print(

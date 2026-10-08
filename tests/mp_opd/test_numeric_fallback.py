@@ -48,8 +48,7 @@ def _make_algo(mode="grass"):
     kd = SimpleNamespace(
         kd_ratio=1.0,
         mp_opd_mode=mode,
-        # Production default: fixed-run baseline, so __init__ never tries to
-        # build the audited xtoken aligner in these tests.
+        # Explicit fixed-run baseline keeps most unit tests tokenizer-independent.
         mp_opd_grass_chunk_source="run",
         mp_opd_max_span_length=2,
         mp_opd_fixed_span_length=2,

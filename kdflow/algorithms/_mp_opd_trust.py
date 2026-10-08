@@ -7,7 +7,8 @@ whole mismatch update by ``lambda = max(0, <gS, gM> / ||gM||^2)`` and keeps the
 strict update whole.
 
 Two modes share this file: TRUST-R (one lambda per response) and TRUST-B (one
-lambda per micro-batch). The only intended difference between them is the
+lambda per optimizer batch, with microbatch calibration an explicit legacy
+ablation). The only intended difference between them is the
 calibration aggregation level; the strict/mismatch partition, the proxy, and
 the guards are identical.
 
@@ -32,8 +33,10 @@ Deliberate v1 deviations from the spec text, all fail-safe rather than silent:
   ``_median`` key would lie about the statistic. Means and fractions over the
   micro-batch responses are exact as stated (production uses
   micro_train_batch_size=4).
-* ``mp_opd_trust_scope`` is a float code (0.0 = response, 1.0 = batch) because
+* ``mp_opd_trust_scope`` is a float code (0.0 = response, 1.0 = batch unit) because
   the metric table only carries finite tensors.
+  ``mp_opd_trust_full_batch`` distinguishes the complete optimizer batch from
+  the legacy microbatch unit.
 * Samples or units without both sides log 0.0 for undefined quantities (never
   NaN: the trainer fails fast on non-finite metrics), with the eligibility
   fractions (``has_both``/``zero_*``) as the interpretive key.
@@ -122,15 +125,16 @@ def trust_calibrate(
 
     ``qs``/``qm`` are the effective strict/mismatch coefficients and
     ``gram_ss``/``gram_mm``/``gram_sm`` the matching blocks of the exact
-    LM-head Gram. Everything is read in fp32 and detached by the caller; the
-    returned lambda is a Python float, so it can never carry a graph.
+    LM-head Gram. The geometry is FP32; quadratic reductions promote to FP64.
+    The returned lambda is a Python float, so it can never carry a graph.
     """
     _require_finite("coefficients", qs, qm)
     _require_finite("Gram blocks", gram_ss, gram_mm, gram_sm)
     if not (float(eps_g) >= 0.0):
         raise ValueError(f"TRUST eps_g must be non-negative, got {eps_g!r}")
-    qs = qs.detach().to(torch.float32).reshape(-1)
-    qm = qm.detach().to(torch.float32).reshape(-1)
+    qs = qs.detach().to(torch.float64).reshape(-1)
+    qm = qm.detach().to(torch.float64).reshape(-1)
+    gram_ss, gram_mm, gram_sm = (g.detach().double() for g in (gram_ss, gram_mm, gram_sm))
     n_s, n_m = int(qs.numel()), int(qm.numel())
     if (n_s, n_m) != (int(gram_ss.shape[0]), int(gram_mm.shape[0])):
         raise ValueError(
@@ -147,14 +151,34 @@ def trust_calibrate(
     gs2 = float(qs @ gram_ss @ qs) if n_s else 0.0
     gm2 = float(qm @ gram_mm @ qm) if n_m else 0.0
     dot = float(qs @ gram_sm @ qm) if (n_s and n_m) else 0.0
+    scales = [float(q.abs() @ g.abs() @ q.abs()) if q.numel() else 0.0
+              for q, g in ((qs, gram_ss), (qm, gram_mm))]
+    for name, norm, scale in zip(("strict", "mismatch"), (gs2, gm2), scales):
+        if norm < -1e-6 * max(scale, 1e-300):
+            raise ValueError(f"TRUST {name} Gram gives a materially negative squared norm")
+    gs2, gm2 = max(gs2, 0.), max(gm2, 0.)
+    bound = (gs2 * gm2)**.5
+    if abs(dot) > bound + 1e-6 * max((scales[0]*scales[1])**.5, 1e-300):
+        raise ValueError("TRUST Gram violates Cauchy-Schwarz")
+    dot = min(max(dot, -bound), bound)
+    return trust_calibrate_scalars(gs2, gm2, dot, n_s, n_m,
+                                   eps_g=eps_g, eps_norm=eps_norm)
+
+
+def trust_calibrate_scalars(gs2, gm2, dot, n_s, n_m, *,
+                            eps_g=TRUST_EPS_G, eps_norm=TRUST_EPS_NORM):
+    """The same calibration for explicit summed head updates over a full batch."""
+    if not (0 <= float(eps_g) < float("inf")):
+        raise ValueError("TRUST eps_g must be finite and nonnegative")
     for name, value in (("gs_norm2", gs2), ("gm_norm2", gm2), ("dot", dot)):
         if not abs(value) < float("inf"):
             raise ValueError(f"TRUST {name} is non-finite")
-    # A Gram diagonal is a squared norm, so a negative below is roundoff, not
-    # signal; clamping keeps the square roots below honest without touching
-    # the dot product that decides the calibration.
-    gs2 = max(gs2, 0.0)
-    gm2 = max(gm2, 0.0)
+    if gs2 < 0 or gm2 < 0:
+        raise ValueError("TRUST squared norms must be nonnegative")
+    bound = (gs2 * gm2)**.5
+    if abs(dot) > bound * (1. + 1e-6) + 1e-300:
+        raise ValueError("TRUST summed updates violate Cauchy-Schwarz")
+    dot = min(max(dot, -bound), bound)
 
     has_strict = n_s > 0
     has_mismatch = n_m > 0
@@ -301,7 +325,7 @@ def trust_batch_metrics(
     results: TrustUnitResult,
     counts: dict[str, float],
 ) -> dict[str, float]:
-    """Single micro-batch values for TRUST-B; logged as-is, never averaged."""
+    """One calibration unit's values, logged without response averaging."""
     return {
         "batch_strict_span_count": counts["strict_span_count"],
         "batch_mismatch_span_count": counts["mismatch_span_count"],

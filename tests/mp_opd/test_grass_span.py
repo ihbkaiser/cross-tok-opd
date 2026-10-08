@@ -359,7 +359,9 @@ def test_span_costs_match_the_closed_form_of_the_method_note():
             ).unsqueeze(0)
             projection = torch.eye(width, dtype=block.dtype) - pooling
             expected_v = float(torch.trace(block @ projection @ sigma))
-            expected_alpha = min(max(float(expected_v / expected_d), 0.0), 1.0)
+            # A singleton is the identity intervention: D=V=0 and alpha=0.
+            expected_alpha = (0.0 if width == 1 else
+                              min(max(float(expected_v / expected_d), 0.0), 1.0))
             assert float(tables.distortion[start, index]) == pytest.approx(
                 float(expected_d), rel=1e-10, abs=1e-14
             )

@@ -25,6 +25,7 @@ from kdflow.utils.distributed_util import stateless_init_process_group, torch_di
 from kdflow.utils.logging_utils import init_logger
 from kdflow.ray.utils import ray_noset_visible_devices
 from kdflow.algorithms import ALGO_DICT
+from kdflow.metric_reduction import reduce_sparse_metrics
 
 
 logger = init_logger(__name__)
@@ -273,14 +274,22 @@ class StudentRayActor:
             for key,value in meta_metrics.items(): status[key].append(value)
             self.optim.zero_grad(set_to_none=True)
 
-        for batch in train_data:
-            micro_batch = {
+        def load_micro_batch(batch):
+            return {
                 k: torch.from_numpy(ray.get(v) if isinstance(v, ray.ObjectRef) else v).to(device, non_blocking=True)
                     if isinstance(v, (np.ndarray, ray.ObjectRef))
                 else v.to(device) if isinstance(v, torch.Tensor)
                 else v
                 for k, v in batch.items()
             }
+        prepared = self.kd_algorithm.prepare_optimizer_batch(
+            train_data, batch_loader=load_micro_batch
+        ) if hasattr(self.kd_algorithm, "prepare_optimizer_batch") else None
+        for batch_index, batch in enumerate(train_data):
+            if prepared is not None:
+                from kdflow.training_checkpoint import restore_rng
+                restore_rng(prepared["rng_states"][batch_index])
+            micro_batch = load_micro_batch(batch)
             
             loss_info = self.kd_algorithm.training_step(micro_batch)
             for key in loss_info:
@@ -316,6 +325,10 @@ class StudentRayActor:
             
             del micro_batch
 
+        if prepared is not None:
+            restore_rng(prepared["after_rng"])
+            self.kd_algorithm.finish_optimizer_batch()
+
         torch.cuda.synchronize(device)
         if hasattr(self.kd_algorithm,'note_optimizer_updates'):
             self.kd_algorithm.note_optimizer_updates(optimizer_updates)
@@ -323,6 +336,7 @@ class StudentRayActor:
         processed_valid_student_tokens = sum(status.get("valid_student_tokens", []))
         processed_valid_teacher_tokens = sum(status.get("valid_teacher_tokens", []))
 
+        metric_counts = {k: len(v) if isinstance(v, list) else 1 for k, v in status.items()}
         for key in status:
             if isinstance(status[key], list) and len(status[key]) > 0:
                 status[key] = sum(status[key]) / len(status[key])
@@ -344,8 +358,7 @@ class StudentRayActor:
             processed_valid_student_tokens / train_wall_time if train_wall_time > 0 else 0.0
         )
 
-        for key in status:
-            status[key] = self.strategy.all_reduce(status[key], op="mean")
+        status = reduce_sparse_metrics(status, self.strategy, metric_counts)
         
         # self.empty_cache()
         

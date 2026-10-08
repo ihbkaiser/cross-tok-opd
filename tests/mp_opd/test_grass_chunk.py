@@ -267,7 +267,7 @@ def test_singleton_chunks_are_pinned_to_zero_and_never_pool():
     # V_c is zero by construction for a singleton; a residual of order 1e-18 from
     # the float64 cancellation is expected and must not leak into the update.
     assert float(tables.variance.abs().max()) < 1e-12
-    assert float(tables.trace.abs().max()) == 0.0
+    assert torch.allclose(tables.trace, 10.0 * torch.diagonal(gram) / weight)
     shrunk, residual = apply_chunk_shrinkage(rate, weight, tables)
     assert torch.allclose(shrunk, rate.to(torch.float64))
 
@@ -1048,8 +1048,8 @@ def test_args_declare_the_chunk_knobs_and_fail_closed():
         for node in _ast.walk(_ast.parse(source))
         if isinstance(node, _ast.If) and "raise ValueError" in _ast.unparse(node)
     ]
-    # The native chunk needs the audited projection; a run must not fall back to
-    # fixed runs while claiming to use alignment chunks.
+    # An optional projection must be checked; native string alignment must never
+    # silently fall back to fixed runs.
     assert any(
         "xtoken_projection_path" in guard and "grass_chunk" in guard for guard in guards
     )

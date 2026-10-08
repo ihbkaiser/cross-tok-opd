@@ -308,8 +308,8 @@ class GrassNoiseEstimator:
         if int(diagnostics["valid_pairs"]) < self.min_adjacent_pairs:
             return diagnostics
         batch_variance = float(diagnostics["sigma_batch_variance"])
-        if batch_variance <= 0.0:
-            return diagnostics
+        if not math.isfinite(batch_variance) or batch_variance < 0.0:
+            raise ValueError("observed noise variance must be finite and nonnegative")
         self._ema = self.rho * self._ema + (1.0 - self.rho) * batch_variance
         self._updates += 1
         return diagnostics
@@ -588,38 +588,20 @@ def atom_head_gram(
                 softcap,
                 None if token_weight is None else token_weight[low:high],
             )
+            # Form delta before its inner product. Expanding p.p - p[y] - p[y]
+            # + 1 loses the entire norm of a confident token in fp32.
+            probabilities.scatter_add_(
+                1, covered_labels[low:high].unsqueeze(1), -label_scale.unsqueeze(1)
+            )
             hidden_window = hidden_fp32[low:high]
             rows = probabilities[row_low - low : row_high - low]
             hidden_rows = hidden_window[row_low - low : row_high - low]
-            window_labels = covered_labels[low:high]
-            column_index = torch.arange(
-                row_low - low, row_high - low, device=logits.device
-            )
-            vocabulary_gram = rows @ probabilities.T + _delta_correction(
-                probabilities,
-                label_scale,
-                window_labels,
-                column_index,
-                window_labels[row_low - low : row_high - low],
-            )
+            vocabulary_gram = rows @ probabilities.T
             block = vocabulary_gram * (hidden_rows @ hidden_window.T)
             if head_bias:
-                # A head bias adds <sum_t delta_t, sum_s delta_s> to every block.
-                # The term is constant across the token block, so per-atom sums
-                # expanded back to token rows reproduce it exactly. Bounds are made
-                # window-local because both operands start at their own slice.
-                delta = probabilities.scatter(
-                    1, window_labels.unsqueeze(1), -label_scale.unsqueeze(1)
-                )
-                row_bounds = slots[first_atom : last_atom + 1] - row_low
-                window_bounds = slots[window_first : window_last + 1] - low
-                atom_rows = _atom_sums(delta[row_low - low : row_high - low], row_bounds).repeat_interleave(
-                    row_bounds[1:] - row_bounds[:-1], dim=0
-                )
-                atom_columns = _atom_sums(delta, window_bounds).repeat_interleave(
-                    window_bounds[1:] - window_bounds[:-1], dim=0
-                )
-                block = block + atom_rows @ atom_columns.T
+                # Bias gradients sum the same token deltas without hidden-state
+                # factors. The atom reduction below performs that sum once.
+                block = block + vocabulary_gram
             row_counts = (slots[first_atom + 1 : last_atom + 1] - slots[first_atom:last_atom])
             column_counts = (
                 slots[window_first + 1 : window_last + 1] - slots[window_first:window_last]
@@ -638,7 +620,10 @@ def atom_head_gram(
             accumulator.index_add_(0, target.reshape(-1), block.reshape(-1))
 
     gram = accumulator[:dump].view(n, n)
-    symmetry_error = float(gram.sub(gram.T).abs().max() / gram.abs().max().clamp_min(1e-300))
+    symmetry_error = float(
+        gram.sub(gram.T).abs().max()
+        / gram.abs().max().clamp_min(torch.finfo(gram.dtype).tiny)
+    )
     gram = (gram + gram.T) * 0.5
     return GrassHeadGram(
         gram=gram,
@@ -753,11 +738,10 @@ def grass_span_costs(
             continue
         starts = torch.arange(count, device=r.device)
         span_index = starts.unsqueeze(-1) + offsets[:, :width]
-        span_weight = weight_prefix[span_index + 1] - weight_prefix[span_index]
-        span_rate = (
-            weighted_rate_prefix[span_index + 1] - weighted_rate_prefix[span_index]
-        ) / span_weight
-        deviation = r[span_index] - span_rate
+        ends = starts + width
+        total_weight = weight_prefix[ends] - weight_prefix[starts]
+        span_rate = (weighted_rate_prefix[ends] - weighted_rate_prefix[starts]) / total_weight
+        deviation = r[span_index] - span_rate.unsqueeze(-1)
         block = h[span_index.unsqueeze(-1), span_index.unsqueeze(-2)]
         distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(
             dim=(1, 2)
@@ -769,13 +753,17 @@ def grass_span_costs(
         # Expanding it this way keeps the two cancelling terms at the scale of the
         # Gram instead of at sigma^2 times that scale, and the off-diagonal sum runs
         # over the span on *both* axes rather than over whole rows.
-        total_weight = span_weight.sum(dim=1)
         block_trace = diagonal[span_index].sum(dim=1)
         scaled_trace = (
             diagonal[span_index] * (total_weight.unsqueeze(-1) / w[span_index] - 1.0)
         ).sum(dim=1)
         off_diagonal = block.sum(dim=(1, 2)) - block_trace
         variance = sigma2 * (scaled_trace - off_diagonal) / total_weight
+        if width == 1:
+            # Identity spans have exactly D=V=0, independent of prefix-sum
+            # cancellation. The nonzero noise trace remains a valid diagnostic.
+            distortion = torch.zeros_like(distortion)
+            variance = torch.zeros_like(variance)
         strength = _shrunk_strength(distortion, variance, eps_d)
         # Section 14: the cost is built from the *zeroed* D, not the raw one, so
         # costs are reproducible from the reported table. A D that is negative or

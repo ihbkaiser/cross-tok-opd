@@ -87,6 +87,7 @@ from ._mp_opd_trust import (
     trust_response_loss,
     trust_response_metrics,
 )
+from ._mp_opd_trust_batch import TrustHeadAccumulator
 from ._mp_opd_oracle import hard_max_partition, span_utility_table
 from ._mp_opd_semimarkov import semi_markov_partition
 from ._mp_opd_training_diagnostics import (
@@ -414,6 +415,12 @@ class MetaPartitionedOPD:
             )
         self.trust_needs_logits = self.mode in _TRUST_MODES
         self.trust_needs_hidden = self.mode in _TRUST_MODES
+        self.trust_scope = getattr(self.args.kd, "mp_opd_trust_scope", "batch")
+        if self.trust_scope not in {"batch", "microbatch"}:
+            raise ValueError("TRUST scope must be batch or microbatch")
+        self._trust_batch_collector = None
+        self._trust_batch_result = None
+        self._trust_batch_metrics = {}
         self.trust_eps_g = float(getattr(self.args.kd, "mp_opd_trust_eps_g", TRUST_EPS_G))
         if not (self.trust_eps_g >= 0.0):
             raise ValueError(
@@ -484,22 +491,24 @@ class MetaPartitionedOPD:
     def _build_grass_aligner(self):
         """The native cross-tokenizer synchronized chunker of section 2.1.
 
-        The digest is re-verified here instead of trusting the args layer: a run
-        whose chunks came from a different projection than the one the recipe
-        names is a different experiment, and nothing downstream would notice.
+        TokenAligner.align synchronizes decoded token strings. It does not load
+        the vocabulary projection used by the separate X-Token KD objective.
+        An optional projection asset is still checked when explicitly supplied.
         """
-        projection_path = Path(self.args.kd.xtoken_projection_path)
-        if not projection_path.is_file():
-            raise FileNotFoundError(
-                f"GRASS-Chunk X-Token projection not found: {projection_path}"
-            )
-        digest = hashlib.sha256(projection_path.read_bytes()).hexdigest()
-        expected = str(self.args.kd.xtoken_projection_sha256).lower()
-        if digest != expected:
-            raise RuntimeError(
-                "GRASS-Chunk X-Token projection SHA mismatch: expected "
-                f"{expected}, got {digest}"
-            )
+        # String alignment uses tokenizers only, not a vocabulary-distribution
+        # projection. Validate an optional projection if provided; do not require
+        # an unused asset to obtain native synchronized chunks.
+        raw_path = getattr(self.args.kd, "xtoken_projection_path", None)
+        projection_path = Path(raw_path) if raw_path else None
+        expected = getattr(self.args.kd, "xtoken_projection_sha256", None)
+        if projection_path is not None:
+            if not projection_path.is_file():
+                raise FileNotFoundError(f"X-Token projection not found: {projection_path}")
+            digest = hashlib.sha256(projection_path.read_bytes()).hexdigest()
+            if not expected or digest != str(expected).lower():
+                raise RuntimeError("GRASS-Chunk X-Token projection SHA mismatch")
+        elif expected:
+            raise ValueError("projection SHA supplied without a projection path")
         try:
             from xtoken_upstream_token_aligner import TokenAligner
         except ImportError as error:
@@ -513,7 +522,7 @@ class MetaPartitionedOPD:
         return TokenAligner(
             self.student_tokenizer,
             self.teacher_tokenizer,
-            str(projection_path),
+            str(projection_path) if projection_path is not None else "",
             max_comb_len=int(self.args.kd.xtoken_max_comb_len),
         )
 
@@ -588,6 +597,68 @@ class MetaPartitionedOPD:
 
     def note_optimizer_updates(self, count):
         self.student_updates += count
+
+    def prepare_optimizer_batch(self, batches, *, batch_loader=lambda x: x):
+        """Calibrate TRUST-B once before replaying the accumulation window.
+
+        Parameters stay fixed in both passes. Restoring each microbatch's RNG
+        makes its train-mode dropout identical, with one logical RNG advance.
+        """
+        if self.mode != "trust_b" or self.trust_scope != "batch":
+            return None
+        if getattr(self.strategy, "sp_size", 1) != 1:
+            raise ValueError("full-batch TRUST-B currently requires sequence parallel size 1")
+        expected = getattr(self.strategy, "accumulated_gradient", len(batches))
+        if len(batches) != expected:
+            raise ValueError("TRUST-B requires one complete optimizer accumulation window")
+        if getattr(self.strategy, "step", 0) != 0:
+            raise ValueError("TRUST-B calibration must start at an optimizer boundary")
+        from kdflow.training_checkpoint import capture_rng
+        collector = TrustHeadAccumulator(softcap=self.grass_softcap,
+                                         head_bias=self.grass_head_bias)
+        self._trust_batch_collector = collector
+        self._trust_batch_result = None
+        before_diag = self._diagnostic_step
+        rng_states = []
+        try:
+            with torch.no_grad():
+                for batch in batches:
+                    rng_states.append(capture_rng())
+                    self.training_step(batch_loader(batch))
+            after_rng = capture_rng()
+            distributed = (torch.distributed.is_initialized()
+                           and torch.distributed.get_world_size() > 1)
+            result = collector.finalize(eps_g=self.trust_eps_g, distributed=distributed)
+            records = collector.responses
+            ns = sum(r["strict_atoms"] for r in records)
+            nm = sum(r["mismatch_atoms"] for r in records)
+            totals = {
+                "strict_span_count": ns, "mismatch_span_count": nm,
+                "strict_atom_count": ns, "mismatch_atom_count": nm,
+                "strict_token_count": sum(r["strict_tokens"] for r in records),
+                "mismatch_token_count": sum(r["mismatch_tokens"] for r in records),
+                "strict_span_fraction": ns / max(ns+nm, 1),
+                "mismatch_span_fraction": nm / max(ns+nm, 1),
+            }
+            raw = trust_batch_metrics(result, totals)
+            self._trust_batch_metrics = {"mp_opd_trust_"+k: v for k, v in raw.items()}
+            self._trust_batch_metrics.update({
+                "mp_opd_trust_full_batch": 1.0,
+                "mp_opd_trust_calibration_response_count": float(len(records)),
+                "mp_opd_trust_calibration_microbatch_count": float(len(batches)) * (
+                    torch.distributed.get_world_size() if distributed else 1),
+                "mp_opd_trust_exact_geometry": 1.0,
+                "mp_opd_numeric_fallback_fraction": 0.0,
+            })
+            self._trust_batch_result = result
+            return {"rng_states": rng_states, "after_rng": after_rng}
+        finally:
+            self._trust_batch_collector = None
+            self._diagnostic_step = before_diag
+
+    def finish_optimizer_batch(self):
+        self._trust_batch_result = None
+        self._trust_batch_metrics = {}
 
     def update_energy_full(self, batches, meta_rows, optimizer, *, batch_loader=lambda batch:batch):
         from ._mp_opd_full_meta import full_meta_step, ForwardParameterBridge, memory_event, streamed_inner_losses
@@ -1131,6 +1202,10 @@ class MetaPartitionedOPD:
             n_pair = len(atoms_list[a])
         else:
             shift = int(logit_rows[a].shape[0])
+            n_tokens = shift + int(logit_rows[b].shape[0])
+            vocab = int(logit_rows[a].shape[1])
+            if not gram_affordable(n_tokens, vocab, logit_rows[a].device):
+                raise ValueError("mp_opd trust_b pair Gram exceeds memory guard before concatenation")
             logits = torch.cat([logit_rows[a], logit_rows[b]])
             hiddens = torch.cat([hidden_rows[a], hidden_rows[b]])
             labels = torch.cat([label_rows[a], label_rows[b]])
@@ -1511,7 +1586,7 @@ class MetaPartitionedOPD:
         )
         metrics.update(chunk_gram_diagnostics(head.gram, tables))
         for key, value in chunk_boundary_diagnostics(
-            credits.rate, credits.weight, head.gram, partition
+            credits.rate, credits.weight, head.gram, partition, gram_is_block_diagonal=True
         ).items():
             metrics[f"mp_opd_grass_chunk_boundary_{key}"] = credits.rate.new_tensor(
                 float(value)
@@ -2209,11 +2284,30 @@ class MetaPartitionedOPD:
                 torch.tensor(tea_ids, device=tea_logits.device),
             )
             if self.mode == "trust_b":
-                # TRUST-B calibrates the whole micro-batch at once: a per-sample
-                # call cannot see the cross-response Gram terms the batch dot
-                # products need. Stash this response and calibrate after the
-                # loop; the telemetry below still runs per response.
-                trust_b_stash.append(
+                # Batch scope collects head updates in the no-grad first pass
+                # and replays one lambda across the entire optimizer window.
+                # Only the explicit legacy microbatch scope stashes pair-Grams.
+                hidden_here = (None if student_hiddens_flat is None else
+                               student_hiddens_flat[stu_offset_before:stu_offset_before+stu_count])
+                if self.trust_scope == "batch":
+                    is_strict = strict_mask([a.boundary_type for a in atoms]).to(credits.rate.device)
+                    if self._trust_batch_collector is not None:
+                        self._trust_batch_collector.add_response(
+                            stu_logits, hidden_here, stu_label_tensor,
+                            [(a.student_start, a.student_end) for a in atoms],
+                            credits.rate, is_strict, -credits.student_token_nll,
+                        )
+                        sample_loss = student_logits_flat.sum() * 0.0
+                    elif self._trust_batch_result is not None:
+                        sample_loss = trust_response_loss(
+                            credits.current_nll, credits.rate, is_strict, ~is_strict,
+                            self._trust_batch_result,
+                        )
+                    else:
+                        raise RuntimeError("full-batch TRUST-B requires prepare_optimizer_batch before backward")
+                    sample_metrics = {}
+                else:
+                    trust_b_stash.append(
                     (
                         credits,
                         atoms,
@@ -2223,9 +2317,9 @@ class MetaPartitionedOPD:
                         if student_hiddens_flat is None
                         else student_hiddens_flat[stu_offset_before : stu_offset_before + stu_count],
                     )
-                )
-                sample_loss = student_logits_flat.sum() * 0.0
-                sample_metrics = {}
+                    )
+                    sample_loss = student_logits_flat.sum() * 0.0
+                    sample_metrics = {}
             else:
                 sample_loss, sample_metrics = self._partition_loss(
                     credits,
@@ -2324,9 +2418,13 @@ class MetaPartitionedOPD:
             metrics[f"mp_opd_invalid_reason_{reason}"] = kd_loss.new_tensor(float(count))
         for key, value in extra_sums.items():
             metrics[key] = value / max(valid_samples, 1)
-        # TRUST-B values are already exact micro-batch means and singletons;
-        # the sum-then-mean above must not touch them a second time.
+        # Legacy TRUST-B values already aggregate the microbatch.
         metrics.update(trust_b_metrics)
+        if self.mode == "trust_b" and self.trust_scope == "microbatch":
+            metrics["mp_opd_trust_full_batch"] = kd_loss.new_tensor(0.)
+        if self.mode == "trust_b" and self.trust_scope == "batch":
+            metrics.update({k: kd_loss.new_tensor(v)
+                            for k, v in self._trust_batch_metrics.items()})
         if self.args.kd.kd_ratio < 1:
             ce_labels = student_labels[student_loss_mask]
             ce_loss = compute_cross_entropy(student_logits_flat, ce_labels, reduction="sum") / avg_token_num

@@ -4,6 +4,14 @@ This repository contains the code for reproducing the experiments in our paper *
 
 ## MP-OPD trajectory diagnostic
 
+The October algorithm corrections and GPU-3 handoff are documented in
+[GRASS / ALIGN / TRUST audit fixes](docs/algorithm_audit_fix_20261009.md).
+TRUST-B now calibrates one lambda across the complete optimizer batch (64,
+microbatch 4) using a no-grad pass followed by RNG replay. Native GRASS-Chunk
+and ALIGN use synchronized tokenizer strings by default; `run` is an explicit
+fixed-run baseline. Start corrected experiments from the SFT student in a new
+output directory, since old trajectories used different update rules.
+
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in
 [Full alternating and pipeline resume](docs/full_alternating_resume.md).

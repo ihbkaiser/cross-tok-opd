@@ -306,8 +306,8 @@ class DistillationArguments:
             "choices": ["xtoken", "run"],
             "help": "Chunk source. 'xtoken' is the native synchronized chunk produced "
             "by the audited cross-tokenizer aligner and is the method's intended "
-            "definition; it requires xtoken_projection_path/sha256. 'run' is the "
-            "fixed-run baseline for hosts without an audited projection - it is NOT "
+            "definition; string alignment needs no vocabulary projection. 'run' is the "
+            "fixed-run baseline for comparison - it is NOT "
             "an alignment chunk and every metric emitted from it is tagged as such.",
         },
     )
@@ -348,6 +348,12 @@ class DistillationArguments:
         default=8,
         metadata={"help": "Valid adjacent pairs below which the batch does not identify "
                           "a scale and the previous estimate is kept."},
+    )
+    mp_opd_trust_scope: str = field(
+        default="batch",
+        metadata={"choices": ["batch", "microbatch"], "help":
+                  "TRUST-B calibration over the full optimizer accumulation batch; "
+                  "microbatch selects the explicitly named legacy ablation."},
     )
     mp_opd_align_eps_h: float = field(
         default=1e-12,
@@ -518,6 +524,8 @@ class DistillationArguments:
                 raise ValueError(
                     f"unsupported mp_opd_grass_chunk_source: {self.mp_opd_grass_chunk_source}"
                 )
+            if self.mp_opd_trust_scope not in {"batch", "microbatch"}:
+                raise ValueError("mp_opd_trust_scope must be batch or microbatch")
             if self.mp_opd_grass_chunk_straddle not in {"singleton", "majority"}:
                 raise ValueError(
                     f"unsupported mp_opd_grass_chunk_straddle: {self.mp_opd_grass_chunk_straddle}"
@@ -528,20 +536,12 @@ class DistillationArguments:
                 self.mp_opd_mode in {"grass_chunk", "align"}
                 and self.mp_opd_grass_chunk_source == "xtoken"
             ):
-                # The native chunk is the method's definition, so a run that asks
-                # for it without the audited projection must fail closed rather
-                # than quietly fall back to fixed runs.
-                if not self.xtoken_projection_path:
-                    raise ValueError(
-                        "mp_opd_grass_chunk_source='xtoken' requires "
-                        "xtoken_projection_path; use mp_opd_grass_chunk_source='run' "
-                        "to run the fixed-run baseline instead"
-                    )
-                if not self.xtoken_projection_sha256 or len(self.xtoken_projection_sha256) != 64:
-                    raise ValueError(
-                        "mp_opd_grass_chunk_source='xtoken' requires a 64-character "
-                        "xtoken_projection_sha256 for the audited projection."
-                    )
+                # TokenAligner.align is tokenizer/string alignment; vocabulary
+                # projections belong to distributional X-Token loss, not chunking.
+                if bool(self.xtoken_projection_path) != bool(self.xtoken_projection_sha256):
+                    raise ValueError("optional chunk projection needs both path and SHA256")
+                if self.xtoken_projection_sha256 and len(self.xtoken_projection_sha256) != 64:
+                    raise ValueError("optional chunk projection SHA256 must have 64 characters")
             if self.mp_opd_credit_transform not in {
                 "identity", "forward", "backward", "shuffle", "causal_kernel", "external",
             }:
