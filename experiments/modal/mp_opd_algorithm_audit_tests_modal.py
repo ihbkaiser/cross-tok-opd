@@ -118,6 +118,8 @@ image = image.add_local_file(ROOT / "kdflow/ray/train/student_actor.py",
                              "/work/kdflow/ray/train/student_actor.py")
 image = image.add_local_file(ROOT / "experiments/modal/vendor/xtoken_upstream_token_aligner.py",
                              "/work/experiments/modal/vendor/xtoken_upstream_token_aligner.py")
+image = image.add_local_file(ROOT / "experiments/runai/run_single_gpu.py",
+                             "/work/experiments/runai/run_single_gpu.py")
 
 app = modal.App(RUN, image=image)
 

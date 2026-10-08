@@ -16,6 +16,7 @@ CPU image as the other suites.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -279,3 +280,32 @@ def test_trust_needs_flags_are_all_consumed():
     assert "output_hidden_states=self.grass_needs_hidden or self.trust_needs_hidden" in source
     assert "if self.grass_needs_hidden or self.trust_needs_hidden:" in source
     assert "or self.trust_needs_logits or self.mode" in source
+
+
+def test_opts_to_argv_skips_none_instead_of_passing_none_string():
+    # Regression: str(None) == "None" is truthy, so emitting unset options
+    # tripped the 64-char projection SHA256 validator on every xtoken-source
+    # run and killed both align canaries at arg parsing. run_single_gpu.py
+    # executes on import, so the helper is tested by extracting its real body
+    # from the file, not by importing the script.
+    tree = ast.parse(
+        (ROOT / "experiments" / "runai" / "run_single_gpu.py").read_text()
+    )
+    fn = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "opts_to_argv"
+    )
+    namespace: dict = {}
+    exec(
+        compile(ast.Module(body=[fn], type_ignores=[]), "<opts_to_argv>", "exec"),
+        namespace,
+    )
+    argv = namespace["opts_to_argv"](
+        {"mp_opd_mode": "align", "xtoken_projection_path": None,
+         "xtoken_projection_sha256": None, "seed": 42}
+    )
+    assert argv[0] == "train_kd_on_policy"
+    assert "--xtoken_projection_path" not in argv
+    assert "--xtoken_projection_sha256" not in argv
+    assert "None" not in argv
+    assert argv == ["train_kd_on_policy", "--mp_opd_mode", "align", "--seed", "42"]

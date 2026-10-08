@@ -395,6 +395,23 @@ ray.init(
          "KDFLOW_ROUTER_PORT_BASE", "KDFLOW_ROUTER_PROMETHEUS_PORT") if key in os.environ}},
 )
 
+
+def opts_to_argv(opts):
+    """Flatten an options dict to CLI flags, skipping unset (None) values.
+
+    None means "no value": omitting the flag lets the dataclass default apply.
+    Emitting str(None) would pass the literal string "None", which is truthy
+    and trips validators (e.g. the 64-char projection SHA256 check killed
+    every xtoken-source run until this skip existed).
+    """
+    argv = ["train_kd_on_policy"]
+    for key, value in opts.items():
+        if value is None:
+            continue
+        argv.extend(["--" + key, str(value)])
+    return argv
+
+
 try:
     import kdflow.cli.train_kd_on_policy as cli
 
@@ -413,9 +430,7 @@ try:
 
     cli.create_placement_group = single_gpu_placement
 
-    sys.argv = ["train_kd_on_policy"]
-    for key, value in opts.items():
-        sys.argv.extend(["--" + key, str(value)])
+    sys.argv = opts_to_argv(opts)
 
     # Diagnostic backend with Gemma attention softcapping.
     args = cli.init_args()
