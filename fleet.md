@@ -1,4 +1,4 @@
-# Fleet — SimCT training & eval (cập nhật 2026-10-09, sau audit ef49e0ba + fix 7ef62e89)
+# Fleet — SimCT training & eval (cập nhật 2026-10-09, R98-R102b + canary full-board)
 
 Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đúng ô đã ghi;
 đổi ô phải sửa file này trước.
@@ -20,33 +20,35 @@ run đời mới để kết luận "hơn/thua" là sai phương pháp — khác
 Eval và report của đời mới dùng case/group tên riêng (hậu tố `-new`), không ghi
 đè lên groups đời cũ trong union report.
 
-## Đang chạy — TOÁN MỚI
+## Đang chạy — TOÁN MỚI (312)
 
 | Node | GPU | UUID (đầu) | Run | Seed | Ghi chú |
 |---|---|---|---|---|---|
-| nlp-core-team-0-0 | 6 | `88a158ed` | grass 312 mới | 42 | R98, TB bật |
+| nlp-core-team-0-0 | 6 | `88a158ed` | grass 312 | 42 | R98, warmup |
+| nlp-core-team-0-0 | 4 | `49d5c3bd` | align 312 | 42 | R99, warmup |
+| nlp-core-team-0-0 | 7 | `2f0fb13c` | trust_r 312 | 42 | R100b (chuyển từ 8b-v2 chết RAM host) |
+| ihbkaiser6-0-0 | 3 | `c8e6cc11` | grass_chunk 312 | 42 | R101, warmup, native xtoken đầu tiên |
+| ihbkaiser6-0-0 | 0 | `93d70d94` | trust_b 312 | 42 | R102b (chờ output) |
 | embed-8b-training-v3-1-0-0 | 0 | `e74dd6de` | trust_b 312 pair-Gram | 42 | R85, code cũ a024d3b7 — dữ liệu lịch sử |
-| nlp-core-team-0-0 | 4 | `49d5c3bd` | align 312 mới | 42 | R99 (chờ output) |
-| embed-8b-training-v2-0-0 | 3 | `eaed83d1` | trust_r 312 mới | 42 | R100 (chờ output) |
 
-## Canary toán mới (limit 6)
+## Canary toán mới (limit 6) — ĐỦ BỘ 5/5 XANH
 
 | Mode | Block | Trạng thái |
 |---|---|---|
 | grass-6 | R92 (nlp6) | ✅ VERIFIED (D≠0, alpha đúng ý audit) |
 | trust_r-6 | R96b (ihbkaiser6/gpu3) | ✅ VERIFIED (λ=0.15, calibrate 100%) |
 | align-6 | R95c (nlp7) | ✅ VERIFIED |
-| grass_chunk-6 | R93c (ihbkaiser6/gpu3) | ⏳ chờ output |
-| trust_b-6 | R94c (nlp7) | ⏳ chờ output (code batch-64 mới, rủi ro cao nhất) |
+| grass_chunk-6 | R93c (ihbkaiser6/gpu3) | ✅ VERIFIED |
+| trust_b-6 | R94c (nlp7) | ✅ VERIFIED (full_batch=1, 64/64, 16/16, fallback=0) |
 
 ## Hoàn thành — TOÁN CŨ (kèm eval đời cũ, không so với đời mới)
 
 - grass baseline s42 (R23): exit 0. Eval 8/8 + milestone + dashboard.
 - grass_chunk s42 (R46): exit 0. Eval 8/8.
 - align s42 (R44): exit 0. Eval 8/8.
-- align s43 #2 (8b/gpu3, eed10daf): xong (R100 kiểm exitcode lúc launch).
-- trust_r s42: exit 0 (fallback 0–9% cuối). Eval E14b chain.
-- trust_b R56b s42: exit 0 (fallback dày nửa sau). Eval E15b chain.
+- align s43 #2 (8b/gpu3, eed10daf): exit 0 full 312.
+- trust_r s42: exit 0 (fallback 0–9% cuối). Eval E14b chain (gen 67).
+- trust_b R56b s42: exit 0 (fallback dày nửa sau). Eval E15b chain (gen 48).
 - DPCA v10 s42: rc=0. Eval 80→312 xong.
 - DPCA rerun s42 (ihbkaiser5): step 300/312 lúc thấy — kiểm exit sau.
 
@@ -54,7 +56,7 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 
 - grass-baseline / grasschunk / DPCA / align-s42: xong + summaries + union report
   21 groups (`tmp/report_union_20261008.html`).
-- trust_r (E14b, 8b/gpu5), trust_b R56b (E15b, nlp/gpu5): đang chạy, gen 67/48.
+- trust_r (E14b, 8b/gpu5), trust_b R56b (E15b, nlp/gpu5): đang chạy.
 
 ## Quy ước đang hiệu lực
 
@@ -62,9 +64,10 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 - Guardrail số học: warning + atomic fallback loud; loss non-finite fatal; OOM re-raise.
 - Mọi run train: TB bật, micro 4, eval TẮT.
 - Chunk/align mới: source `xtoken` native (default audit), không projection.
-- Block paste: không heredoc lồng nhau; launch nào cũng gate UUID + VRAM + host RAM.
+- Block paste: không heredoc lồng nhau; launch nào cũng gate UUID + VRAM + host RAM (>200 GB).
 - `numpy` hệ thống là moving part: scoring lệch qual thì update state (verify trước),
   đã có `/tmp/fix_state.py` trên nlp-core.
+- 8b-v2 cấm launch train (host RAM ~98% thường trực, Ray OOM 2 lần R96/R100).
 
 ## Đã chết / nghỉ (giữ để khỏi đào lại)
 
@@ -72,11 +75,13 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 - trust_b step-171 OOM (Gram batch 11.73 GB) → memory guard → pair-Gram → audit rewrite.
 - trust_b R47/R49/R51/R53: hidden-None, tiling-gap, TorchMemorySaver (env độc),
   expandable_segments đã revert.
+- R95/R95b align canary: bug argv `str(None)` → fix `opts_to_argv` + regression test.
 - grass_chunk 4b: OOM host (job lạ). Repro SGLang: đã kill.
-- R96 (8b/gpu3): host RAM 96% (job hàng xóm), chuyển canary sang ihbkaiser6.
+- R96/R100 (8b/gpu3): host RAM 96-98% (job hàng xóm), chuyển sang node khác.
 
-## GPU người khác / mượn
+## GPU người khác / mượn / cấm
 
 - 8b/GPU 2: cho mượn. 8b/GPU 1,4,5,6 + 4b/GPU 0: job minhpn19/người khác.
+- 8b toàn node: cấm launch train (RAM host), chỉ đọc log.
 - nlp/GPU 0,1: chưa bao giờ đụng (không có UUID, không gate được).
-- ihbkaiser5: cấm dùng (DPCA xong thì thôi). ihbkaiser6 (4 GPUs): sân canary mới.
+- ihbkaiser5: cấm dùng. ihbkaiser6 (4 GPUs): sân mới, runtime R97 xong.
