@@ -22,6 +22,12 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from kdflow.algorithms._mp_opd_grass_chunk import chunk_head_gram
+from kdflow.algorithms._mp_opd_trust import (
+    strict_mask,
+    trust_calibrate,
+    trust_response_loss,
+)
 from kdflow.algorithms.mp_opd import MetaPartitionedOPD
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -189,6 +195,78 @@ def test_trust_b_concatenates_covered_prefixes_only():
     assert torch.isfinite(metrics["mp_opd_trust_lambda"])
     assert "mp_opd_numeric_fallback_fraction" not in metrics
     assert float(metrics["mp_opd_trust_scope"]) == 1.0
+
+
+def test_trust_b_pair_decomposition_matches_full_gram():
+    # The pair path must compute the same calibration as one whole-batch Gram:
+    # same scalars, same lambda, same loss. fp32 summation order differs
+    # between the two paths, so the comparison is approximate, far tighter
+    # than any scientific claim the number supports.
+    algo = _make_algo("trust_b")
+    stash = [
+        _stash_response(2, [(0, 2), (2, 4)], 5, seed=21),
+        _stash_response(1, [(0, 3)], 4, seed=22),
+        _stash_response(2, [(0, 1), (1, 2)], 3, seed=23),
+    ]
+    loss, metrics = algo._trust_b_loss(stash)
+    # Reference: the old whole-batch construction, done by hand here.
+    logit_rows, hidden_rows, label_rows, tok_nlls = [], [], [], []
+    rates, _nlls, masks = [], [], []
+    ranges_all: list[tuple[int, int]] = []
+    offset = 0
+    for credits, atoms, stu_logits, stu_labels, hidden in stash:
+        covered = atoms[-1].student_end
+        rates.append(credits.rate)
+        logit_rows.append(stu_logits[:covered])
+        hidden_rows.append(hidden[:covered])
+        label_rows.append(stu_labels[:covered])
+        tok_nlls.append(credits.student_token_nll[:covered])
+        masks.append(strict_mask([atom.boundary_type for atom in atoms]))
+        for atom in atoms:
+            ranges_all.append(
+                (atom.student_start + offset, atom.student_end + offset)
+            )
+        offset += covered
+    head = chunk_head_gram(
+        torch.cat(logit_rows),
+        torch.cat(hidden_rows),
+        torch.cat(label_rows),
+        tuple(ranges_all),
+        [(0, sum(len(atoms) for _, atoms, _, _, _ in stash))],
+        selected_log_prob=(-torch.cat(tok_nlls)).detach(),
+        softcap=None,
+        head_bias=False,
+        diagonal_only=False,
+    )
+    with torch.no_grad():
+        q = torch.cat(rates).detach().to(torch.float32)
+        is_strict = torch.cat(masks)
+        gram = head.gram.detach().to(torch.float32)
+        expected = trust_calibrate(
+            q[is_strict],
+            q[~is_strict],
+            gram[is_strict][:, is_strict],
+            gram[~is_strict][:, ~is_strict],
+            gram[is_strict][:, ~is_strict],
+        )
+    assert float(metrics["mp_opd_trust_lambda"]) == pytest.approx(
+        expected.lam, abs=1e-3
+    )
+    assert float(metrics["mp_opd_trust_cosine"]) == pytest.approx(
+        expected.cosine, abs=1e-3
+    )
+    assert float(loss.detach()) == pytest.approx(
+        float(
+            trust_response_loss(
+                torch.cat([c.current_nll for c, _, _, _, _ in stash]),
+                torch.cat(rates),
+                is_strict,
+                ~is_strict,
+                expected,
+            ).detach()
+        ),
+        abs=1e-3,
+    )
 
 
 def test_trust_needs_flags_are_all_consumed():

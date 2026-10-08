@@ -1007,14 +1007,16 @@ class MetaPartitionedOPD:
         "scope": "mp_opd_trust_scope",
     }
 
-    def _trust_static_metrics(self, rate, head) -> dict:
+    def _trust_static_metrics(
+        self, rate, symmetry_error: float, token_count: int
+    ) -> dict:
         return {
             "mp_opd_trust_exact_geometry": rate.new_tensor(1.0),
             "mp_opd_trust_gram_symmetry_error": rate.new_tensor(
-                head.symmetry_error
+                float(symmetry_error)
             ),
             "mp_opd_trust_atom_token_count": rate.new_tensor(
-                float(head.token_count)
+                float(token_count)
             ),
             "mp_opd_trust_softcap": rate.new_tensor(
                 float(self.grass_softcap or 0.0)
@@ -1104,8 +1106,60 @@ class MetaPartitionedOPD:
             self._TRUST_RESPONSE_METRIC_NAMES[key]: credits.rate.new_tensor(value)
             for key, value in raw.items()
         }
-        metrics.update(self._trust_static_metrics(credits.rate, head))
+        metrics.update(self._trust_static_metrics(
+            credits.rate, head.symmetry_error, head.token_count
+        ))
         return loss, metrics
+
+    def _trust_pair_gram(self, a, b, atoms_list, logit_rows, hidden_rows,
+                         label_rows, tok_nlls):
+        """Exact Gram for one response pair, in pair-local atom order.
+
+        The batch Gram is the sum of these pair blocks, but a whole-batch call
+        materializes ``[batch tokens, vocab]`` transients that do not fit beside
+        a full training state on long steps (a 171-step trust_b run died asking
+        11.73 GiB from 6.34 GiB free). One pair call peaks at two responses'
+        tokens. Each pair is affordability-checked on its own; an unaffordable
+        pair falls the whole batch back to atomic, loudly counted.
+        """
+        if b == a:
+            logits = logit_rows[a]
+            hiddens = hidden_rows[a]
+            labels = label_rows[a]
+            probs = tok_nlls[a]
+            ranges = [(at.student_start, at.student_end) for at in atoms_list[a]]
+            n_pair = len(atoms_list[a])
+        else:
+            shift = int(logit_rows[a].shape[0])
+            logits = torch.cat([logit_rows[a], logit_rows[b]])
+            hiddens = torch.cat([hidden_rows[a], hidden_rows[b]])
+            labels = torch.cat([label_rows[a], label_rows[b]])
+            probs = torch.cat([tok_nlls[a], tok_nlls[b]])
+            ranges = [(at.student_start, at.student_end) for at in atoms_list[a]]
+            ranges += [
+                (at.student_start + shift, at.student_end + shift)
+                for at in atoms_list[b]
+            ]
+            n_pair = len(atoms_list[a]) + len(atoms_list[b])
+        n_tokens = int(logits.shape[0])
+        vocab = int(logits.shape[1])
+        if not gram_affordable(n_tokens, vocab, logits.device):
+            raise ValueError(
+                f"mp_opd trust_b pair Gram ({n_tokens} tokens) needs ~"
+                f"{n_tokens * vocab * 16 / 1e9:.1f} GiB transient; "
+                "device cannot hold it, atomic fallback"
+            )
+        return chunk_head_gram(
+            logits,
+            hiddens,
+            labels,
+            tuple(ranges),
+            [(0, n_pair)],
+            selected_log_prob=(-probs).detach(),
+            softcap=self.grass_softcap,
+            head_bias=self.grass_head_bias,
+            diagonal_only=False,
+        )
 
     def _trust_b_loss(self, stash) -> tuple:
         """TRUST-B: one lambda for the whole micro-batch.
@@ -1119,9 +1173,7 @@ class MetaPartitionedOPD:
         responses and must bypass the loop's sum-then-mean averaging.
         """
         rates, nlls, logit_rows, hidden_rows, label_rows, tok_nlls = [], [], [], [], [], []
-        masks, counts = [], []
-        offset = 0
-        atom_ranges: list[tuple[int, int]] = []
+        masks, counts, atoms_list = [], [], []
         for credits, atoms, stu_logits, stu_labels, hidden in stash:
             if hidden is None:
                 raise RuntimeError(
@@ -1141,50 +1193,87 @@ class MetaPartitionedOPD:
             tok_nlls.append(credits.student_token_nll[:covered_here])
             mask = strict_mask([atom.boundary_type for atom in atoms])
             masks.append(mask)
+            atoms_list.append(atoms)
             counts.append(
                 torch.tensor(
                     [atom.student_token_count for atom in atoms], dtype=torch.float32
                 )
             )
-            for atom in atoms:
-                atom_ranges.append(
-                    (atom.student_start + offset, atom.student_end + offset)
-                )
-            offset += int(covered_here)
-        device = rates[0].device
+        dev = rates[0].device
         rate_all = torch.cat(rates)
         nll_all = torch.cat(nlls)
-        vocab = int(torch.cat(logit_rows).shape[1])
-        if not gram_affordable(offset, vocab, device):
-            raise ValueError(
-                f"mp_opd trust_b Gram needs ~{offset * vocab * 16 / 1e9:.1f} GiB "
-                "transient; device cannot hold it, atomic fallback"
-            )
-        head = chunk_head_gram(
-            torch.cat(logit_rows),
-            torch.cat(hidden_rows),
-            torch.cat(label_rows),
-            tuple(atom_ranges),
-            [(0, sum(len(atoms) for _, atoms, _, _, _ in stash))],
-            selected_log_prob=(-torch.cat(tok_nlls)).detach(),
-            softcap=self.grass_softcap,
-            head_bias=self.grass_head_bias,
-            diagonal_only=False,
-        )
-        is_strict = torch.cat(masks).to(device)
-        with torch.no_grad():
-            q = rate_all.detach().to(torch.float32)
-            gram = head.gram.detach().to(torch.float32)
-            result = trust_calibrate(
-                q[is_strict],
-                q[~is_strict],
-                gram[is_strict][:, is_strict],
-                gram[~is_strict][:, ~is_strict],
-                gram[is_strict][:, ~is_strict],
-                eps_g=self.trust_eps_g,
-            )
-        loss = trust_response_loss(nll_all, rate_all, is_strict, ~is_strict, result)
         n_resp = len(stash)
+        r_masks = [m.to(dev) for m in masks]
+        r_q = [r.detach().to(torch.float32).to(dev) for r in rates]
+        r_ns = [int(m.sum()) for m in r_masks]
+        r_nm = [int((~m).sum()) for m in r_masks]
+        qs_all = (
+            torch.cat([q[m] for q, m in zip(r_q, r_masks)])
+            if sum(r_ns)
+            else torch.zeros(0, dtype=torch.float32, device=dev)
+        )
+        qm_all = (
+            torch.cat([q[~m] for q, m in zip(r_q, r_masks)])
+            if sum(r_nm)
+            else torch.zeros(0, dtype=torch.float32, device=dev)
+        )
+        # Global strict/mismatch axes are response-major: response 0's strict
+        # atoms, then response 1's, and so on.
+        s_off: list[int] = []
+        m_off: list[int] = []
+        cs = cm = 0
+        for ns, nm in zip(r_ns, r_nm):
+            s_off.append(cs)
+            m_off.append(cm)
+            cs += ns
+            cm += nm
+        Hss = torch.zeros(cs, cs, dtype=torch.float32, device=dev)
+        Hmm = torch.zeros(cm, cm, dtype=torch.float32, device=dev)
+        Hsm = torch.zeros(cs, cm, dtype=torch.float32, device=dev)
+        sym_err = 0.0
+        with torch.no_grad():
+            for a in range(n_resp):
+                for b in range(a, n_resp):
+                    head = self._trust_pair_gram(
+                        a, b, atoms_list, logit_rows, hidden_rows,
+                        label_rows, tok_nlls,
+                    )
+                    sym_err = max(sym_err, head.symmetry_error)
+                    G = head.gram.detach().to(torch.float32)
+                    msl = (
+                        r_masks[a]
+                        if a == b
+                        else torch.cat([r_masks[a], r_masks[b]])
+                    )
+                    na_s, nb_s = r_ns[a], r_ns[b]
+                    na_m, nb_m = r_nm[a], r_nm[b]
+                    SS = G[msl][:, msl]
+                    MM = G[~msl][:, ~msl]
+                    SM = G[msl][:, ~msl]
+                    ra = slice(s_off[a], s_off[a] + na_s)
+                    rb = slice(s_off[b], s_off[b] + nb_s)
+                    fa = slice(m_off[a], m_off[a] + na_m)
+                    fb = slice(m_off[b], m_off[b] + nb_m)
+                    if a == b:
+                        Hss[ra, rb] = SS
+                        Hmm[fa, fb] = MM
+                        Hsm[ra, fa] = SM
+                    else:
+                        Hss[ra, rb] = SS[:na_s, na_s:]
+                        Hss[rb, ra] = SS[:na_s, na_s:].T
+                        Hmm[fa, fb] = MM[:na_m, na_m:]
+                        Hmm[fb, fa] = MM[:na_m, na_m:].T
+                        # Hsm is not symmetric: (a, b) and (b, a) are
+                        # distinct entries, both present in this pair call.
+                        Hsm[ra, fa] = SM[:na_s, :na_m]
+                        Hsm[ra, fb] = SM[:na_s, na_m:]
+                        Hsm[rb, fa] = SM[na_s:, :na_m]
+                        Hsm[rb, fb] = SM[na_s:, na_m:]
+            result = trust_calibrate(
+                qs_all, qm_all, Hss, Hmm, Hsm, eps_g=self.trust_eps_g
+            )
+        is_strict = torch.cat(r_masks)
+        loss = trust_response_loss(nll_all, rate_all, is_strict, ~is_strict, result)
         totals = {
             "strict_span_count": sum(float(m.sum()) for m in masks),
             "mismatch_span_count": sum(float((~m).sum()) for m in masks),
@@ -1310,7 +1399,9 @@ class MetaPartitionedOPD:
                 raw["calibrated_mismatch_norm_ratio"]
             ),
         }
-        metrics.update(self._trust_static_metrics(rate_all, head))
+        metrics.update(self._trust_static_metrics(
+            rate_all, sym_err, sum(int(rows.shape[0]) for rows in logit_rows)
+        ))
         return loss, metrics
 
     def _grass_chunk_loss(

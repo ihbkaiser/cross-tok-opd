@@ -11,8 +11,8 @@ Nguồn sự thật cho việc gì đang chạy ở đâu. GPU chỉ dùng đún
 | nlp-core-team-0-0 | 6 | `88a158ed` | trust_b 312 | 42 | TẮT | R56b, TB bật |
 | nlp-core-team-0-0 | 7 | `2f0fb13c` | eval DPCA | — | worker riêng | Không phải train |
 | embed-8b-training-v3-0-0 | 0 | `ce2da021` | grass 312 | 43 | TẮT | R58, TB bật |
-| embed-8b-training-v2-0-0 | 0 | `84ea467a` | align 312 | 42 | TẮT | R44, TB bật |
-| embed-8b-training-v2-0-0 | 3 | `eaed83d1` | eval grass seed 42 | — | worker riêng | Chain E4: 8 plans 40→312 |
+| embed-8b-training-v2-0-0 | 0 | `84ea467a` | align 312 | 42 | TẮT | R44 xong exit 0, GPU đã sang người khác |
+| embed-8b-training-v2-0-0 | 3 | `eaed83d1` | align 312 (lần 2) | ? | TẮT | wrapper 1731804, src eed10daf, ~5.5h tuổi lúc phát hiện |
 
 ## Quy ước đang hiệu lực
 
