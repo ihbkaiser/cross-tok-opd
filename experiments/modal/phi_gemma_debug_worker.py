@@ -1,4 +1,4 @@
-"""Parity gates followed by real aligned Phi->Gemma forward/backward if qualified."""
+"""Independent model parity probes; paired training uses the separate canary."""
 import json,sys,time,gc,traceback
 from pathlib import Path
 import torch

@@ -7,16 +7,20 @@ from pathlib import Path
 import modal
 
 ROOT = Path(__file__).resolve().parents[2] if modal.is_local() else Path('/opt/debug')
-RUN = 'phi-gemma-debug-20261010-r1'
+RUN = os.environ.get('PHI_GEMMA_DEBUG_RUN', 'phi-gemma-debug-20261010-r1')
 IMAGE = 'docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f'
 PY = '/opt/venvs/simct-b200/bin/python'
 app = modal.App(RUN)
 image = (modal.Image.from_registry(IMAGE).entrypoint([])
          .add_local_dir(str(ROOT/'kdflow'), '/opt/debug/kdflow', ignore=['**/__pycache__/**','**/*.pyc'])
          .add_local_file(str(ROOT/'experiments/modal/mp_opd_parity_worker.py'), '/opt/debug/mp_opd_parity_worker.py')
-         .add_local_file(str(ROOT/'experiments/modal/phi_gemma_debug_worker.py'), '/opt/debug/phi_gemma_debug_worker.py'))
+         .add_local_file(str(ROOT/'experiments/modal/phi_gemma_debug_worker.py'), '/opt/debug/phi_gemma_debug_worker.py')
+         .add_local_dir(str(ROOT/'experiments/modal/vendor'), '/opt/debug/experiments/modal/vendor')
+         .add_local_dir(str(ROOT/'tests'), '/opt/debug/tests', ignore=['**/__pycache__/**','**/*.pyc'])
+         .add_local_file(str(ROOT/'experiments/modal/phi_gemma_canary_worker.py'), '/opt/debug/phi_gemma_canary_worker.py'))
 student = modal.Volume.from_name('simct-parity-longcap-assets-v1')
 results = modal.Volume.from_name(RUN, create_if_missing=True)
+probes = modal.Volume.from_name('phi-gemma-debug-20261010-r1')
 
 def runtime_env(online=False):
     e=dict(os.environ)
@@ -27,6 +31,8 @@ def runtime_env(online=False):
     libs=['/usr/local/cuda/lib64','/usr/local/nvidia/lib64']
     libs += [str(p) for p in Path('/opt/venvs/simct-b200/lib/python3.12/site-packages/nvidia').glob('*/lib')]
     e['LD_LIBRARY_PATH']=':'.join(libs)
+    e['PYTHONPATH']='/opt/debug/experiments/modal/vendor:/opt/debug'
+    e.update(HF_DATASETS_OFFLINE='1', NCCL_CUMEM_HOST_ENABLE='0', KDFLOW_TRUST_REMOTE_CODE='0')
     return e
 
 @app.function(image=image,cpu=2,memory=8192,timeout=600,retries=0,volumes={'/runs':results,'/assets':student})
@@ -76,7 +82,40 @@ def diagnose():
     return receipt
 
 @app.local_entrypoint()
-def main():
+def main(stage: str = 'probe'):
+    if stage == 'canary':
+        receipt=canary.remote();print('CANARY_RECEIPT_JSON='+json.dumps(receipt),flush=True)
+        if receipt['exit_code']:raise RuntimeError('Canary failed; inspect saved log')
+        return
+    if stage != 'probe':raise ValueError(stage)
     print('PREPARE_RESULT',prepare.remote(),flush=True)
     receipt=diagnose.remote();print('DEBUG_RECEIPT_JSON='+json.dumps(receipt),flush=True)
     if receipt['exit_code']:raise RuntimeError('Diagnostic worker failed; inspect saved log')
+
+@app.function(image=image,gpu='B200',cpu=16,memory=98304,timeout=960,retries=0,max_containers=1,
+              volumes={'/runs':results,'/assets':student,'/probes':probes})
+def canary():
+    root=Path('/runs');log=root/'canary.log'
+    if log.exists():raise RuntimeError('Refuse duplicate paid canary')
+    with log.open('x') as f:
+        p=subprocess.Popen([PY,'-u','/opt/debug/phi_gemma_canary_worker.py'],cwd='/opt/debug',
+                           env=runtime_env(),stdout=f,stderr=subprocess.STDOUT,start_new_session=True)
+        start=time.monotonic();pos=0
+        try:
+            while p.poll() is None:
+                results.commit()
+                with log.open() as reader:
+                    reader.seek(pos);chunk=reader.read();pos=reader.tell()
+                if chunk:print(chunk,flush=True)
+                if time.monotonic()-start>900:raise TimeoutError('900-second canary cap')
+                time.sleep(8)
+        finally:
+            if p.poll() is None:
+                import signal
+                os.killpg(p.pid,signal.SIGTERM)
+                try:p.wait(timeout=10)
+                except subprocess.TimeoutExpired:os.killpg(p.pid,signal.SIGKILL);p.wait()
+            receipt={'exit_code':p.returncode,'image':IMAGE,'elapsed_seconds':time.monotonic()-start}
+            (root/'receipt.json').write_text(json.dumps(receipt));results.commit()
+        with log.open() as reader:reader.seek(pos);print(reader.read(),flush=True)
+    return receipt
