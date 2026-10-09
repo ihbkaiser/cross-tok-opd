@@ -549,13 +549,20 @@ def cmd_loadtest(a):
             except (OSError, ValueError):
                 time.sleep(2)
         E.verify_server(f"http://127.0.0.1:{port}", str(ckpt), MODEL_ID)
-        prompt = ("Solve step by step and put the final answer in \\boxed{}. "
-                  "If a train travels 120 km in 2 hours, what is its average speed in km/h? "
-                  "Show the formula, substitute the numbers, and compute carefully. " * 4)
+        if a.items_from:
+            payload = json.loads(Path(a.items_from).read_text(encoding="utf-8"))
+            pool_items = [x["messages"] for x in payload["items"][:a.bench_items]]
+            if not pool_items:
+                raise ValueError("no items in items-from file")
+        else:
+            prompt = ("Solve step by step and put the final answer in \\boxed{}. "
+                      "If a train travels 120 km in 2 hours, what is its average speed in km/h? "
+                      "Show the formula, substitute the numbers, and compute carefully. " * 4)
+            pool_items = [[{"role": "user", "content": prompt}]]
 
         def one(i):
-            payload = {"model": MODEL_ID,
-                       "messages": [{"role": "user", "content": prompt}],
+            msgs = pool_items[i % len(pool_items)]
+            payload = {"model": MODEL_ID, "messages": msgs,
                        "temperature": 0.6, "top_p": 0.95,
                        "max_tokens": a.max_tokens, "n": 1, "seed": i}
             req = urllib.request.Request(
@@ -641,6 +648,9 @@ def main():
     q.add_argument("--concurrency", type=int, default=128)
     q.add_argument("--requests", type=int, default=64)
     q.add_argument("--minutes", type=float, default=30.)
+    q.add_argument("--items-from", default="",
+                   help="prepared {bench}.json for real workload (default: synthetic prompt)")
+    q.add_argument("--bench-items", type=int, default=30)
     q.set_defaults(func=cmd_loadtest)
     a = p.parse_args()
     a.func(a)
