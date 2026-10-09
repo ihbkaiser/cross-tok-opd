@@ -53,6 +53,16 @@ MATH_ERA = [
     ("trust_r-gpu7-limit312-20261008-202234-1000470", "new"),
     ("mp-atomic-gpu0-limit0-20260909-052816-153554", "old"),
     ("mp-fixed-gpu1-limit0-20260909-052816-153555", "old"),
+    # Provenance-verified 20261009: trust_b-gpu0 source_commit a024d3b7
+    # (fleet: pair-Gram a024d3b7 is old math); ALT-s43 source a1934d2b is an
+    # ancestor of old-tip ccec1966; RND-s43/s44 trained 20261002-04, before
+    # new-math ef49e0ba (20261009).
+    ("trust_b-gpu0-limit312-20261008-105604-2494797", "old"),
+    ("ALT-every4-s43", "old"),
+    ("ALT-lowLR-s43", "old"),
+    ("ALT-main-s43", "old"),
+    ("RND-random5-s43", "old"),
+    ("RND-random5-s44", "old"),
 ]
 
 
