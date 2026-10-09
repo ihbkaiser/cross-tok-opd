@@ -31,6 +31,16 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 | ihbkaiser6-0-0 | 0 | `93d70d94` | trust_b 312 | 42 | R102b (chờ output) |
 | embed-8b-training-v3-1-0-0 | 0 | `e74dd6de` | trust_b 312 pair-Gram | 42 | R85, code cũ a024d3b7 — dữ liệu lịch sử |
 
+## GIÁN ĐOẠN 8b-v2 (node DOWN, bị kill) — thiệt hại và cứu hộ (2026-10-09)
+
+- R103 grass-43 (gpu2): chết step 159/312, không exitcode. Đốt ~3.5 GPU-giờ.
+  Cứu được checkpoints 20→160 → milestones 40/80/120/160 eval được.
+- R104 chunk-43 (gpu6): chết step 106/312, không exitcode. Đốt ~2.4 GPU-giờ.
+  Cứu được checkpoints → milestones 40/80 eval được.
+- E14b trust_r eval (gpu5): HOÀN THÀNH trước khi node chết (96/96 gen+scored).
+- 8b-v2 cấm mọi ops tới khi SSH sống lại (kể cả đọc). Không relaunch 2 runs trên
+  node này; chờ GPU rảnh node khác.
+
 ## Canary toán mới (limit 6) — ĐỦ BỘ 5/5 XANH
 
 | Mode | Block | Trạng thái |
@@ -56,7 +66,8 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 
 - grass-baseline / grasschunk / DPCA / align-s42: xong + summaries + union report
   21 groups (`tmp/report_union_20261008.html`).
-- trust_r (E14b, 8b/gpu5), trust_b R56b (E15b, nlp/gpu5): đang chạy.
+- trust_r (E14b): eval XONG 96/96 (hoàn thành trước khi 8b-v2 chết).
+- trust_b R56b (E15b, nlp/gpu5): đang chạy.
 
 ## Quy ước đang hiệu lực
 
