@@ -1,0 +1,636 @@
+✓ Initialized. View run at 
+https://modal.com/apps/kieusontung6/main/ap-NchTyHXqReQuaqenEdhv5p
+✓ Created objects.
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_debug_20261010
+│   .py
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_canary_worker.
+│   py
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_debug_worker.p
+│   y
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/mp_opd_parity_worker.py
+├── ✓ Uploaded /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/vendor
+├── ✓ Uploaded /mnt/d/dev/dsh/research_vai/SimCT/tests
+├── ✓ Uploaded /mnt/d/dev/dsh/research_vai/SimCT/kdflow
+├── ✓ Created Function prepare.
+├── ✓ Created Function diagnose.
+└── ✓ Created Function canary.
+..................                                                       [100%]
+=============================== warnings summary ===============================
+../venvs/simct-b200/lib/python3.12/site-packages/torch/jit/_script.py:365: 14 warnings
+  /opt/venvs/simct-b200/lib/python3.12/site-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+../venvs/simct-b200/lib/python3.12/site-packages/torchao/quantization/quant_api.py:1745
+  /opt/venvs/simct-b200/lib/python3.12/site-packages/torchao/quantization/quant_api.py:1745: SyntaxWarning: invalid escape sequence '\.'
+    * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+18 passed, 15 warnings in 55.15s
+
+
+Creating parquet from Arrow format:   0%|          | 0/1 [00:00<?, ?ba/s]
+Creating parquet from Arrow format: 100%|██████████| 1/1 [00:00<00:00, 1108.72ba/s]
+
+2026-10-09 17:26:25,218 INFO worker.py:2024 -- Started a local Ray instance.
+AllArguments(data=DataArguments(train_dataset_path='/runs/fixture-prompts.parquet', train_dataset_probs=None, train_split='train', eval_dataset_path=None, eval_split='eval', input_key='messages', image_key=None, output_key=None, teacher_input_key=None, label_key=None, input_template=None, apply_chat_template=True, max_len=512, max_samples=128, packing_samples=False, prompt_max_len=0, preprocess_num_workers=2), model=ModelArguments(student_name_or_path='/assets/student', teacher_name_or_path='/probes/teacher', attn_implementation='sdpa', use_liger_kernel=False, lora_rank=0, lora_alpha=16, target_modules='all-linear', lora_dropout=0.0, disable_fast_tokenizer=False, enable_thinking=False, ring_attn_size=1), train=TrainingArguments(num_nodes=1, num_gpus_per_node=1, num_epochs=2, train_batch_size=64, micro_train_batch_size=4, learning_rate=5e-07, lr_warmup_ratio=0.05, lr_scheduler_horizon_steps=None, min_lr=0.0, lr_scheduler='cosine_with_min_lr', max_norm=1.0, weight_decay=0.0, adam_betas=(0.9, 0.98), eval_steps=inf, save_steps=999999, backend='fsdp2', gradient_checkpointing=True, gradient_checkpointing_use_reentrant=False, teacher_offload=False, train_enable_sleep=False, enable_sleep=True, full_determinism=False, load_checkpoint=False, resume_checkpoint_steps='', pause_after_updates=0, eval_on_checkpoint=False, eval_on_checkpoint_steps='40,80,120,160,200,240,280,312', eval_case_dir='', eval_prepared_dir='', eval_score_python='/usr/bin/python3.12', eval_micro_batch_size=16, eval_benchmarks='', eval_seeds='', ckpt_path='/runs/checkpoints', save_path='/runs/checkpoint', seed=42, bf16=True, local_rank=-1), fsdp=FSDPArguments(fsdp_size=-1, cpu_offload=False), kd=DistillationArguments(kd_ratio=1.0, kd_temperature=1.0, kd_algorithm='span_ctkd', kd_loss_fn='rkl', teacher_forward_n_batches=8, teacher_enable_sleep=False, teacher_offload_tags='all', teacher_quantization=None, teacher_tp_size=1, teacher_ep_size=1, teacher_pp_size=1, teacher_dp_size=1, teacher_mem_fraction_static=0.3, teacher_context_length=16384, teacher_update_freq=1, span_score_mode='mean_logprob', dskd_token_align='eta', dskd_topk_vocab=-1, dskd_projector_lr=0.0001, jsd_beta=0.5, skew_lambda=0.1, adaptive_alpha=0.5, hrl_topk=5, alm_temperature=100.0, alm_f_divergence='kl', alm_debiasing=False, alm_debiasing_threshold=0.1, uld_lambda=1.5, uld_temperature=1.0, uld_top_k=1024, random_span_ratio=0.0, span_mask_ratio=1.0, span_gh_mask_threshold=2.0, xtoken_projection_path=None, xtoken_projection_sha256=None, xtoken_vocab_topk=8192, xtoken_exact_match_only=False, xtoken_dynamic_loss_scaling=True, xtoken_kl_loss_weight=1.0, xtoken_ce_loss_scale=0.1, xtoken_max_comb_len=4, mp_opd_mode='atomic', mp_opd_max_span_length=4, mp_opd_min_span_length=1, mp_opd_fixed_span_length=2, mp_opd_partition_temperature=1.0, mp_opd_random_seed=43, mp_opd_gbv_beta=1.0, mp_opd_gbv_geometry='token_count', mp_opd_dpca_clip_ratio_low=0.2, mp_opd_dpca_clip_ratio_high=0.28, mp_opd_dpca_clip_ratio_c=10.0, mp_opd_dpca_adv_clamp=10.0, mp_opd_dpca_agg='token-mean', mp_opd_dpca_require_behavior=True, mp_opd_grass_geometry='exact_head', mp_opd_grass_sigma_rho=0.99, mp_opd_grass_sigma_min_pairs=8, mp_opd_grass_eps_d=0.0, mp_opd_grass_negative_tol_rel=1e-06, mp_opd_grass_shadow=False, mp_opd_grass_chunk_source='xtoken', mp_opd_grass_chunk_run_length=2, mp_opd_grass_chunk_straddle='singleton', mp_opd_grass_chunk_shadow=False, mp_opd_airs_warmup_steps=20, mp_opd_airs_sigma_rho=0.99, mp_opd_airs_sigma_min_pairs=8, mp_opd_trust_scope='batch', mp_opd_align_eps_h=1e-12, mp_opd_energy_hidden_dim=32, mp_opd_energy_layers=2, mp_opd_energy_lr=0.001, mp_opd_energy_checkpoint=None, mp_opd_alternating=False, mp_opd_meta_path=None, mp_opd_meta_batch_size=16, mp_opd_meta_microbatch_size=4, mp_opd_energy_every=1, mp_opd_offload_adam_moments=False, mp_opd_host_mask=False, mp_opd_credit_transform='identity', mp_opd_credit_lambda=0.25, mp_opd_credit_convex=True, mp_opd_credit_horizon=2, mp_opd_credit_kernel='uniform', mp_opd_credit_decay=0.5, mp_opd_credit_direction='forward', mp_opd_credit_shuffle_seed=43, mp_opd_credit_alpha=0.25, mp_opd_credit_scale_match='raw'), rollout=RolloutArguments(rollout_disable_piecewise_cuda_graph=True, rollout_deterministic_inference=False, rollout_random_seed=-1, rollout_attention_backend='', rollout_disable_radix_cache=False, enforce_max_sequence_length=True, exact_token_trajectory=True, diagnostic_max_updates=2, diagnostic_collapse_gate=True, rollout_num_engines=1, rollout_tp_size=1, rollout_enable_sleep=False, rollout_mem_fraction_static=0.25, top_p=0.95, temperature=0.6, n_samples_per_prompt=1, rollout_batch_size=64, generate_max_len=128, print_rollout_sample=False), log=LoggingArguments(logging_steps=1, use_tensorboard=False, tensorboard_log_dir=None, tensorboard_flush_secs=10, use_wandb=False, wandb_org=None, wandb_project=None, wandb_group=None, wandb_run_name=None, wandb_run_id=None, wandb_job_type='train', wandb_tags='', wandb_mode='online', wandb_dir=None))
+[2026-10-09 17:26:28] [[32mINFO[0m] [[2mplacement_group.py:create_placement_group:61[0m]   bundle    0, actual_index:    0, node: 172.20.0.153, gpu: 0
+[2026-10-09 17:26:29] [[32mINFO[0m] [[2mrollout_group.py:_start_sglang_router:375[0m] Launching SGLang router at 172.20.0.153:3619
+[2026-10-09 17:26:32] [[32mINFO[0m] [[2mrollout_group.py:_start_sglang_router:389[0m] SGLang router launched successfully at 172.20.0.153:3619
+
+[36m(pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:582: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK will be deprecated, please use SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK instead
+[36m(pid=2515)[0m   warnings.warn(
+[36m(pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_JIT_DEEPGEMM_PRECOMPILE is deprecated, please use SGLANG_JIT_DEEPGEMM_PRECOMPILE
+[36m(pid=2515)[0m   warnings.warn(
+[36m(pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK is deprecated, please use SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK
+[36m(pid=2515)[0m   warnings.warn(
+[2026-10-09 17:26:41] [[32mINFO[0m] [[2mrollout_group.py:_allocate_addr_and_ports:238[0m] Ports for actor 0: {'host': '172.20.0.153', 'port': 15000, 'nccl_port': 15001, 'dist_init_addr': '172.20.0.153:15002'}
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:26:41] [[32mINFO[0m] [[2mrollout_actor.py:init:101[0m] [RolloutActor 0] Launching server at 172.20.0.153:15000 (base_gpu_id=0, tp_size=1)
+
+[36m(RolloutRayActor pid=2515)[0m Disable hybrid SWA memory for Gemma2ForCausalLM as it is not yet supported.
+[36m(RolloutRayActor pid=2515)[0m TensorRT-LLM MHA only supports page_size of 16, 32 or 64, changing page_size from None to 64.
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:582: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK will be deprecated, please use SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK instead
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_JIT_DEEPGEMM_PRECOMPILE is deprecated, please use SGLANG_JIT_DEEPGEMM_PRECOMPILE
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK is deprecated, please use SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:582: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK will be deprecated, please use SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK instead
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:582: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK will be deprecated, please use SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK instead
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_JIT_DEEPGEMM_PRECOMPILE is deprecated, please use SGLANG_JIT_DEEPGEMM_PRECOMPILE
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK is deprecated, please use SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_JIT_DEEPGEMM_PRECOMPILE is deprecated, please use SGLANG_JIT_DEEPGEMM_PRECOMPILE
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/sglang/srt/environ.py:623: UserWarning: Environment variable SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK is deprecated, please use SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK
+[36m(RolloutRayActor pid=2515)[0m   warnings.warn(
+
+[36m(RolloutRayActor pid=2515)[0m 
+Multi-thread loading shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Multi-thread loading shards:  50% Completed | 1/2 [00:02<00:02,  2.30s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Multi-thread loading shards: 100% Completed | 2/2 [00:02<00:00,  1.09s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:02<00:00,  1.27s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+  0%|          | 0/52 [00:00<?, ?it/s]
+Capturing batches (bs=512 avail_mem=131.54 GB):   0%|          | 0/52 [00:00<?, ?it/s]
+[36m(RolloutRayActor pid=2515)[0m 2026-10-09 17:27:22,466 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:27:22] Unexpected error during package walk: cutlass.cute.experimental
+
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=512 avail_mem=131.54 GB):   2%|▏         | 1/52 [00:43<36:44, 43.23s/it]
+Capturing batches (bs=496 avail_mem=131.23 GB):   2%|▏         | 1/52 [00:43<36:44, 43.23s/it]
+Capturing batches (bs=480 avail_mem=131.23 GB):   2%|▏         | 1/52 [00:43<36:44, 43.23s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=464 avail_mem=131.23 GB):   2%|▏         | 1/52 [00:43<36:44, 43.23s/it]
+Capturing batches (bs=464 avail_mem=131.23 GB):   8%|▊         | 4/52 [00:43<06:34,  8.22s/it]
+Capturing batches (bs=448 avail_mem=131.23 GB):   8%|▊         | 4/52 [00:43<06:34,  8.22s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=432 avail_mem=131.23 GB):   8%|▊         | 4/52 [00:43<06:34,  8.22s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=416 avail_mem=131.23 GB):   8%|▊         | 4/52 [00:43<06:34,  8.22s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=416 avail_mem=131.23 GB):  13%|█▎        | 7/52 [00:43<02:55,  3.91s/it]
+Capturing batches (bs=400 avail_mem=131.23 GB):  13%|█▎        | 7/52 [00:43<02:55,  3.91s/it]
+Capturing batches (bs=384 avail_mem=131.23 GB):  13%|█▎        | 7/52 [00:44<02:55,  3.91s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=384 avail_mem=131.23 GB):  17%|█▋        | 9/52 [00:44<01:52,  2.61s/it]
+Capturing batches (bs=368 avail_mem=131.23 GB):  17%|█▋        | 9/52 [00:44<01:52,  2.61s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=352 avail_mem=131.23 GB):  17%|█▋        | 9/52 [00:44<01:52,  2.61s/it]
+Capturing batches (bs=336 avail_mem=131.22 GB):  17%|█▋        | 9/52 [00:44<01:52,  2.61s/it]
+Capturing batches (bs=336 avail_mem=131.22 GB):  23%|██▎       | 12/52 [00:44<01:01,  1.53s/it]
+Capturing batches (bs=320 avail_mem=131.22 GB):  23%|██▎       | 12/52 [00:44<01:01,  1.53s/it]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=304 avail_mem=131.22 GB):  23%|██▎       | 12/52 [00:44<01:01,  1.53s/it]
+Capturing batches (bs=288 avail_mem=131.22 GB):  23%|██▎       | 12/52 [00:44<01:01,  1.53s/it]
+Capturing batches (bs=288 avail_mem=131.22 GB):  29%|██▉       | 15/52 [00:44<00:35,  1.03it/s]
+Capturing batches (bs=272 avail_mem=131.22 GB):  29%|██▉       | 15/52 [00:44<00:35,  1.03it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=256 avail_mem=131.22 GB):  29%|██▉       | 15/52 [00:44<00:35,  1.03it/s]
+Capturing batches (bs=248 avail_mem=131.22 GB):  29%|██▉       | 15/52 [00:44<00:35,  1.03it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=248 avail_mem=131.22 GB):  35%|███▍      | 18/52 [00:44<00:21,  1.55it/s]
+Capturing batches (bs=240 avail_mem=131.21 GB):  35%|███▍      | 18/52 [00:44<00:21,  1.55it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=232 avail_mem=131.21 GB):  35%|███▍      | 18/52 [00:44<00:21,  1.55it/s]
+Capturing batches (bs=224 avail_mem=131.21 GB):  35%|███▍      | 18/52 [00:44<00:21,  1.55it/s]
+Capturing batches (bs=224 avail_mem=131.21 GB):  40%|████      | 21/52 [00:44<00:13,  2.26it/s]
+Capturing batches (bs=216 avail_mem=131.21 GB):  40%|████      | 21/52 [00:44<00:13,  2.26it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=208 avail_mem=131.21 GB):  40%|████      | 21/52 [00:44<00:13,  2.26it/s]
+Capturing batches (bs=200 avail_mem=131.21 GB):  40%|████      | 21/52 [00:44<00:13,  2.26it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=200 avail_mem=131.21 GB):  46%|████▌     | 24/52 [00:44<00:08,  3.15it/s]
+Capturing batches (bs=192 avail_mem=131.21 GB):  46%|████▌     | 24/52 [00:44<00:08,  3.15it/s]
+Capturing batches (bs=184 avail_mem=131.21 GB):  46%|████▌     | 24/52 [00:44<00:08,  3.15it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=176 avail_mem=131.20 GB):  46%|████▌     | 24/52 [00:44<00:08,  3.15it/s]
+Capturing batches (bs=176 avail_mem=131.20 GB):  52%|█████▏    | 27/52 [00:44<00:05,  4.36it/s]
+Capturing batches (bs=168 avail_mem=131.20 GB):  52%|█████▏    | 27/52 [00:44<00:05,  4.36it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=160 avail_mem=131.20 GB):  52%|█████▏    | 27/52 [00:44<00:05,  4.36it/s]
+Capturing batches (bs=152 avail_mem=131.20 GB):  52%|█████▏    | 27/52 [00:44<00:05,  4.36it/s]
+Capturing batches (bs=152 avail_mem=131.20 GB):  58%|█████▊    | 30/52 [00:44<00:03,  5.90it/s]
+Capturing batches (bs=144 avail_mem=131.20 GB):  58%|█████▊    | 30/52 [00:44<00:03,  5.90it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=136 avail_mem=131.20 GB):  58%|█████▊    | 30/52 [00:44<00:03,  5.90it/s]
+Capturing batches (bs=128 avail_mem=131.20 GB):  58%|█████▊    | 30/52 [00:45<00:03,  5.90it/s]
+Capturing batches (bs=128 avail_mem=131.20 GB):  63%|██████▎   | 33/52 [00:45<00:02,  7.75it/s]
+Capturing batches (bs=120 avail_mem=131.20 GB):  63%|██████▎   | 33/52 [00:45<00:02,  7.75it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=112 avail_mem=131.20 GB):  63%|██████▎   | 33/52 [00:45<00:02,  7.75it/s]
+Capturing batches (bs=104 avail_mem=131.20 GB):  63%|██████▎   | 33/52 [00:45<00:02,  7.75it/s]
+Capturing batches (bs=104 avail_mem=131.20 GB):  69%|██████▉   | 36/52 [00:45<00:01,  9.94it/s]
+Capturing batches (bs=96 avail_mem=131.19 GB):  69%|██████▉   | 36/52 [00:45<00:01,  9.94it/s] 
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=88 avail_mem=131.19 GB):  69%|██████▉   | 36/52 [00:45<00:01,  9.94it/s]
+Capturing batches (bs=80 avail_mem=131.19 GB):  69%|██████▉   | 36/52 [00:45<00:01,  9.94it/s]
+Capturing batches (bs=80 avail_mem=131.19 GB):  75%|███████▌  | 39/52 [00:45<00:01, 12.26it/s]
+Capturing batches (bs=72 avail_mem=131.19 GB):  75%|███████▌  | 39/52 [00:45<00:01, 12.26it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=64 avail_mem=131.19 GB):  75%|███████▌  | 39/52 [00:45<00:01, 12.26it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=56 avail_mem=131.18 GB):  75%|███████▌  | 39/52 [00:45<00:01, 12.26it/s]
+Capturing batches (bs=56 avail_mem=131.18 GB):  81%|████████  | 42/52 [00:45<00:00, 13.34it/s]
+Capturing batches (bs=48 avail_mem=131.18 GB):  81%|████████  | 42/52 [00:45<00:00, 13.34it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=40 avail_mem=131.18 GB):  81%|████████  | 42/52 [00:45<00:00, 13.34it/s]
+Capturing batches (bs=32 avail_mem=131.18 GB):  81%|████████  | 42/52 [00:45<00:00, 13.34it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=32 avail_mem=131.18 GB):  87%|████████▋ | 45/52 [00:45<00:00, 14.52it/s]
+Capturing batches (bs=24 avail_mem=131.18 GB):  87%|████████▋ | 45/52 [00:45<00:00, 14.52it/s]
+Capturing batches (bs=16 avail_mem=131.18 GB):  87%|████████▋ | 45/52 [00:45<00:00, 14.52it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=12 avail_mem=131.18 GB):  87%|████████▋ | 45/52 [00:45<00:00, 14.52it/s]
+Capturing batches (bs=12 avail_mem=131.18 GB):  92%|█████████▏| 48/52 [00:45<00:00, 13.44it/s]
+Capturing batches (bs=8 avail_mem=131.18 GB):  92%|█████████▏| 48/52 [00:45<00:00, 13.44it/s] 
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=4 avail_mem=131.18 GB):  92%|█████████▏| 48/52 [00:45<00:00, 13.44it/s]
+Capturing batches (bs=2 avail_mem=131.17 GB):  92%|█████████▏| 48/52 [00:45<00:00, 13.44it/s]
+[36m(RolloutRayActor pid=2515)[0m 
+Capturing batches (bs=2 avail_mem=131.17 GB):  98%|█████████▊| 51/52 [00:46<00:00, 15.23it/s]
+Capturing batches (bs=1 avail_mem=131.17 GB):  98%|█████████▊| 51/52 [00:46<00:00, 15.23it/s]
+Capturing batches (bs=1 avail_mem=131.17 GB): 100%|██████████| 52/52 [00:46<00:00,  1.13it/s]
+
+[2026-10-09 17:28:25] [[32mINFO[0m] [[2mrollout_group.py:_init_actors:263[0m] All 1 rollout actors initialized and registered with router
+[2026-10-09 17:28:25] [[32mINFO[0m] [[2mrollout_group.py:__init__:138[0m] RolloutGroup initialized: 1 actors (tp=1), router at 172.20.0.153:3619
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:28:25] [[32mINFO[0m] [[2mrollout_actor.py:init:109[0m] [RolloutActor 0] Registered with router at 172.20.0.153:3619
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:28:25] WARNING:  Invalid HTTP request received.
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:28:25] WARNING:  Invalid HTTP request received.
+[2026-10-09 17:28:27] [[32mINFO[0m] [[2mteacher_group.py:__init__:55[0m] [TeacherActorGroup] Starting initialization...
+[2026-10-09 17:28:27] [[32mINFO[0m] [[2mteacher_group.py:__init__:83[0m] [TeacherActorGroup] Creating 1 actors with tp_size=1 * pp_size=1
+[2026-10-09 17:28:27] [[32mINFO[0m] [[2mteacher_group.py:_create_actors:146[0m] [TeacherActorGroup] Launching actor 0 with base_gpu_id=0...
+[2026-10-09 17:28:27] [[32mINFO[0m] [[2mteacher_group.py:_create_actors:168[0m] [TeacherActorGroup] Actor 0 created, waiting for ready...
+
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:28:41] [[32mINFO[0m] [[2mteacher_actor.py:__init__:49[0m] [TeacherRayActor] __init__ STARTED, PID=3026, base_gpu_id=0
+
+[36m(TeacherRayActor pid=3026)[0m [transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+[36m(TeacherRayActor pid=3026)[0m TensorRT-LLM MHA only supports page_size of 16, 32 or 64, changing page_size from None to 64.
+
+[36m(TeacherRayActor pid=3026)[0m [transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+[36m(TeacherRayActor pid=3026)[0m [monkey_patch] SUCCESS: prefill + stream_output_generation patched! PID=3154
+[36m(TeacherRayActor pid=3026)[0m [transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+
+[36m(TeacherRayActor pid=3026)[0m 
+Multi-thread loading shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Multi-thread loading shards:  50% Completed | 1/2 [00:02<00:02,  2.83s/it]
+[36m(TeacherRayActor pid=3026)[0m 
+Multi-thread loading shards: 100% Completed | 2/2 [00:03<00:00,  1.82s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:03<00:00,  1.97s/it]
+[36m(TeacherRayActor pid=3026)[0m 
+  0%|          | 0/52 [00:00<?, ?it/s]
+Capturing batches (bs=512 avail_mem=120.92 GB):   0%|          | 0/52 [00:00<?, ?it/s]
+[36m(TeacherRayActor pid=3026)[0m 2026-10-09 17:29:19,971 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:29:19] Unexpected error during package walk: cutlass.cute.experimental
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=512 avail_mem=120.92 GB):   2%|▏         | 1/52 [00:01<01:26,  1.70s/it]
+Capturing batches (bs=496 avail_mem=120.66 GB):   2%|▏         | 1/52 [00:01<01:26,  1.70s/it]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=480 avail_mem=120.66 GB):   2%|▏         | 1/52 [00:01<01:26,  1.70s/it]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=480 avail_mem=120.66 GB):   6%|▌         | 3/52 [00:01<00:24,  2.01it/s]
+Capturing batches (bs=464 avail_mem=120.66 GB):   6%|▌         | 3/52 [00:01<00:24,  2.01it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=448 avail_mem=120.65 GB):   6%|▌         | 3/52 [00:01<00:24,  2.01it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=448 avail_mem=120.65 GB):  10%|▉         | 5/52 [00:02<00:13,  3.38it/s]
+Capturing batches (bs=432 avail_mem=120.65 GB):  10%|▉         | 5/52 [00:02<00:13,  3.38it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=432 avail_mem=120.65 GB):  12%|█▏        | 6/52 [00:02<00:11,  4.11it/s]
+Capturing batches (bs=416 avail_mem=120.64 GB):  12%|█▏        | 6/52 [00:02<00:11,  4.11it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=416 avail_mem=120.64 GB):  13%|█▎        | 7/52 [00:02<00:09,  4.91it/s]
+Capturing batches (bs=400 avail_mem=120.64 GB):  13%|█▎        | 7/52 [00:02<00:09,  4.91it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=400 avail_mem=120.64 GB):  15%|█▌        | 8/52 [00:02<00:08,  5.49it/s]
+Capturing batches (bs=384 avail_mem=120.64 GB):  15%|█▌        | 8/52 [00:02<00:08,  5.49it/s]
+
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=384 avail_mem=120.64 GB):  17%|█▋        | 9/52 [00:02<00:09,  4.59it/s]
+Capturing batches (bs=368 avail_mem=120.63 GB):  17%|█▋        | 9/52 [00:02<00:09,  4.59it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=352 avail_mem=120.63 GB):  17%|█▋        | 9/52 [00:02<00:09,  4.59it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=352 avail_mem=120.63 GB):  21%|██        | 11/52 [00:02<00:06,  6.32it/s]
+Capturing batches (bs=336 avail_mem=120.63 GB):  21%|██        | 11/52 [00:02<00:06,  6.32it/s]
+Capturing batches (bs=320 avail_mem=120.62 GB):  21%|██        | 11/52 [00:02<00:06,  6.32it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=320 avail_mem=120.62 GB):  25%|██▌       | 13/52 [00:03<00:05,  7.74it/s]
+Capturing batches (bs=304 avail_mem=120.62 GB):  25%|██▌       | 13/52 [00:03<00:05,  7.74it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=288 avail_mem=120.61 GB):  25%|██▌       | 13/52 [00:03<00:05,  7.74it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=288 avail_mem=120.61 GB):  29%|██▉       | 15/52 [00:03<00:04,  8.56it/s]
+Capturing batches (bs=272 avail_mem=120.61 GB):  29%|██▉       | 15/52 [00:03<00:04,  8.56it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=256 avail_mem=120.61 GB):  29%|██▉       | 15/52 [00:03<00:04,  8.56it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=256 avail_mem=120.61 GB):  33%|███▎      | 17/52 [00:03<00:03,  9.54it/s]
+Capturing batches (bs=248 avail_mem=120.61 GB):  33%|███▎      | 17/52 [00:03<00:03,  9.54it/s]
+Capturing batches (bs=240 avail_mem=120.60 GB):  33%|███▎      | 17/52 [00:03<00:03,  9.54it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=240 avail_mem=120.60 GB):  37%|███▋      | 19/52 [00:03<00:03, 10.42it/s]
+Capturing batches (bs=232 avail_mem=120.60 GB):  37%|███▋      | 19/52 [00:03<00:03, 10.42it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=224 avail_mem=120.59 GB):  37%|███▋      | 19/52 [00:03<00:03, 10.42it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=224 avail_mem=120.59 GB):  40%|████      | 21/52 [00:03<00:04,  7.71it/s]
+Capturing batches (bs=216 avail_mem=120.59 GB):  40%|████      | 21/52 [00:03<00:04,  7.71it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=216 avail_mem=120.59 GB):  42%|████▏     | 22/52 [00:04<00:03,  7.84it/s]
+Capturing batches (bs=208 avail_mem=120.59 GB):  42%|████▏     | 22/52 [00:04<00:03,  7.84it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=200 avail_mem=120.59 GB):  42%|████▏     | 22/52 [00:04<00:03,  7.84it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=200 avail_mem=120.59 GB):  46%|████▌     | 24/52 [00:04<00:03,  8.20it/s]
+Capturing batches (bs=192 avail_mem=120.58 GB):  46%|████▌     | 24/52 [00:04<00:03,  8.20it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=192 avail_mem=120.58 GB):  48%|████▊     | 25/52 [00:04<00:03,  8.05it/s]
+Capturing batches (bs=184 avail_mem=120.58 GB):  48%|████▊     | 25/52 [00:04<00:03,  8.05it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=176 avail_mem=120.57 GB):  48%|████▊     | 25/52 [00:04<00:03,  8.05it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=176 avail_mem=120.57 GB):  52%|█████▏    | 27/52 [00:04<00:02,  9.04it/s]
+Capturing batches (bs=168 avail_mem=120.57 GB):  52%|█████▏    | 27/52 [00:04<00:02,  9.04it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=160 avail_mem=120.56 GB):  52%|█████▏    | 27/52 [00:04<00:02,  9.04it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=160 avail_mem=120.56 GB):  56%|█████▌    | 29/52 [00:04<00:02,  9.97it/s]
+Capturing batches (bs=152 avail_mem=120.56 GB):  56%|█████▌    | 29/52 [00:04<00:02,  9.97it/s]
+Capturing batches (bs=144 avail_mem=120.56 GB):  56%|█████▌    | 29/52 [00:04<00:02,  9.97it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=144 avail_mem=120.56 GB):  60%|█████▉    | 31/52 [00:04<00:01, 10.67it/s]
+Capturing batches (bs=136 avail_mem=120.55 GB):  60%|█████▉    | 31/52 [00:04<00:01, 10.67it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=128 avail_mem=120.55 GB):  60%|█████▉    | 31/52 [00:05<00:01, 10.67it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=128 avail_mem=120.55 GB):  63%|██████▎   | 33/52 [00:05<00:01, 10.37it/s]
+Capturing batches (bs=120 avail_mem=120.54 GB):  63%|██████▎   | 33/52 [00:05<00:01, 10.37it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=112 avail_mem=120.54 GB):  63%|██████▎   | 33/52 [00:05<00:01, 10.37it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=112 avail_mem=120.54 GB):  67%|██████▋   | 35/52 [00:05<00:01, 10.17it/s]
+Capturing batches (bs=104 avail_mem=120.54 GB):  67%|██████▋   | 35/52 [00:05<00:01, 10.17it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=96 avail_mem=120.53 GB):  67%|██████▋   | 35/52 [00:05<00:01, 10.17it/s] 
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=96 avail_mem=120.53 GB):  71%|███████   | 37/52 [00:05<00:01, 10.58it/s]
+Capturing batches (bs=88 avail_mem=120.53 GB):  71%|███████   | 37/52 [00:05<00:01, 10.58it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=80 avail_mem=120.52 GB):  71%|███████   | 37/52 [00:05<00:01, 10.58it/s]
+Capturing batches (bs=80 avail_mem=120.52 GB):  75%|███████▌  | 39/52 [00:05<00:01, 10.88it/s]
+Capturing batches (bs=72 avail_mem=120.52 GB):  75%|███████▌  | 39/52 [00:05<00:01, 10.88it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=64 avail_mem=120.51 GB):  75%|███████▌  | 39/52 [00:05<00:01, 10.88it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=64 avail_mem=120.51 GB):  79%|███████▉  | 41/52 [00:05<00:00, 11.06it/s]
+Capturing batches (bs=56 avail_mem=120.51 GB):  79%|███████▉  | 41/52 [00:05<00:00, 11.06it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=48 avail_mem=120.50 GB):  79%|███████▉  | 41/52 [00:05<00:00, 11.06it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=48 avail_mem=120.50 GB):  83%|████████▎ | 43/52 [00:06<00:00, 10.11it/s]
+Capturing batches (bs=40 avail_mem=120.50 GB):  83%|████████▎ | 43/52 [00:06<00:00, 10.11it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=32 avail_mem=120.50 GB):  83%|████████▎ | 43/52 [00:06<00:00, 10.11it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=32 avail_mem=120.50 GB):  87%|████████▋ | 45/52 [00:06<00:00, 10.06it/s]
+Capturing batches (bs=24 avail_mem=120.49 GB):  87%|████████▋ | 45/52 [00:06<00:00, 10.06it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=16 avail_mem=120.49 GB):  87%|████████▋ | 45/52 [00:06<00:00, 10.06it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=16 avail_mem=120.49 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.60it/s]
+Capturing batches (bs=12 avail_mem=120.49 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.60it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=8 avail_mem=120.48 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.60it/s] 
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=8 avail_mem=120.48 GB):  94%|█████████▍| 49/52 [00:06<00:00,  9.41it/s]
+Capturing batches (bs=4 avail_mem=120.48 GB):  94%|█████████▍| 49/52 [00:06<00:00,  9.41it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=4 avail_mem=120.48 GB):  96%|█████████▌| 50/52 [00:06<00:00,  8.66it/s]
+Capturing batches (bs=2 avail_mem=120.47 GB):  96%|█████████▌| 50/52 [00:06<00:00,  8.66it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=1 avail_mem=120.47 GB):  96%|█████████▌| 50/52 [00:06<00:00,  8.66it/s]
+[36m(TeacherRayActor pid=3026)[0m 
+Capturing batches (bs=1 avail_mem=120.47 GB): 100%|██████████| 52/52 [00:07<00:00,  8.93it/s]
+Capturing batches (bs=1 avail_mem=120.47 GB): 100%|██████████| 52/52 [00:07<00:00,  7.29it/s]
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:29:28] [[32mINFO[0m] [[2mteacher_actor.py:__init__:88[0m] [TeacherRayActor] Teacher sleep after initialization
+[2026-10-09 17:29:31] [[32mINFO[0m] [[2mteacher_group.py:__init__:89[0m] [TeacherActorGroup] All 1 actors ready.
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:29:31] [[32mINFO[0m] [[2mteacher_actor.py:__init__:91[0m] [TeacherRayActor] Initialized with tp_size=1, ep_size=1, pp_size=1
+[transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+
+[2026-10-09 17:29:33] [[33mWARNING[0m] [[2mutils.py:check_tokenizer_identical:43[0m] Tokenizers differ in chat_template.
+[2026-10-09 17:29:33] [[33mWARNING[0m] [[2mutils.py:check_tokenizer_identical:50[0m] Tokenizers differ in vocabulary. Vocab sizes: 256000 vs 200029.
+Tokenizers TokenizerCompareResult(template_identical=False, vocab_identical=False)
+dataset: /runs/fixture-prompts.parquet
+
+Generating train split: 0 examples [00:00, ? examples/s]
+Generating train split: 128 examples [00:00, 19944.68 examples/s]
+loaded /runs/fixture-prompts.parquet with data_files=/runs/fixture-prompts.parquet
+[Dataset({
+    features: ['messages'],
+    num_rows: 128
+})]
+
+Processing data (num_proc=2):   0%|          | 0/128 [00:00<?, ? examples/s]
+
+Processing data (num_proc=2):   1%|          | 1/128 [00:11<24:53, 11.76s/ examples]
+Processing data (num_proc=2):  51%|█████     | 65/128 [00:20<00:16,  3.75 examples/s]
+Processing data (num_proc=2): 100%|██████████| 128/128 [00:21<00:00,  6.09 examples/s]
+Total samples: 128
+Sample student prompt:
+<bos><start_of_turn>user
+Solve carefully: A steel bar is 20 kg heavier than a 90 kg copper bar and weighs twice as much as a tin bar. Find the total mass of 20 bars of each metal.<end_of_turn>
+<start_of_turn>model
+
+Sample teacher prompt:
+<|user|>Solve carefully: A steel bar is 20 kg heavier than a 90 kg copper bar and weighs twice as much as a tin bar. Find the total mass of 20 bars of each metal.<|end|><|assistant|>
+[2026-10-09 17:30:03] [[32mINFO[0m] [[2mtrain_kd_on_policy.py:train:170[0m] [Rank 0] Max training iterations: 4
+[2026-10-09 17:30:03] [[32mINFO[0m] [[2mtrain_kd_on_policy.py:train:184[0m] [Rank 0] Optimizer-step contract: execution=4, scheduler_horizon=4, warmup=1
+
+[36m(StudentRayActor pid=3297)[0m [transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[36m(StudentRayActor pid=3297)[0m 
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]
+[36m(StudentRayActor pid=3297)[0m 
+Loading weights: 100%|██████████| 288/288 [00:00<00:00, 3758.13it/s]
+[36m(StudentRayActor pid=3297)[0m Student Model: 
+[36m(StudentRayActor pid=3297)[0m   Gemma2ForCausalLM(
+[36m(StudentRayActor pid=3297)[0m   (model): Gemma2Model(
+[36m(StudentRayActor pid=3297)[0m     (embed_tokens): Gemma2TextScaledWordEmbedding(256000, 2304, padding_idx=0)
+[36m(StudentRayActor pid=3297)[0m     (layers): ModuleList(
+[36m(StudentRayActor pid=3297)[0m       (0-25): 26 x Gemma2DecoderLayer(
+[36m(StudentRayActor pid=3297)[0m         (self_attn): Gemma2Attention(
+[36m(StudentRayActor pid=3297)[0m           (q_proj): Linear(in_features=2304, out_features=2048, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (k_proj): Linear(in_features=2304, out_features=1024, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (v_proj): Linear(in_features=2304, out_features=1024, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (o_proj): Linear(in_features=2048, out_features=2304, bias=False)
+[36m(StudentRayActor pid=3297)[0m         )
+[36m(StudentRayActor pid=3297)[0m         (mlp): Gemma2MLP(
+[36m(StudentRayActor pid=3297)[0m           (gate_proj): Linear(in_features=2304, out_features=9216, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (up_proj): Linear(in_features=2304, out_features=9216, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (down_proj): Linear(in_features=9216, out_features=2304, bias=False)
+[36m(StudentRayActor pid=3297)[0m           (act_fn): GELUTanh()
+[36m(StudentRayActor pid=3297)[0m         )
+[36m(StudentRayActor pid=3297)[0m         (input_layernorm): Gemma2RMSNorm((2304,), eps=1e-06)
+[36m(StudentRayActor pid=3297)[0m         (post_attention_layernorm): Gemma2RMSNorm((2304,), eps=1e-06)
+[36m(StudentRayActor pid=3297)[0m         (pre_feedforward_layernorm): Gemma2RMSNorm((2304,), eps=1e-06)
+[36m(StudentRayActor pid=3297)[0m         (post_feedforward_layernorm): Gemma2RMSNorm((2304,), eps=1e-06)
+[36m(StudentRayActor pid=3297)[0m       )
+[36m(StudentRayActor pid=3297)[0m     )
+[36m(StudentRayActor pid=3297)[0m     (norm): Gemma2RMSNorm((2304,), eps=1e-06)
+[36m(StudentRayActor pid=3297)[0m     (rotary_emb): Gemma2RotaryEmbedding()
+[36m(StudentRayActor pid=3297)[0m   )
+[36m(StudentRayActor pid=3297)[0m   (lm_head): Linear(in_features=2304, out_features=256000, bias=False)
+[36m(StudentRayActor pid=3297)[0m )
+[36m(StudentRayActor pid=3297)[0m NCCL version 2.28.9+cuda13.0
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:30:12] [[32mINFO[0m] [[2mstudent_actor.py:load_only_lm_head:171[0m] Loading only lm_head from /probes/teacher...
+[36m(StudentRayActor pid=3297)[0m [transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:30:15] [[32mINFO[0m] [[2mstudent_actor.py:load_only_lm_head:236[0m] Loaded lm_head (model.embed_tokens.weight), shape: torch.Size([200064, 3072])
+
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:30:16] [[32mINFO[0m] [[2mspan_ctkd.py:_find_overlap_tokens:135[0m] [SpanCTKD] Num of overlap_tokens between student & teacher: 90444
+[2026-10-09 17:30:19] [[32mINFO[0m] [[2mtrain_kd_on_policy.py:train:196[0m] [Rank 0] Models initialized on all student actors
+[36m(StudentRayActor pid=3297)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+[36m(StudentRayActor pid=3297)[0m   return func(*args, **kwargs)
+
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:331[0m] ******* Start Training *******
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:332[0m]   Num Epochs:            2
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:333[0m]   Steps per Epoch:       2
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:334[0m]   Total Training Steps:  4
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:335[0m]   Per-device Batch Size: 4
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:336[0m]   Gradient Accumulation: 16
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:337[0m]   Learning Rate:         5e-07
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:338[0m]   KD Algorithm:          span_ctkd
+[2026-10-09 17:30:48] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:_print_training_config:339[0m]   KD Loss Function:      rkl
+
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=46 n_runs=20 first_runs=2-2,17-17,19-19,30-30 nonzero_min=-0.8288 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-1.132e-05', '-0.3383', '-5.973e-05', '-0.03123']
+[exact-rollout] WARNING: 50/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=50 n_runs=24 first_runs=2-2,17-17,19-19,30-30 nonzero_min=-2.739 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-3.338e-06', '-3.147e-05', '-2.742e-05', '-0.2756']
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=49 n_runs=23 first_runs=2-2,17-17,19-19,30-30 nonzero_min=-0.9453 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-4.053e-06', '-2.766e-05', '-1.335e-05', '-0.2426']
+[exact-rollout] WARNING: 15/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=15 n_runs=11 first_runs=2-2,12-12,22-22,24-24 nonzero_min=-1.78 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.0001005', '-0.003192', '-0.03036', '-0.123']
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=22 n_runs=17 first_runs=2-2,12-12,21-21,23-23 nonzero_min=-3.899 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.9397', '-4.53e-06', '-0.00251', '-0.1424']
+[exact-rollout] WARNING: 16/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=16 n_runs=11 first_runs=2-2,12-12,21-21,28-28 nonzero_min=-2.45 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-7.51e-06', '-5.722e-06', '-2.384e-07', '-3.695e-06']
+[exact-rollout] WARNING: 16/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=16 n_runs=10 first_runs=2-2,17-17,34-34,58-58 nonzero_min=-2.588 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.4604', '-8.345e-06', '-0.0001129', '-1.622']
+[exact-rollout] WARNING: 44/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=44 n_runs=21 first_runs=2-2,12-12,29-30,32-32 nonzero_min=-2.634 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.4289', '-0.0002596', '-2.146e-06', '0']
+[exact-rollout] WARNING: 16/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=16 n_runs=11 first_runs=2-2,17-17,27-27,34-34 nonzero_min=-2.92 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.002476', '-6.843e-05', '-0.0289', '-3.576e-07']
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=46 n_runs=20 first_runs=2-2,17-17,19-19,30-30 nonzero_min=-0.8288 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-1.132e-05', '-0.3383', '-5.973e-05', '-0.03123']
+[exact-rollout] WARNING: 20/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=20 n_runs=15 first_runs=2-2,17-17,26-26,33-33 nonzero_min=-2.546 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-0.03487', '-3.445e-05', '0', '0']
+[exact-rollout] WARNING: 19/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] ZERO-PROBE  n=128 n_zero=19 n_runs=14 first_runs=2-2,12-12,22-22,24-24 nonzero_min=-2.067 nonzero_max=-1.192e-07 head4=['-0.000124', '-4.768e-07', '0', '-0.0001308'] tail4=['-1.431e-06', '-0.0001096', '-0.000558', '-1.729e-05']
+[exact-rollout] WARNING: 50/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 18/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 27/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 45/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 25/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 21/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 50/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 24/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 44/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 48/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 20/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 47/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 21/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 47/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 20/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 16/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 11/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 18/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:32:13] [[32mINFO[0m] [[2mteacher_actor.py:forward:129[0m] [TeacherRayActor.forward] chunk 1/2, micro_batches=8, samples=32
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:32:14] [[32mINFO[0m] [[2mteacher_actor.py:forward:129[0m] [TeacherRayActor.forward] chunk 2/2, micro_batches=8, samples=32
+[36m(StudentRayActor pid=3297)[0m /opt/debug/kdflow/ray/train/student_actor.py:279: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:213.)
+[36m(StudentRayActor pid=3297)[0m   k: torch.from_numpy(ray.get(v) if isinstance(v, ray.ObjectRef) else v).to(device, non_blocking=True)
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_align_sequences_with_spans:225[0m] [SpanCTKD DEBUG] Found 105 boundaries! tea_texts(125): ['Here', "'s", ' how', ' to', ' solve']... stu_texts(129): ['Here', "'", 's', ' how', ' to']...
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m] 
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m] [SpanCTKD SPAN DEBUG] === Example span logits (seg_idx=1) ===
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Student span token ids: [235303, 235256, 1368]
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Student self_logits (per token): [-0.00022718709078617394, -9.536738616588991e-07, -0.006352589000016451]
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Student span_dim value (mean):   -0.0022
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Teacher span token ids: [885, 1495]
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Teacher self_logits (per token): [-11.616095542907715, -1.1832929849624634]
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Teacher span_dim value (mean):   -6.3997
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   ---
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Student overlap logits (first pos) stats: mean=-33.9634, max=-0.0002, min=-45.3752, std=2.8704
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   Teacher overlap logits (first pos) stats: mean=-35.4631, max=-0.8661, min=-59.7372, std=11.9123
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_build_virtual_vocab_logits:343[0m]   num_overlap=90444, num_spans=14, virtual_dim=90458
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_align_sequences_with_spans:225[0m] [SpanCTKD DEBUG] Found 105 boundaries! tea_texts(125): ['Here', "'s", ' how', ' to', ' solve']... stu_texts(129): ['Here', "'", 's', ' how', ' to']...
+[36m(StudentRayActor pid=3297)[0m [2026-10-09 17:32:17] [[32mINFO[0m] [[2mspan_ctkd.py:_align_sequences_with_spans:225[0m] [SpanCTKD DEBUG] Found 105 boundaries! tea_texts(125): ['Here', "'s", ' how', ' to', ' solve']... stu_texts(129): ['Here', "'", 's', ' how', ' to']...
+
+[36m(RolloutRayActor pid=2515)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/fastapi/routing.py:352: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+[36m(RolloutRayActor pid=2515)[0m   return await dependant.call(**values)
+[36m(StudentRayActor pid=3297)[0m /opt/venvs/simct-b200/lib/python3.12/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+[36m(StudentRayActor pid=3297)[0m   return func(*args, **kwargs)
+
+[2026-10-09 17:32:39] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:logging:1037[0m] [Rank 0] epoch [1/2], step [1/4], optimizer_updates [1/4], train_progress [25.00%], campaign_progress [25.00%], diagnostic_progress [50.00%], Elapsed: 0:01:48, ETA: 0:05:26, ETA_campaign: 0:05:26, ETA_diagnostic: 0:01:48, content_length_mean: 128.000000, content_length_median: 128.000000, empty_response_fraction: 0.000000, content_length_baseline: 128.000000, collapse_bad_streak: 0.000000, collapse_stop: 0.000000, rollout_time: 82.911768, teacher_fwd_time: 1.939901, loss: 1.250179, kd_loss: 1.250179, align_ratio: 1.028674, gh_mask_ratio: 0.121101, valid_student_tokens: 516.000000, valid_teacher_tokens: 512.687500, aligned_token_count: 534.937500, aligned_segment_count: 405.625000, span_segment_count: 60.875000, span_segment_ratio: 0.150840, gh_kept_segment_count: 357.125000, gh_masked_segment_count: 48.500000, teacher_candidate_mass_mean: 0.868552, teacher_candidate_mass_min: 0.000076, teacher_candidate_mass_max: 1.000000, grad_norm: 7.657762, response_length: 128.000000, total_length: 169.218750, optimizer_lr_used: 0.000000000e+00, optimizer_final_grad_norm: 13.707727, lr: 5.000000000e-07, optimizer_updates: 1.000000, student_train_wall_time: 4.924752, gpu_memory_allocated_gib: 30.542773, gpu_memory_reserved_gib: 42.953125, gpu_peak_memory_allocated_gib: 40.309343, gpu_peak_memory_reserved_gib: 42.953125, gpu_memory_capacity_gib: 178.351196, processed_valid_student_tokens: 8256.000000, processed_valid_teacher_tokens: 8203.000000, global_processed_valid_student_tokens: 8256.000000, student_valid_tokens_per_second: 1676.429489, student_train_time: 6.451140, weight_update_time: 0.134776, step_wall_time: 108.596658, completed_optimizer_updates: 1.000000, rollout_prompt_count: 64.000000, rollout_sample_count: 64.000000, end_to_end_valid_tokens_per_second: 76.024439, resource/gpu_0/memory_used_mib: 10118.000000, resource/gpu_0/memory_total_mib: 183359.000000, resource/gpu_0/utilization_percent: 8.000000, resource/gpu_0/power_watts: 262.270000, resource/gpu_0/temperature_c: 42.000000
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 18/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 34/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 9/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 21/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 29/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 18/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 20/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 48/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 48/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 21/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 24/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 20/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 48/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 27/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 22/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 17/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 28/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 19/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 34/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 48/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 31/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 43/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 19/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 46/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 45/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 24/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 49/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 26/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 23/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 32/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[exact-rollout] WARNING: 16/128 behavior logprobs are exactly 0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They still enter the DPCA semantic prior, so a loss that needs them fails closed.
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:32:40] [[32mINFO[0m] [[2mteacher_actor.py:forward:129[0m] [TeacherRayActor.forward] chunk 1/2, micro_batches=8, samples=32
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:32:40] [[32mINFO[0m] [[2mteacher_actor.py:forward:129[0m] [TeacherRayActor.forward] chunk 2/2, micro_batches=8, samples=32
+
+[2026-10-09 17:32:55] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:logging:1037[0m] [Rank 0] epoch [1/2], step [2/4], optimizer_updates [2/4], train_progress [50.00%], campaign_progress [50.00%], diagnostic_progress [100.00%], Elapsed: 0:02:05, ETA: 0:02:05, ETA_campaign: 0:02:05, ETA_diagnostic: 0:00:00, content_length_mean: 128.000000, content_length_median: 128.000000, empty_response_fraction: 0.000000, content_length_baseline: 128.000000, collapse_bad_streak: 0.000000, collapse_stop: 0.000000, rollout_time: 1.209336, teacher_fwd_time: 1.035072, loss: 1.326136, kd_loss: 1.326136, align_ratio: 1.024712, gh_mask_ratio: 0.130637, valid_student_tokens: 516.000000, valid_teacher_tokens: 516.875000, aligned_token_count: 534.437500, aligned_segment_count: 405.625000, span_segment_count: 61.125000, span_segment_ratio: 0.151162, gh_kept_segment_count: 352.875000, gh_masked_segment_count: 52.750000, teacher_candidate_mass_mean: 0.857318, teacher_candidate_mass_min: 0.000002, teacher_candidate_mass_max: 1.000000, grad_norm: 8.953946, response_length: 128.000000, total_length: 166.781250, optimizer_lr_used: 5.000000000e-07, optimizer_final_grad_norm: 14.887672, lr: 3.750000000e-07, optimizer_updates: 1.000000, student_train_wall_time: 4.756017, gpu_memory_allocated_gib: 30.597770, gpu_memory_reserved_gib: 51.103516, gpu_peak_memory_allocated_gib: 45.053638, gpu_peak_memory_reserved_gib: 51.103516, gpu_memory_capacity_gib: 178.351196, processed_valid_student_tokens: 8256.000000, processed_valid_teacher_tokens: 8270.000000, global_processed_valid_student_tokens: 8256.000000, student_valid_tokens_per_second: 1735.906319, student_train_time: 7.643009, weight_update_time: 0.098289, step_wall_time: 16.604375, completed_optimizer_updates: 2.000000, rollout_prompt_count: 64.000000, rollout_sample_count: 64.000000, end_to_end_valid_tokens_per_second: 497.218364, resource/gpu_0/memory_used_mib: 10120.000000, resource/gpu_0/memory_total_mib: 183359.000000, resource/gpu_0/utilization_percent: 16.000000, resource/gpu_0/power_watts: 265.960000, resource/gpu_0/temperature_c: 44.000000
+[2026-10-09 17:32:55] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:fit:587[0m] [Rank 0] Saving model after epoch 1
+
+[36m(StudentRayActor pid=3297)[0m 
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]
+[36m(StudentRayActor pid=3297)[0m 
+Writing model shards: 100%|██████████| 1/1 [00:10<00:00, 10.17s/it]
+Writing model shards: 100%|██████████| 1/1 [00:10<00:00, 10.17s/it]
+
+[2026-10-09 17:35:58] [[32mINFO[0m] [[2mon_policy_kd_trainer.py:fit:612[0m] [Rank 0] Training done, totally cost 0:05:07
+[36m(StudentRayActor pid=3297)[0m 
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]
+[36m(StudentRayActor pid=3297)[0m 
+Writing model shards: 100%|██████████| 1/1 [00:10<00:00, 10.66s/it]
+Writing model shards: 100%|██████████| 1/1 [00:10<00:00, 10.66s/it]
+[2026-10-09 17:36:24] [[32mINFO[0m] [[2mtrain_kd_on_policy.py:train:227[0m] [Rank 0] Training completed and model saved.
+[2026-10-09 17:36:26] [[32mINFO[0m] [[2mteacher_group.py:shutdown:272[0m] [TeacherActorGroup] All teacher actors shutdown complete.
+*** SIGTERM received at time=1791567386 on cpu 14 ***
+PC: @     0x2a74643418fb  (unknown)  syscall
+[36m(RolloutRayActor pid=2515)[0m [2026-10-09 17:36:26] [[32mINFO[0m] [[2mrollout_actor.py:shutdown:253[0m] [RolloutActor 0] Shutdown complete
+[36m(TeacherRayActor pid=3026)[0m [2026-10-09 17:36:26] [[32mINFO[0m] [[2mteacher_actor.py:shutdown:185[0m] [TeacherRayActor] Shutdown complete
+    @     0x2a818810d689  (unknown)  signal_hook_registry::handler::h0a1a3369a4ebaab0
+[2026-10-09 17:36:26,466 E 2446 307] logging.cc:474: *** SIGTERM received at time=1791567386 on cpu 14 ***
+[2026-10-09 17:36:26,466 E 2446 307] logging.cc:474: PC: @     0x2a74643418fb  (unknown)  syscall
+[2026-10-09 17:36:26,466 E 2446 307] logging.cc:474:     @     0x2a818810d689  (unknown)  signal_hook_registry::handler::h0a1a3369a4ebaab0
+[2026-10-09 17:36:26] [[32mINFO[0m] [[2mrollout_group.py:shutdown:334[0m] RolloutGroup shutdown complete
+PAIRED_CANARY_SUMMARY_JSON={"campaign_progress": 0.5, "campaign_target_updates": 4, "current_optimizer_updates": 2, "diagnostic_progress": 1.0, "diagnostic_stop_target": 2, "energy_updates": null, "eta_campaign_seconds": 307.9937880039215, "eta_diagnostic_seconds": 0.0, "kd_algorithm": "span_ctkd", "optimizer_updates": 2, "rollout_iterations": 2, "scientific_progress": 0.5, "scientific_total_updates": 4, "session_completed_updates": 2, "session_fit_seconds": 307.9937880039215, "session_start_optimizer_updates": 0, "status": "completed", "stop_reason": null, "student": "/assets/student", "teacher": "/probes/teacher", "total_time_seconds": 307.9937880039215}
+
+CANARY_RECEIPT_JSON={"exit_code": 0, "image": "docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f", "elapsed_seconds": 691.452437163}
+
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/kieusontung6/main/ap-NchTyHXqReQuaqenEdhv5p

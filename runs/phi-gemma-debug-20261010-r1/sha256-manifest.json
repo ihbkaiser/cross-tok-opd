@@ -1,0 +1,9 @@
+{
+  "exit_code.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+  "gemma-long.json": "1a121fc7a10541848a9274b9b60d2da47a39c75d7ff2e1f590233173608ee20d",
+  "gemma-short.json": "7581dc856bd51843db23e25ea29ca29f66641b259291def2fe8950e911933b36",
+  "masked-sdpa-metrics.json": "4bcaf5e0cfdfdde3e1f0d9132ab8471e75b170f33dc747d288bad733aeb0f88b",
+  "modal.log": "11ee0ae5323ae490c1d197321e3f7096fb0978bc8c8805cecc5de68de6060b0b",
+  "phi-short.json": "4615fa741f779dbb4af41fb4cebced2ad6a1e1cb5db6cc672cc9ae2caedaf965",
+  "verified-metrics.json": "9a022682e3dcee8dd096c7e5eaf66528e82b3000b214f3bc5d4c58447a7caa75"
+}

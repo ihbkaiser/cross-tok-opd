@@ -1,0 +1,12 @@
+..................                                                       [100%]
+=============================== warnings summary ===============================
+../venvs/simct-b200/lib/python3.12/site-packages/torch/jit/_script.py:365: 14 warnings
+  /opt/venvs/simct-b200/lib/python3.12/site-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+../venvs/simct-b200/lib/python3.12/site-packages/torchao/quantization/quant_api.py:1745
+  /opt/venvs/simct-b200/lib/python3.12/site-packages/torchao/quantization/quant_api.py:1745: SyntaxWarning: invalid escape sequence '\.'
+    * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+18 passed, 15 warnings in 55.15s

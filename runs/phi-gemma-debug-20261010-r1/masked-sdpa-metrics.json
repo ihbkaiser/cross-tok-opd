@@ -1,0 +1,53 @@
+{
+  "gemma-short": {
+    "decode_vs_sdpa_temperature": {
+      "tokens": 256,
+      "mean": 0.008288731547890421,
+      "p99": 0.15524016022682166,
+      "max": 0.4676177501678467,
+      "above_0p5": 0
+    },
+    "nonzero_decode_vs_eager_temperature": {
+      "tokens": 219,
+      "mean": 0.009951980045641368,
+      "p99": 0.15365796327590936,
+      "max": 0.45586419105529785,
+      "above_0p5": 0
+    },
+    "closer_to_raw_nonzero_fraction": 0.0136986301369863
+  },
+  "gemma-long": {
+    "decode_vs_sdpa_temperature": {
+      "tokens": 7680,
+      "mean": 0.010627608636753863,
+      "p99": 0.18810083627700808,
+      "max": 0.5063724517822266,
+      "above_0p5": 1
+    },
+    "nonzero_decode_vs_eager_temperature": {
+      "tokens": 7479,
+      "mean": 0.011071333661911336,
+      "p99": 0.18920660138130202,
+      "max": 0.510014533996582,
+      "above_0p5": 1
+    },
+    "closer_to_raw_nonzero_fraction": 0.01764941837144003
+  },
+  "phi-short": {
+    "decode_vs_sdpa_temperature": {
+      "tokens": 128,
+      "mean": 0.026267663931725138,
+      "p99": 0.48550559580326147,
+      "max": 0.7704081535339355,
+      "above_0p5": 2
+    },
+    "nonzero_decode_vs_eager_temperature": {
+      "tokens": 97,
+      "mean": 0.03629004639205208,
+      "p99": 0.3937604141235321,
+      "max": 0.7673063278198242,
+      "above_0p5": 1
+    },
+    "closer_to_raw_nonzero_fraction": 0.07216494845360824
+  }
+}

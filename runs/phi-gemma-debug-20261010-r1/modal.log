@@ -1,0 +1,357 @@
+✓ Initialized. View run at 
+https://modal.com/apps/kieusontung6/main/ap-SOsEf3IHf03tAmo23X1FoW
+✓ Created objects.
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_debug_20261010
+│   .py
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_debug_worker.p
+│   y
+├── ✓ Uploaded 
+│   /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/mp_opd_parity_worker.py
+├── ✓ Uploaded /mnt/d/dev/dsh/research_vai/SimCT/kdflow
+├── ✓ Created Function prepare.
+└── ✓ Created Function diagnose.
+
+[1AFetching 11 files:   0%|          | 0/11 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+[1AFetching 11 files:  18%|█▊        | 2/11 [00:00<00:00,  9.10it/s]
+[1AFetching 11 files:  45%|████▌     | 5/11 [00:00<00:00, 16.27it/s]
+[1AFetching 11 files:  73%|███████▎  | 8/11 [00:00<00:00, 16.13it/s]
+[1AFetching 11 files:  91%|█████████ | 10/11 [00:12<00:01,  2.00s/it]
+[1AFetching 11 files: 100%|██████████| 11/11 [00:22<00:00,  3.50s/it]
+[1AFetching 11 files: 100%|██████████| 11/11 [00:22<00:00,  2.08s/it]
+MODEL_READY gemma2 GemmaTokenizer
+[transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+MODEL_READY phi3 GPT2Tokenizer
+PREPARE_RESULT {'status': 'assets_ready'}
+/opt/venvs/simct-b200/lib/python3.12/site-packages/torchao/quantization/quant_api.py:1745: SyntaxWarning: invalid escape sequence '\.'
+  * regex for parameter names, must start with `re:`, e.g. `re:language\.layers\..+\.q_proj.weight`.
+
+Disable hybrid SWA memory for Gemma2ForCausalLM as it is not yet supported.
+TensorRT-LLM MHA only supports page_size of 16, 32 or 64, changing page_size from None to 64.
+
+
+Multi-thread loading shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+Multi-thread loading shards:  50% Completed | 1/2 [00:09<00:09,  9.10s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:09<00:00,  3.93s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:09<00:00,  4.70s/it]
+
+  0%|          | 0/52 [00:00<?, ?it/s]
+Capturing batches (bs=512 avail_mem=131.56 GB):   0%|          | 0/52 [00:00<?, ?it/s]
+2026-10-09 17:17:34,298 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-10-09 17:17:34] Unexpected error during package walk: cutlass.cute.experimental
+
+
+Capturing batches (bs=512 avail_mem=131.56 GB):   2%|▏         | 1/52 [00:50<43:15, 50.90s/it]
+Capturing batches (bs=496 avail_mem=131.25 GB):   2%|▏         | 1/52 [00:50<43:15, 50.90s/it]
+Capturing batches (bs=480 avail_mem=131.25 GB):   2%|▏         | 1/52 [00:50<43:15, 50.90s/it]
+Capturing batches (bs=464 avail_mem=131.25 GB):   2%|▏         | 1/52 [00:50<43:15, 50.90s/it]
+Capturing batches (bs=464 avail_mem=131.25 GB):   8%|▊         | 4/52 [00:51<07:43,  9.66s/it]
+Capturing batches (bs=448 avail_mem=131.25 GB):   8%|▊         | 4/52 [00:51<07:43,  9.66s/it]
+Capturing batches (bs=432 avail_mem=131.25 GB):   8%|▊         | 4/52 [00:51<07:43,  9.66s/it]
+Capturing batches (bs=416 avail_mem=131.25 GB):   8%|▊         | 4/52 [00:51<07:43,  9.66s/it]
+Capturing batches (bs=416 avail_mem=131.25 GB):  13%|█▎        | 7/52 [00:51<03:23,  4.51s/it]
+Capturing batches (bs=400 avail_mem=131.25 GB):  13%|█▎        | 7/52 [00:51<03:23,  4.51s/it]
+Capturing batches (bs=384 avail_mem=131.25 GB):  13%|█▎        | 7/52 [00:51<03:23,  4.51s/it]
+Capturing batches (bs=368 avail_mem=131.25 GB):  13%|█▎        | 7/52 [00:51<03:23,  4.51s/it]
+Capturing batches (bs=368 avail_mem=131.25 GB):  19%|█▉        | 10/52 [00:51<01:48,  2.57s/it]
+Capturing batches (bs=352 avail_mem=131.25 GB):  19%|█▉        | 10/52 [00:51<01:48,  2.57s/it]
+Capturing batches (bs=336 avail_mem=131.24 GB):  19%|█▉        | 10/52 [00:51<01:48,  2.57s/it]
+Capturing batches (bs=320 avail_mem=131.24 GB):  19%|█▉        | 10/52 [00:51<01:48,  2.57s/it]
+Capturing batches (bs=320 avail_mem=131.24 GB):  25%|██▌       | 13/52 [00:51<01:03,  1.62s/it]
+Capturing batches (bs=304 avail_mem=131.24 GB):  25%|██▌       | 13/52 [00:51<01:03,  1.62s/it]
+Capturing batches (bs=288 avail_mem=131.24 GB):  25%|██▌       | 13/52 [00:51<01:03,  1.62s/it]
+Capturing batches (bs=272 avail_mem=131.24 GB):  25%|██▌       | 13/52 [00:51<01:03,  1.62s/it]
+Capturing batches (bs=272 avail_mem=131.24 GB):  31%|███       | 16/52 [00:51<00:38,  1.06s/it]
+Capturing batches (bs=256 avail_mem=131.24 GB):  31%|███       | 16/52 [00:51<00:38,  1.06s/it]
+Capturing batches (bs=248 avail_mem=131.24 GB):  31%|███       | 16/52 [00:51<00:38,  1.06s/it]
+Capturing batches (bs=240 avail_mem=131.23 GB):  31%|███       | 16/52 [00:51<00:38,  1.06s/it]
+Capturing batches (bs=240 avail_mem=131.23 GB):  37%|███▋      | 19/52 [00:51<00:23,  1.39it/s]
+Capturing batches (bs=232 avail_mem=131.23 GB):  37%|███▋      | 19/52 [00:51<00:23,  1.39it/s]
+Capturing batches (bs=224 avail_mem=131.23 GB):  37%|███▋      | 19/52 [00:51<00:23,  1.39it/s]
+Capturing batches (bs=216 avail_mem=131.23 GB):  37%|███▋      | 19/52 [00:51<00:23,  1.39it/s]
+Capturing batches (bs=216 avail_mem=131.23 GB):  42%|████▏     | 22/52 [00:52<00:15,  1.99it/s]
+Capturing batches (bs=208 avail_mem=131.23 GB):  42%|████▏     | 22/52 [00:52<00:15,  1.99it/s]
+Capturing batches (bs=200 avail_mem=131.23 GB):  42%|████▏     | 22/52 [00:52<00:15,  1.99it/s]
+Capturing batches (bs=192 avail_mem=131.23 GB):  42%|████▏     | 22/52 [00:52<00:15,  1.99it/s]
+Capturing batches (bs=192 avail_mem=131.23 GB):  48%|████▊     | 25/52 [00:52<00:09,  2.77it/s]
+Capturing batches (bs=184 avail_mem=131.23 GB):  48%|████▊     | 25/52 [00:52<00:09,  2.77it/s]
+Capturing batches (bs=176 avail_mem=131.22 GB):  48%|████▊     | 25/52 [00:52<00:09,  2.77it/s]
+Capturing batches (bs=168 avail_mem=131.22 GB):  48%|████▊     | 25/52 [00:52<00:09,  2.77it/s]
+Capturing batches (bs=168 avail_mem=131.22 GB):  54%|█████▍    | 28/52 [00:52<00:06,  3.84it/s]
+Capturing batches (bs=160 avail_mem=131.22 GB):  54%|█████▍    | 28/52 [00:52<00:06,  3.84it/s]
+Capturing batches (bs=152 avail_mem=131.22 GB):  54%|█████▍    | 28/52 [00:52<00:06,  3.84it/s]
+Capturing batches (bs=144 avail_mem=131.22 GB):  54%|█████▍    | 28/52 [00:52<00:06,  3.84it/s]
+Capturing batches (bs=144 avail_mem=131.22 GB):  60%|█████▉    | 31/52 [00:52<00:04,  5.10it/s]
+Capturing batches (bs=136 avail_mem=131.22 GB):  60%|█████▉    | 31/52 [00:52<00:04,  5.10it/s]
+Capturing batches (bs=128 avail_mem=131.22 GB):  60%|█████▉    | 31/52 [00:52<00:04,  5.10it/s]
+Capturing batches (bs=120 avail_mem=131.22 GB):  60%|█████▉    | 31/52 [00:52<00:04,  5.10it/s]
+Capturing batches (bs=120 avail_mem=131.22 GB):  65%|██████▌   | 34/52 [00:52<00:02,  6.70it/s]
+Capturing batches (bs=112 avail_mem=131.22 GB):  65%|██████▌   | 34/52 [00:52<00:02,  6.70it/s]
+Capturing batches (bs=104 avail_mem=131.22 GB):  65%|██████▌   | 34/52 [00:52<00:02,  6.70it/s]
+Capturing batches (bs=96 avail_mem=131.21 GB):  65%|██████▌   | 34/52 [00:52<00:02,  6.70it/s] 
+Capturing batches (bs=96 avail_mem=131.21 GB):  71%|███████   | 37/52 [00:52<00:01,  8.52it/s]
+Capturing batches (bs=88 avail_mem=131.21 GB):  71%|███████   | 37/52 [00:52<00:01,  8.52it/s]
+Capturing batches (bs=80 avail_mem=131.21 GB):  71%|███████   | 37/52 [00:52<00:01,  8.52it/s]
+Capturing batches (bs=72 avail_mem=131.21 GB):  71%|███████   | 37/52 [00:52<00:01,  8.52it/s]
+Capturing batches (bs=72 avail_mem=131.21 GB):  77%|███████▋  | 40/52 [00:52<00:01, 10.26it/s]
+Capturing batches (bs=64 avail_mem=131.21 GB):  77%|███████▋  | 40/52 [00:52<00:01, 10.26it/s]
+Capturing batches (bs=56 avail_mem=131.20 GB):  77%|███████▋  | 40/52 [00:52<00:01, 10.26it/s]
+Capturing batches (bs=48 avail_mem=131.20 GB):  77%|███████▋  | 40/52 [00:52<00:01, 10.26it/s]
+Capturing batches (bs=48 avail_mem=131.20 GB):  83%|████████▎ | 43/52 [00:53<00:00, 11.74it/s]
+Capturing batches (bs=40 avail_mem=131.20 GB):  83%|████████▎ | 43/52 [00:53<00:00, 11.74it/s]
+Capturing batches (bs=32 avail_mem=131.20 GB):  83%|████████▎ | 43/52 [00:53<00:00, 11.74it/s]
+Capturing batches (bs=24 avail_mem=131.20 GB):  83%|████████▎ | 43/52 [00:53<00:00, 11.74it/s]
+Capturing batches (bs=24 avail_mem=131.20 GB):  88%|████████▊ | 46/52 [00:53<00:00, 12.35it/s]
+Capturing batches (bs=16 avail_mem=131.20 GB):  88%|████████▊ | 46/52 [00:53<00:00, 12.35it/s]
+Capturing batches (bs=12 avail_mem=131.20 GB):  88%|████████▊ | 46/52 [00:53<00:00, 12.35it/s]
+Capturing batches (bs=12 avail_mem=131.20 GB):  92%|█████████▏| 48/52 [00:53<00:00, 10.34it/s]
+Capturing batches (bs=8 avail_mem=131.20 GB):  92%|█████████▏| 48/52 [00:53<00:00, 10.34it/s] 
+Capturing batches (bs=4 avail_mem=131.20 GB):  92%|█████████▏| 48/52 [00:53<00:00, 10.34it/s]
+Capturing batches (bs=2 avail_mem=131.19 GB):  92%|█████████▏| 48/52 [00:53<00:00, 10.34it/s]
+Capturing batches (bs=2 avail_mem=131.19 GB):  98%|█████████▊| 51/52 [00:53<00:00, 12.83it/s]
+Capturing batches (bs=1 avail_mem=131.19 GB):  98%|█████████▊| 51/52 [00:53<00:00, 12.83it/s]
+Capturing batches (bs=1 avail_mem=131.19 GB): 100%|██████████| 52/52 [00:53<00:00,  1.03s/it]
+
+/opt/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/resource_tracker.py:147: UserWarning: resource_tracker: process died unexpectedly, relaunching.  Some resources might leak.
+  warnings.warn('resource_tracker: process died unexpectedly, '
+
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 288/288 [00:00<00:00, 3419.71it/s]
+
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 288/288 [00:00<00:00, 3520.88it/s]
+MP_PARITY_SUMMARY_JSON={"backends": ["default"], "comparisons": {"hf_eager_vs_sdpa_raw": {"above_0p1": 1, "above_0p5": 0, "left": -1.0558013916015625, "max": 0.16972434520721436, "mean": 0.005030409347293846, "p99": 0.07226219773292542, "p999": 0.14593172430992168, "right": -1.2255257368087769, "tokens": 256, "worst_flat_position": 27}, "hf_eager_vs_sdpa_temperature": {"above_0p1": 3, "above_0p5": 0, "left": -1.3439140319824219, "max": 0.3235827684402466, "mean": 0.005189927175604903, "p99": 0.11178565025329551, "p999": 0.28190000832080914, "right": -1.6674968004226685, "tokens": 256, "worst_flat_position": 27}, "sglang_default_decode_vs_hf_eager_raw": {"above_0p1": 42, "above_0p5": 2, "left": -1.6713628768920898, "max": 0.6155614852905273, "mean": 0.04730706741613985, "p99": 0.38768800795078245, "p999": 0.5943740350008014, "right": -1.0558013916015625, "tokens": 256, "worst_flat_position": 27}, "sglang_default_decode_vs_hf_eager_temperature": {"above_0p1": 4, "above_0p5": 0, "left": -2.931225061416626, "max": 0.45586419105529785, "mean": 0.008513608395331024, "p99": 0.15006183981895435, "p999": 0.4231182777881628, "right": -3.387089252471924, "tokens": 256, "worst_flat_position": 78}, "sglang_default_prefill_vs_hf_eager_raw": {"above_0p1": 2, "above_0p5": 0, "left": -2.592283010482788, "max": 0.1757066249847412, "mean": 0.0068143603068069325, "p99": 0.06889117807149882, "p999": 0.16393084406852743, "right": -2.7679896354675293, "tokens": 256, "worst_flat_position": 78}, "sglang_default_prefill_vs_hf_eager_temperature": {"above_0p1": 47, "above_0p5": 3, "left": -2.592283010482788, "max": 0.7948062419891357, "mean": 0.04932814713318984, "p99": 0.4622878193855259, "p999": 0.7604824405908591, "right": -3.387089252471924, "tokens": 256, "worst_flat_position": 78}, "sglang_default_prefill_vs_hf_sdpa_raw": {"above_0p1": 1, "above_0p5": 0, "left": -2.592283010482788, "max": 0.17900490760803223, "mean": 0.006525281577655667, "p99": 0.07881020307540886, "p999": 0.15566181778907817, "right": -2.7712879180908203, "tokens": 256, "worst_flat_position": 78}, "sglang_default_prefill_vs_hf_sdpa_temperature": {"above_0p1": 48, "above_0p5": 4, "left": -2.592283010482788, "max": 0.8065598011016846, "mean": 0.05168240713421429, "p99": 0.5503540813922874, "p999": 0.7659548455476768, "right": -3.3988428115844727, "tokens": 256, "worst_flat_position": 78}}, "elapsed_seconds": 209.35670248199997, "environment": {"cuda": "13.0", "gpu": "NVIDIA B200", "max_new_tokens": 128, "python": "3.12.12", "requested_rl_on_policy_target": null, "return_original_logprob": null, "sglang": "0.5.11", "temperature": 0.6, "top_p": 0.95, "torch": "2.11.0+cu130", "transformers": "5.6.0"}, "status": "completed"}
+SHORT_GATE_JSON={"tokens": 256, "zero_fraction": 0.14453125, "parity": {"tokens": 256, "mean": 0.008513608395331024, "p99": 0.15006183981895435, "p999": 0.4231182777881628, "max": 0.45586419105529785, "above_0p1": 4, "above_0p5": 0, "worst_flat_position": 78, "left": -2.931225061416626, "right": -3.387089252471924}, "passed": true}
+
+[2026-10-09 17:20:20] Disable hybrid SWA memory for Gemma2ForCausalLM as it is not yet supported.
+[2026-10-09 17:20:20] TensorRT-LLM MHA only supports page_size of 16, 32 or 64, changing page_size from None to 64.
+
+
+Multi-thread loading shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+Multi-thread loading shards:  50% Completed | 1/2 [00:01<00:01,  1.07s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:01<00:00,  1.75it/s]
+Multi-thread loading shards: 100% Completed | 2/2 [00:01<00:00,  1.55it/s]
+
+  0%|          | 0/52 [00:00<?, ?it/s]
+Capturing batches (bs=512 avail_mem=130.85 GB):   0%|          | 0/52 [00:00<?, ?it/s]2026-10-09 17:20:40,697 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-10-09 17:20:40] Unexpected error during package walk: cutlass.cute.experimental
+
+Capturing batches (bs=512 avail_mem=130.85 GB):   2%|▏         | 1/52 [00:01<01:31,  1.80s/it]
+Capturing batches (bs=496 avail_mem=130.55 GB):   2%|▏         | 1/52 [00:01<01:31,  1.80s/it]
+Capturing batches (bs=480 avail_mem=130.55 GB):   2%|▏         | 1/52 [00:01<01:31,  1.80s/it]
+Capturing batches (bs=464 avail_mem=130.54 GB):   2%|▏         | 1/52 [00:01<01:31,  1.80s/it]
+Capturing batches (bs=464 avail_mem=130.54 GB):   8%|▊         | 4/52 [00:01<00:17,  2.70it/s]
+Capturing batches (bs=448 avail_mem=130.54 GB):   8%|▊         | 4/52 [00:01<00:17,  2.70it/s]
+Capturing batches (bs=432 avail_mem=130.54 GB):   8%|▊         | 4/52 [00:01<00:17,  2.70it/s]
+Capturing batches (bs=432 avail_mem=130.54 GB):  12%|█▏        | 6/52 [00:02<00:10,  4.33it/s]
+Capturing batches (bs=416 avail_mem=130.54 GB):  12%|█▏        | 6/52 [00:02<00:10,  4.33it/s]
+Capturing batches (bs=400 avail_mem=130.54 GB):  12%|█▏        | 6/52 [00:02<00:10,  4.33it/s]
+Capturing batches (bs=384 avail_mem=130.54 GB):  12%|█▏        | 6/52 [00:02<00:10,  4.33it/s]
+Capturing batches (bs=384 avail_mem=130.54 GB):  17%|█▋        | 9/52 [00:02<00:06,  7.10it/s]
+Capturing batches (bs=368 avail_mem=130.54 GB):  17%|█▋        | 9/52 [00:02<00:06,  7.10it/s]
+Capturing batches (bs=352 avail_mem=130.54 GB):  17%|█▋        | 9/52 [00:02<00:06,  7.10it/s]
+Capturing batches (bs=336 avail_mem=130.54 GB):  17%|█▋        | 9/52 [00:02<00:06,  7.10it/s]
+Capturing batches (bs=336 avail_mem=130.54 GB):  23%|██▎       | 12/52 [00:02<00:03, 10.08it/s]
+Capturing batches (bs=320 avail_mem=130.54 GB):  23%|██▎       | 12/52 [00:02<00:03, 10.08it/s]
+Capturing batches (bs=304 avail_mem=130.53 GB):  23%|██▎       | 12/52 [00:02<00:03, 10.08it/s]
+Capturing batches (bs=288 avail_mem=130.53 GB):  23%|██▎       | 12/52 [00:02<00:03, 10.08it/s]
+Capturing batches (bs=288 avail_mem=130.53 GB):  29%|██▉       | 15/52 [00:02<00:02, 13.08it/s]
+Capturing batches (bs=272 avail_mem=130.53 GB):  29%|██▉       | 15/52 [00:02<00:02, 13.08it/s]
+Capturing batches (bs=256 avail_mem=130.53 GB):  29%|██▉       | 15/52 [00:02<00:02, 13.08it/s]
+Capturing batches (bs=248 avail_mem=130.53 GB):  29%|██▉       | 15/52 [00:02<00:02, 13.08it/s]
+Capturing batches (bs=248 avail_mem=130.53 GB):  35%|███▍      | 18/52 [00:02<00:02, 16.01it/s]
+Capturing batches (bs=240 avail_mem=130.53 GB):  35%|███▍      | 18/52 [00:02<00:02, 16.01it/s]
+Capturing batches (bs=232 avail_mem=130.53 GB):  35%|███▍      | 18/52 [00:02<00:02, 16.01it/s]
+Capturing batches (bs=224 avail_mem=130.53 GB):  35%|███▍      | 18/52 [00:02<00:02, 16.01it/s]
+Capturing batches (bs=224 avail_mem=130.53 GB):  40%|████      | 21/52 [00:02<00:01, 15.67it/s]
+Capturing batches (bs=216 avail_mem=130.52 GB):  40%|████      | 21/52 [00:02<00:01, 15.67it/s]
+Capturing batches (bs=208 avail_mem=130.52 GB):  40%|████      | 21/52 [00:02<00:01, 15.67it/s]
+Capturing batches (bs=200 avail_mem=130.52 GB):  40%|████      | 21/52 [00:02<00:01, 15.67it/s]
+Capturing batches (bs=200 avail_mem=130.52 GB):  46%|████▌     | 24/52 [00:02<00:01, 15.96it/s]
+Capturing batches (bs=192 avail_mem=130.52 GB):  46%|████▌     | 24/52 [00:02<00:01, 15.96it/s]
+Capturing batches (bs=184 avail_mem=130.52 GB):  46%|████▌     | 24/52 [00:02<00:01, 15.96it/s]
+Capturing batches (bs=176 avail_mem=130.52 GB):  46%|████▌     | 24/52 [00:03<00:01, 15.96it/s]
+Capturing batches (bs=176 avail_mem=130.52 GB):  52%|█████▏    | 27/52 [00:03<00:01, 15.49it/s]
+Capturing batches (bs=168 avail_mem=130.52 GB):  52%|█████▏    | 27/52 [00:03<00:01, 15.49it/s]
+Capturing batches (bs=160 avail_mem=130.51 GB):  52%|█████▏    | 27/52 [00:03<00:01, 15.49it/s]
+Capturing batches (bs=152 avail_mem=130.51 GB):  52%|█████▏    | 27/52 [00:03<00:01, 15.49it/s]
+Capturing batches (bs=152 avail_mem=130.51 GB):  58%|█████▊    | 30/52 [00:03<00:01, 17.44it/s]
+Capturing batches (bs=144 avail_mem=130.51 GB):  58%|█████▊    | 30/52 [00:03<00:01, 17.44it/s]
+Capturing batches (bs=136 avail_mem=130.51 GB):  58%|█████▊    | 30/52 [00:03<00:01, 17.44it/s]
+Capturing batches (bs=128 avail_mem=130.51 GB):  58%|█████▊    | 30/52 [00:03<00:01, 17.44it/s]
+Capturing batches (bs=128 avail_mem=130.51 GB):  63%|██████▎   | 33/52 [00:03<00:01, 17.93it/s]
+Capturing batches (bs=120 avail_mem=130.51 GB):  63%|██████▎   | 33/52 [00:03<00:01, 17.93it/s]
+Capturing batches (bs=112 avail_mem=130.51 GB):  63%|██████▎   | 33/52 [00:03<00:01, 17.93it/s]
+Capturing batches (bs=104 avail_mem=130.51 GB):  63%|██████▎   | 33/52 [00:03<00:01, 17.93it/s]
+Capturing batches (bs=104 avail_mem=130.51 GB):  69%|██████▉   | 36/52 [00:03<00:00, 19.88it/s]
+Capturing batches (bs=96 avail_mem=130.51 GB):  69%|██████▉   | 36/52 [00:03<00:00, 19.88it/s] 
+Capturing batches (bs=88 avail_mem=130.51 GB):  69%|██████▉   | 36/52 [00:03<00:00, 19.88it/s]
+Capturing batches (bs=80 avail_mem=130.50 GB):  69%|██████▉   | 36/52 [00:03<00:00, 19.88it/s]
+Capturing batches (bs=80 avail_mem=130.50 GB):  75%|███████▌  | 39/52 [00:03<00:00, 21.32it/s]
+Capturing batches (bs=72 avail_mem=130.50 GB):  75%|███████▌  | 39/52 [00:03<00:00, 21.32it/s]
+Capturing batches (bs=64 avail_mem=130.50 GB):  75%|███████▌  | 39/52 [00:03<00:00, 21.32it/s]
+Capturing batches (bs=56 avail_mem=130.50 GB):  75%|███████▌  | 39/52 [00:03<00:00, 21.32it/s]
+Capturing batches (bs=56 avail_mem=130.50 GB):  81%|████████  | 42/52 [00:03<00:00, 22.23it/s]
+Capturing batches (bs=48 avail_mem=130.50 GB):  81%|████████  | 42/52 [00:03<00:00, 22.23it/s]
+Capturing batches (bs=40 avail_mem=130.50 GB):  81%|████████  | 42/52 [00:03<00:00, 22.23it/s]
+Capturing batches (bs=32 avail_mem=130.49 GB):  81%|████████  | 42/52 [00:03<00:00, 22.23it/s]
+Capturing batches (bs=32 avail_mem=130.49 GB):  87%|████████▋ | 45/52 [00:03<00:00, 23.07it/s]
+Capturing batches (bs=24 avail_mem=130.49 GB):  87%|████████▋ | 45/52 [00:03<00:00, 23.07it/s]
+Capturing batches (bs=16 avail_mem=130.49 GB):  87%|████████▋ | 45/52 [00:03<00:00, 23.07it/s]
+Capturing batches (bs=12 avail_mem=130.49 GB):  87%|████████▋ | 45/52 [00:04<00:00, 23.07it/s]
+Capturing batches (bs=12 avail_mem=130.49 GB):  92%|█████████▏| 48/52 [00:04<00:00, 18.18it/s]
+Capturing batches (bs=8 avail_mem=130.49 GB):  92%|█████████▏| 48/52 [00:04<00:00, 18.18it/s] 
+Capturing batches (bs=4 avail_mem=130.49 GB):  92%|█████████▏| 48/52 [00:04<00:00, 18.18it/s]
+Capturing batches (bs=2 avail_mem=130.49 GB):  92%|█████████▏| 48/52 [00:04<00:00, 18.18it/s]
+Capturing batches (bs=2 avail_mem=130.49 GB):  98%|█████████▊| 51/52 [00:04<00:00, 20.25it/s]
+Capturing batches (bs=1 avail_mem=130.49 GB):  98%|█████████▊| 51/52 [00:04<00:00, 20.25it/s]
+Capturing batches (bs=1 avail_mem=130.49 GB): 100%|██████████| 52/52 [00:04<00:00, 12.36it/s]
+
+
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 288/288 [00:00<00:00, 3682.77it/s]
+
+Loading weights:   0%|          | 0/288 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 288/288 [00:00<00:00, 4267.84it/s]
+MP_PARITY_SUMMARY_JSON={"backends": ["default"], "comparisons": {"hf_eager_vs_sdpa_raw": {"above_0p1": 72, "above_0p5": 0, "left": -2.3083693981170654, "max": 0.31665587425231934, "mean": 0.0075407019876777516, "p99": 0.09833558320999146, "p999": 0.17059609627723657, "right": -2.6250252723693848, "tokens": 7680, "worst_flat_position": 948}, "hf_eager_vs_sdpa_temperature": {"above_0p1": 225, "above_0p5": 2, "left": -3.1797683238983154, "max": 0.6000223159790039, "mean": 0.008760452816732283, "p99": 0.1681813180446625, "p999": 0.3394663798809043, "right": -3.7797906398773193, "tokens": 7680, "worst_flat_position": 948}, "sglang_default_decode_vs_hf_eager_raw": {"above_0p1": 1799, "above_0p5": 79, "left": -3.1714935302734375, "max": 1.2592484951019287, "mean": 0.06670973374485034, "p99": 0.5120984318852426, "p999": 1.0076110570430754, "right": -1.9122450351715088, "tokens": 7680, "worst_flat_position": 711}, "sglang_default_decode_vs_hf_eager_temperature": {"above_0p1": 249, "above_0p5": 1, "left": -2.9397995471954346, "max": 0.510014533996582, "mean": 0.01078157617883871, "p99": 0.1887366646528244, "p999": 0.34092447972297635, "right": -3.4498140811920166, "tokens": 7680, "worst_flat_position": 671}, "sglang_default_prefill_vs_hf_eager_raw": {"above_0p1": 96, "above_0p5": 0, "left": -1.820709228515625, "max": 0.30675315856933594, "mean": 0.009203389628465234, "p99": 0.10571931242942813, "p999": 0.17983970171213098, "right": -2.127462387084961, "tokens": 7680, "worst_flat_position": 5362}, "sglang_default_prefill_vs_hf_eager_temperature": {"above_0p1": 1786, "above_0p5": 100, "left": -1.820709228515625, "max": 1.4502840042114258, "mean": 0.06835127544076793, "p99": 0.5505894267559054, "p999": 0.9970258506536457, "right": -3.270993232727051, "tokens": 7680, "worst_flat_position": 5362}, "sglang_default_prefill_vs_hf_sdpa_raw": {"above_0p1": 85, "above_0p5": 0, "left": -1.3299591541290283, "max": 0.3090125322341919, "mean": 0.008703551897633477, "p99": 0.10458525359630587, "p999": 0.19672843670844833, "right": -1.6389716863632202, "tokens": 7680, "worst_flat_position": 782}, "sglang_default_prefill_vs_hf_sdpa_temperature": {"above_0p1": 1794, "above_0p5": 92, "left": -1.820709228515625, "max": 1.4501609802246094, "mean": 0.06851922541935522, "p99": 0.5360718536376956, "p999": 1.0491541434526386, "right": -3.2708702087402344, "tokens": 7680, "worst_flat_position": 5362}}, "elapsed_seconds": 43.25822169, "environment": {"cuda": "13.0", "gpu": "NVIDIA B200", "max_new_tokens": 3840, "python": "3.12.12", "requested_rl_on_policy_target": null, "return_original_logprob": null, "sglang": "0.5.11", "temperature": 0.6, "top_p": 0.95, "torch": "2.11.0+cu130", "transformers": "5.6.0"}, "status": "completed"}
+LONG_ACTUAL_LENGTHS_JSON=[3840, 3840]
+[transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+[2026-10-09 17:21:05] TensorRT-LLM MHA only supports page_size of 16, 32 or 64, changing page_size from None to 64.
+/opt/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/resource_tracker.py:147: UserWarning: resource_tracker: process died unexpectedly, relaunching.  Some resources might leak.
+  warnings.warn('resource_tracker: process died unexpectedly, '
+
+[transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+[transformers] This model config has set a `rope_parameters['original_max_position_embeddings']` field, to be used together with `max_position_embeddings` to determine a scaling factor. Please set the `factor` field of `rope_parameters`with this ratio instead -- we recommend the use of this field over `original_max_position_embeddings`, as it is compatible with most model architectures.
+
+
+Multi-thread loading shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+
+Multi-thread loading shards:  50% Completed | 1/2 [00:14<00:14, 14.49s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:15<00:00,  6.51s/it]
+Multi-thread loading shards: 100% Completed | 2/2 [00:15<00:00,  7.70s/it]
+
+  0%|          | 0/52 [00:00<?, ?it/s]
+Capturing batches (bs=512 avail_mem=127.40 GB):   0%|          | 0/52 [00:00<?, ?it/s]2026-10-09 17:21:46,792 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-10-09 17:21:46] Unexpected error during package walk: cutlass.cute.experimental
+
+Capturing batches (bs=512 avail_mem=127.40 GB):   2%|▏         | 1/52 [00:01<01:20,  1.57s/it]
+Capturing batches (bs=496 avail_mem=127.12 GB):   2%|▏         | 1/52 [00:01<01:20,  1.57s/it]
+Capturing batches (bs=480 avail_mem=127.12 GB):   2%|▏         | 1/52 [00:01<01:20,  1.57s/it]
+Capturing batches (bs=480 avail_mem=127.12 GB):   6%|▌         | 3/52 [00:01<00:22,  2.16it/s]
+Capturing batches (bs=464 avail_mem=127.12 GB):   6%|▌         | 3/52 [00:01<00:22,  2.16it/s]
+Capturing batches (bs=448 avail_mem=127.11 GB):   6%|▌         | 3/52 [00:01<00:22,  2.16it/s]
+Capturing batches (bs=448 avail_mem=127.11 GB):  10%|▉         | 5/52 [00:01<00:12,  3.73it/s]
+Capturing batches (bs=432 avail_mem=127.11 GB):  10%|▉         | 5/52 [00:01<00:12,  3.73it/s]
+Capturing batches (bs=416 avail_mem=127.10 GB):  10%|▉         | 5/52 [00:01<00:12,  3.73it/s]
+Capturing batches (bs=416 avail_mem=127.10 GB):  13%|█▎        | 7/52 [00:02<00:08,  5.25it/s]
+Capturing batches (bs=400 avail_mem=127.10 GB):  13%|█▎        | 7/52 [00:02<00:08,  5.25it/s]
+Capturing batches (bs=384 avail_mem=127.10 GB):  13%|█▎        | 7/52 [00:02<00:08,  5.25it/s]
+Capturing batches (bs=384 avail_mem=127.10 GB):  17%|█▋        | 9/52 [00:02<00:06,  6.74it/s]
+Capturing batches (bs=368 avail_mem=127.09 GB):  17%|█▋        | 9/52 [00:02<00:06,  6.74it/s]
+Capturing batches (bs=352 avail_mem=127.09 GB):  17%|█▋        | 9/52 [00:02<00:06,  6.74it/s]
+Capturing batches (bs=352 avail_mem=127.09 GB):  21%|██        | 11/52 [00:02<00:05,  8.07it/s]
+Capturing batches (bs=336 avail_mem=127.09 GB):  21%|██        | 11/52 [00:02<00:05,  8.07it/s]
+Capturing batches (bs=320 avail_mem=127.08 GB):  21%|██        | 11/52 [00:02<00:05,  8.07it/s]
+Capturing batches (bs=320 avail_mem=127.08 GB):  25%|██▌       | 13/52 [00:02<00:04,  8.10it/s]
+Capturing batches (bs=304 avail_mem=127.08 GB):  25%|██▌       | 13/52 [00:02<00:04,  8.10it/s]
+Capturing batches (bs=288 avail_mem=127.08 GB):  25%|██▌       | 13/52 [00:02<00:04,  8.10it/s]
+Capturing batches (bs=288 avail_mem=127.08 GB):  29%|██▉       | 15/52 [00:02<00:04,  8.44it/s]
+Capturing batches (bs=272 avail_mem=127.07 GB):  29%|██▉       | 15/52 [00:02<00:04,  8.44it/s]
+Capturing batches (bs=256 avail_mem=127.07 GB):  29%|██▉       | 15/52 [00:02<00:04,  8.44it/s]
+
+Capturing batches (bs=256 avail_mem=127.07 GB):  33%|███▎      | 17/52 [00:03<00:03,  8.79it/s]
+Capturing batches (bs=248 avail_mem=127.07 GB):  33%|███▎      | 17/52 [00:03<00:03,  8.79it/s]
+Capturing batches (bs=240 avail_mem=127.06 GB):  33%|███▎      | 17/52 [00:03<00:03,  8.79it/s]
+Capturing batches (bs=240 avail_mem=127.06 GB):  37%|███▋      | 19/52 [00:03<00:03,  9.42it/s]
+Capturing batches (bs=232 avail_mem=127.06 GB):  37%|███▋      | 19/52 [00:03<00:03,  9.42it/s]
+Capturing batches (bs=224 avail_mem=127.05 GB):  37%|███▋      | 19/52 [00:03<00:03,  9.42it/s]
+Capturing batches (bs=224 avail_mem=127.05 GB):  40%|████      | 21/52 [00:03<00:03, 10.19it/s]
+Capturing batches (bs=216 avail_mem=127.05 GB):  40%|████      | 21/52 [00:03<00:03, 10.19it/s]
+Capturing batches (bs=208 avail_mem=127.05 GB):  40%|████      | 21/52 [00:03<00:03, 10.19it/s]
+Capturing batches (bs=208 avail_mem=127.05 GB):  44%|████▍     | 23/52 [00:03<00:02, 10.91it/s]
+Capturing batches (bs=200 avail_mem=127.05 GB):  44%|████▍     | 23/52 [00:03<00:02, 10.91it/s]
+Capturing batches (bs=192 avail_mem=127.04 GB):  44%|████▍     | 23/52 [00:03<00:02, 10.91it/s]
+Capturing batches (bs=192 avail_mem=127.04 GB):  48%|████▊     | 25/52 [00:03<00:02, 11.43it/s]
+Capturing batches (bs=184 avail_mem=127.04 GB):  48%|████▊     | 25/52 [00:03<00:02, 11.43it/s]
+Capturing batches (bs=176 avail_mem=127.03 GB):  48%|████▊     | 25/52 [00:03<00:02, 11.43it/s]
+Capturing batches (bs=176 avail_mem=127.03 GB):  52%|█████▏    | 27/52 [00:03<00:02, 11.30it/s]
+Capturing batches (bs=168 avail_mem=127.03 GB):  52%|█████▏    | 27/52 [00:03<00:02, 11.30it/s]
+Capturing batches (bs=160 avail_mem=127.02 GB):  52%|█████▏    | 27/52 [00:04<00:02, 11.30it/s]
+Capturing batches (bs=160 avail_mem=127.02 GB):  56%|█████▌    | 29/52 [00:04<00:02, 10.31it/s]
+Capturing batches (bs=152 avail_mem=127.02 GB):  56%|█████▌    | 29/52 [00:04<00:02, 10.31it/s]
+Capturing batches (bs=144 avail_mem=127.02 GB):  56%|█████▌    | 29/52 [00:04<00:02, 10.31it/s]
+Capturing batches (bs=144 avail_mem=127.02 GB):  60%|█████▉    | 31/52 [00:04<00:02,  9.85it/s]
+Capturing batches (bs=136 avail_mem=127.02 GB):  60%|█████▉    | 31/52 [00:04<00:02,  9.85it/s]
+Capturing batches (bs=128 avail_mem=127.01 GB):  60%|█████▉    | 31/52 [00:04<00:02,  9.85it/s]
+Capturing batches (bs=128 avail_mem=127.01 GB):  63%|██████▎   | 33/52 [00:04<00:02,  8.97it/s]
+Capturing batches (bs=120 avail_mem=127.01 GB):  63%|██████▎   | 33/52 [00:04<00:02,  8.97it/s]
+Capturing batches (bs=120 avail_mem=127.01 GB):  65%|██████▌   | 34/52 [00:04<00:02,  8.92it/s]
+Capturing batches (bs=112 avail_mem=127.01 GB):  65%|██████▌   | 34/52 [00:04<00:02,  8.92it/s]
+Capturing batches (bs=112 avail_mem=127.01 GB):  67%|██████▋   | 35/52 [00:04<00:02,  8.40it/s]
+Capturing batches (bs=104 avail_mem=127.00 GB):  67%|██████▋   | 35/52 [00:04<00:02,  8.40it/s]
+Capturing batches (bs=104 avail_mem=127.00 GB):  69%|██████▉   | 36/52 [00:04<00:01,  8.52it/s]
+Capturing batches (bs=96 avail_mem=127.00 GB):  69%|██████▉   | 36/52 [00:04<00:01,  8.52it/s] 
+Capturing batches (bs=88 avail_mem=126.99 GB):  69%|██████▉   | 36/52 [00:05<00:01,  8.52it/s]
+Capturing batches (bs=88 avail_mem=126.99 GB):  73%|███████▎  | 38/52 [00:05<00:01,  9.46it/s]
+Capturing batches (bs=80 avail_mem=126.99 GB):  73%|███████▎  | 38/52 [00:05<00:01,  9.46it/s]
+Capturing batches (bs=72 avail_mem=126.99 GB):  73%|███████▎  | 38/52 [00:05<00:01,  9.46it/s]
+Capturing batches (bs=72 avail_mem=126.99 GB):  77%|███████▋  | 40/52 [00:05<00:01,  9.47it/s]
+Capturing batches (bs=64 avail_mem=126.98 GB):  77%|███████▋  | 40/52 [00:05<00:01,  9.47it/s]
+Capturing batches (bs=56 avail_mem=126.98 GB):  77%|███████▋  | 40/52 [00:05<00:01,  9.47it/s]
+Capturing batches (bs=56 avail_mem=126.98 GB):  81%|████████  | 42/52 [00:05<00:00, 10.09it/s]
+Capturing batches (bs=48 avail_mem=126.97 GB):  81%|████████  | 42/52 [00:05<00:00, 10.09it/s]
+Capturing batches (bs=40 avail_mem=126.97 GB):  81%|████████  | 42/52 [00:05<00:00, 10.09it/s]
+Capturing batches (bs=40 avail_mem=126.97 GB):  85%|████████▍ | 44/52 [00:05<00:00, 10.68it/s]
+Capturing batches (bs=32 avail_mem=126.97 GB):  85%|████████▍ | 44/52 [00:05<00:00, 10.68it/s]
+Capturing batches (bs=24 avail_mem=126.96 GB):  85%|████████▍ | 44/52 [00:05<00:00, 10.68it/s]
+Capturing batches (bs=24 avail_mem=126.96 GB):  88%|████████▊ | 46/52 [00:05<00:00,  9.78it/s]
+Capturing batches (bs=16 avail_mem=126.96 GB):  88%|████████▊ | 46/52 [00:05<00:00,  9.78it/s]
+Capturing batches (bs=16 avail_mem=126.96 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.59it/s]
+Capturing batches (bs=12 avail_mem=126.96 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.59it/s]
+Capturing batches (bs=8 avail_mem=126.95 GB):  90%|█████████ | 47/52 [00:06<00:00,  8.59it/s] 
+Capturing batches (bs=8 avail_mem=126.95 GB):  94%|█████████▍| 49/52 [00:06<00:00,  9.65it/s]
+Capturing batches (bs=4 avail_mem=126.95 GB):  94%|█████████▍| 49/52 [00:06<00:00,  9.65it/s]
+Capturing batches (bs=2 avail_mem=126.94 GB):  94%|█████████▍| 49/52 [00:06<00:00,  9.65it/s]
+Capturing batches (bs=2 avail_mem=126.94 GB):  98%|█████████▊| 51/52 [00:06<00:00, 10.71it/s]
+Capturing batches (bs=1 avail_mem=126.94 GB):  98%|█████████▊| 51/52 [00:06<00:00, 10.71it/s]
+Capturing batches (bs=1 avail_mem=126.94 GB): 100%|██████████| 52/52 [00:06<00:00,  7.95it/s]
+
+Loading weights:   0%|          | 0/194 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 194/194 [00:00<00:00, 3806.21it/s]
+
+Loading weights:   0%|          | 0/194 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 194/194 [00:00<00:00, 4101.70it/s]
+MP_PARITY_SUMMARY_JSON={"backends": ["default"], "comparisons": {"hf_eager_vs_sdpa_raw": {"above_0p1": 8, "above_0p5": 0, "left": -1.5382931232452393, "max": 0.35921967029571533, "mean": 0.016234519719816598, "p99": 0.18530471384525316, "p999": 0.33846317017078476, "right": -1.179073452949524, "tokens": 128, "worst_flat_position": 1}, "hf_eager_vs_sdpa_temperature": {"above_0p1": 5, "above_0p5": 1, "left": -1.304368257522583, "max": 0.5292991995811462, "mean": 0.016758739095521002, "p99": 0.3466282665729527, "p999": 0.5100658850073821, "right": -0.7750690579414368, "tokens": 128, "worst_flat_position": 1}, "sglang_default_decode_vs_hf_eager_raw": {"above_0p1": 37, "above_0p5": 3, "left": -3.038956642150879, "max": 1.1092302799224854, "mean": 0.08714514828361619, "p99": 0.9297860231995602, "p999": 1.1026444416046144, "right": -1.9297263622283936, "tokens": 128, "worst_flat_position": 82}, "sglang_default_decode_vs_hf_eager_temperature": {"above_0p1": 8, "above_0p5": 1, "left": -3.038956642150879, "max": 0.7673063278198242, "mean": 0.027501051712799485, "p99": 0.3751518735289574, "p999": 0.7178893163204211, "right": -2.2716503143310547, "tokens": 128, "worst_flat_position": 82}, "sglang_default_prefill_vs_hf_eager_raw": {"above_0p1": 10, "above_0p5": 0, "left": -1.1973894834518433, "max": 0.340903639793396, "mean": 0.01879674692658706, "p99": 0.23143993318080944, "p999": 0.3304995313286785, "right": -1.5382931232452393, "tokens": 128, "worst_flat_position": 1}, "sglang_default_prefill_vs_hf_eager_temperature": {"above_0p1": 34, "above_0p5": 1, "left": -1.521693229675293, "max": 0.6800954341888428, "mean": 0.072722342477615, "p99": 0.44436834216117865, "p999": 0.6509192043840896, "right": -2.2017886638641357, "tokens": 128, "worst_flat_position": 101}, "sglang_default_prefill_vs_hf_sdpa_raw": {"above_0p1": 7, "above_0p5": 0, "left": -0.8669861555099487, "max": 0.2574646472930908, "mean": 0.01132570703425051, "p99": 0.17950533032417323, "p999": 0.24974764013290435, "right": -0.6095215082168579, "tokens": 128, "worst_flat_position": 124}, "sglang_default_prefill_vs_hf_sdpa_temperature": {"above_0p1": 34, "above_0p5": 1, "left": -1.521693229675293, "max": 1.0579512119293213, "mean": 0.07561337126142714, "p99": 0.45020192086696625, "p999": 0.9807758793234853, "right": -2.5796444416046143, "tokens": 128, "worst_flat_position": 101}}, "elapsed_seconds": 61.05682384400001, "environment": {"cuda": "13.0", "gpu": "NVIDIA B200", "max_new_tokens": 64, "python": "3.12.12", "requested_rl_on_policy_target": null, "return_original_logprob": null, "sglang": "0.5.11", "temperature": 0.6, "top_p": 0.95, "torch": "2.11.0+cu130", "transformers": "5.6.0"}, "status": "completed"}
+Traceback (most recent call last):
+  File "/opt/debug/phi_gemma_debug_worker.py", line 47, in <module>
+    try:main()
+        ^^^^^^
+  File "/opt/debug/phi_gemma_debug_worker.py", line 40, in main
+    from kdflow.algorithms._mp_opd_atoms import build_atoms
+  File "/opt/debug/kdflow/algorithms/__init__.py", line 23, in <module>
+    importlib.import_module(f"kdflow.algorithms.{_module_name}")
+  File "/opt/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/debug/kdflow/algorithms/xtoken.py", line 20, in <module>
+    from xtoken_upstream_token_aligner import TokenAligner
+ModuleNotFoundError: No module named 'xtoken_upstream_token_aligner'
+Traceback (most recent call last):
+  File "/opt/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/resource_tracker.py", line 264, in main
+    cache[rtype].remove(name)
+KeyError: '/mp-yp1k_t0a'
+
+
+DEBUG_RECEIPT_JSON={"exit_code": 1, "image": "docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f", "elapsed_seconds": 347.323623155}
+Stopping app - uncaught exception raised locally: RuntimeError('Diagnostic worker failed; inspect saved log').
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /mnt/d/dev/dsh/research_vai/SimCT/experiments/modal/phi_gemma_debug_20261010 │
+│ .py:82 in main                                                               │
+│                                                                              │
+│   81 │   receipt=diagnose.remote();print('DEBUG_RECEIPT_JSON='+json.dumps(re │
+│ ❱ 82 │   if receipt['exit_code']:raise RuntimeError('Diagnostic worker faile │
+│   83                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+RuntimeError: Diagnostic worker failed; inspect saved log

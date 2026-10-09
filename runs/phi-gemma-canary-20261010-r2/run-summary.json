@@ -1,0 +1,23 @@
+{
+  "campaign_progress": 0.5,
+  "campaign_target_updates": 4,
+  "current_optimizer_updates": 2,
+  "diagnostic_progress": 1.0,
+  "diagnostic_stop_target": 2,
+  "energy_updates": null,
+  "eta_campaign_seconds": 307.9937880039215,
+  "eta_diagnostic_seconds": 0.0,
+  "kd_algorithm": "span_ctkd",
+  "optimizer_updates": 2,
+  "rollout_iterations": 2,
+  "scientific_progress": 0.5,
+  "scientific_total_updates": 4,
+  "session_completed_updates": 2,
+  "session_fit_seconds": 307.9937880039215,
+  "session_start_optimizer_updates": 0,
+  "status": "completed",
+  "stop_reason": null,
+  "student": "/assets/student",
+  "teacher": "/probes/teacher",
+  "total_time_seconds": 307.9937880039215
+}
