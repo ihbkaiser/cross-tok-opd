@@ -370,6 +370,47 @@ this is a local, chunk-wise rule and must be reported as such. Claimed but unpro
 upstream alignment chunks are the right inductive bias for credit shrinkage at all. The
 §18.7 diagnostics exist to test that claim rather than to assume it.
 
+<a id="temporal-grass-chunk"></a>
+
+## GRASS-Chunk Temporal (`mp_opd_mode=grass_chunk_temporal`)
+
+The partition, D/V formula and running noise estimator are GRASS-Chunk's. Only
+the applied shrinkage strength changes: `alpha_effective = s(t) * alpha_raw`,
+where `s(t) = clip((t - start_step) / (end_step - start_step), 0, 1)`.
+Defaults are **20 -> 160**, with **t the one-based optimizer update being
+computed**. Updates 1-20 preserve atomic credits; update 90 applies half the
+GRASS strength; update 160 and later apply the full strength. Noise EMA still
+observes every valid response during warmup. A complete accumulation window
+uses one t, independent of response count and microbatch count.
+
+The node runner defaults this mode to `source=run`, `run_length=2`; the direct
+KDFlow CLI keeps the shared source default, so pass `--mp_opd_grass_chunk_source
+run` explicitly. Length 3 is also supported. Neither native `grass_chunk` nor
+ordinary `grass_chunk/source=run` receives the temporal gate.
+
+```text
+--mp_opd_mode grass_chunk_temporal
+--mp_opd_grass_chunk_source run
+--mp_opd_grass_chunk_run_length 2
+--mp_opd_grass_chunk_temporal_start_step 20
+--mp_opd_grass_chunk_temporal_end_step 160
+```
+
+Node runner environment: `MP_GRASS_CHUNK_SOURCE=run`,
+`MP_GRASS_CHUNK_RUN_LENGTH=2`, `MP_GRASS_CHUNK_TEMPORAL_START_STEP=20`, and
+`MP_GRASS_CHUNK_TEMPORAL_END_STEP=160`. Use a fresh output and the same starting
+SFT checkpoint for a comparison against ungated run2/run3.
+
+Checkpoints retain completed `student_updates`, noise EMA, and the temporal
+recipe (schedule, source, run length, straddle policy, step convention). Resume
+rejects missing noise state or a missing/different temporal recipe rather than silently replaying the
+warmup. Telemetry reports the upcoming update, s(t), raw/effective alpha; the
+existing alpha, gain, credit-change and geometry diagnostics describe the
+**effective** update. Weighted credit conservation holds at every s(t).
+This is an implementation of a research hypothesis, not evidence of improved
+benchmark accuracy. Existing conditional per-length metrics retain their old
+aggregation behaviour; use raw/effective alpha fields for this ablation.
+
 ## Cross-atom credit operators (`mp_opd_mode=kernel`)
 
 GBV replaced the atomic credit by a pooled one (`A = P r`). This mode keeps the atomic

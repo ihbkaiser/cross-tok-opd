@@ -14,7 +14,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-MODES = ("grass", "grass_chunk", "align", "trust_r", "trust_b")
+MODES = ("grass", "grass_chunk", "grass_chunk_temporal", "align", "trust_r", "trust_b")
 
 
 def asset_paths(reference):
@@ -80,12 +80,22 @@ def build_plan(args):
             raise ValueError(f"Qualified source has changed: {relative}")
     environment = {k: v for k, v in os.environ.items()
                    if not k.startswith("MP_") or k in {"MP_RUNTIME_DIR", "MP_SHARED_ROOT"}}
+    temporal = args.mode == "grass_chunk_temporal"
+    chunk_source = getattr(args, "chunk_source", None) or ("run" if temporal else "xtoken")
+    run_length = getattr(args, "run_length", 2)
+    start_step = getattr(args, "temporal_start_step", 20)
+    end_step = getattr(args, "temporal_end_step", 160)
+    if run_length < 1 or not 0 <= start_step < end_step:
+        raise ValueError("Require positive run_length and 0 <= temporal start < end")
     settings = dict(
         CUDA_VISIBLE_DEVICES="3", MP_STUDENT_PATH=paths["student"],
         MP_TEACHER_PATH=paths["teacher"], MP_DATASET_PATH=paths["dataset"],
         MP_SEED=str(args.seed), MP_PARTITION_SEED="43", MP_ALGORITHM="mp_opd",
         MP_MICRO_TRAIN_BATCH_SIZE="4", MP_TRUST_SCOPE="batch",
-        MP_GRASS_CHUNK_SOURCE="xtoken", MP_GRASS_CHUNK_STRADDLE="singleton",
+        MP_GRASS_CHUNK_SOURCE=chunk_source, MP_GRASS_CHUNK_STRADDLE="singleton",
+        MP_GRASS_CHUNK_RUN_LENGTH=str(run_length),
+        MP_GRASS_CHUNK_TEMPORAL_START_STEP=str(start_step),
+        MP_GRASS_CHUNK_TEMPORAL_END_STEP=str(end_step),
         MP_ATTN_IMPLEMENTATION="eager", MP_MAX_SPAN_LENGTH="2",
         MP_RESUME="0", MP_TENSORBOARD="1", MP_EVAL_ON_CKPT="0",
         MP_RAY_TMP="/tmp/af"+str(os.getpid()),
@@ -104,7 +114,9 @@ def build_plan(args):
                 source_tree=receipt.get("staged_tree"), output=str(output),
                 reference=str(Path(args.reference).resolve()),
                 runtime_wrapper=str(wrapper), command=command,
-                trust_scope="batch", chunk_source="xtoken", seed=args.seed,
+                trust_scope="batch", chunk_source=chunk_source, chunk_run_length=run_length,
+                temporal_pooling=dict(start_step=start_step, end_step=end_step) if temporal else None,
+                seed=args.seed,
                 tensorboard=True, evaluation="external", resume=False)
     return plan, environment
 
@@ -117,6 +129,10 @@ def main():
     parser.add_argument("--mode", choices=MODES, default="trust_b")
     parser.add_argument("--updates", type=int, choices=range(1, 313), default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--chunk-source", choices=("xtoken", "run"), default=None)
+    parser.add_argument("--run-length", type=int, default=2)
+    parser.add_argument("--temporal-start-step", type=int, default=20)
+    parser.add_argument("--temporal-end-step", type=int, default=160)
     parser.add_argument("--execute", action="store_true", help="Without this flag, only print the plan")
     args = parser.parse_args()
     plan, environment = build_plan(args)

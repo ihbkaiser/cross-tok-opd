@@ -12,6 +12,12 @@ and ALIGN use synchronized tokenizer strings by default; `run` is an explicit
 fixed-run baseline. Start corrected experiments from the SFT student in a new
 output directory, since old trajectories used different update rules.
 
+The separate `grass_chunk_temporal` mode ramps the effective GRASS-Chunk
+pooling strength from zero at optimizer update 20 to its native strength at
+update 160. Node runners default this mode to `run` chunks of length 2;
+length 3 is also supported. See [temporal pooling](docs/mp_opd_design.md#temporal-grass-chunk)
+for the schedule, configuration, diagnostics and resume contract.
+
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in
 [Full alternating and pipeline resume](docs/full_alternating_resume.md).

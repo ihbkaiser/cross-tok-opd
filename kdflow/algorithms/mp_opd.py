@@ -67,6 +67,8 @@ from ._mp_opd_grass_chunk import (
     grass_chunk_metrics,
     grass_chunk_tables,
     run_chunk_assignment,
+    scale_chunk_shrinkage,
+    temporal_pooling_scale,
 )
 from ._mp_opd_grass_span import grass_cosine
 from ._mp_opd_airs import (
@@ -101,13 +103,13 @@ from ._mp_opd_training_diagnostics import (
 # same logits, the same head-input hidden states and the same noise-scale state.
 # ALIGN joins them: it reuses GRASS-Chunk's chunks and its exact head Gram verbatim,
 # and differs only in what it does with the credit afterwards.
-_GRASS_MODES = frozenset({"grass", "grass_chunk", "align"})
+_GRASS_MODES = frozenset({"grass", "grass_chunk", "grass_chunk_temporal", "align"})
 
 # The modes whose partitions come from the upstream alignment, and therefore the ones
 # that need the aligner built when mp_opd_grass_chunk_source is 'xtoken'. GRASS-DP
 # builds its own partition and never reads this source, so including it here would
 # rebuild the earlier bug for every grass run.
-_CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "align"})
+_CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "grass_chunk_temporal", "align"})
 
 # AIRS needs none of the GRASS machinery: no logits, no hidden states, no Gram. It
 # shares only the noise estimator, because the method note fixes the same MAD-of-
@@ -367,6 +369,14 @@ class MetaPartitionedOPD:
         self.grass_chunk_shadow = bool(
             getattr(self.args.kd, "mp_opd_grass_chunk_shadow", False)
         )
+        self.grass_temporal_start = int(
+            getattr(self.args.kd, "mp_opd_grass_chunk_temporal_start_step", 20)
+        )
+        self.grass_temporal_end = int(
+            getattr(self.args.kd, "mp_opd_grass_chunk_temporal_end_step", 160)
+        )
+        if self.mode == "grass_chunk_temporal":
+            temporal_pooling_scale(1, self.grass_temporal_start, self.grass_temporal_end)
         # The native synchronized chunk of section 2.1 is produced by the audited
         # cross-tokenizer aligner, the same one kd_algorithm='xtoken' uses. It is
         # built once here, and the projection is re-verified by digest here rather
@@ -575,6 +585,8 @@ class MetaPartitionedOPD:
         # early steps of a resumed run look like the atomic failure signature.
         if self.grass_noise is not None:
             state["mp_opd_grass_noise"] = self.grass_noise.state_dict()
+        if self.mode == "grass_chunk_temporal":
+            state["mp_opd_grass_chunk_temporal"] = self._grass_temporal_contract()
         # AIRS has its own noise state and its own warm-up counter. Both have to
         # survive a resume: a reset counter would replay the warm-up, and a reset
         # estimator would restart the EMA from a deflated variance.
@@ -586,6 +598,11 @@ class MetaPartitionedOPD:
         return state
 
     def load_training_state_dict(self, state):
+        if self.mode == "grass_chunk_temporal":
+            if state.get("mp_opd_grass_chunk_temporal") != self._grass_temporal_contract():
+                raise ValueError("temporal pooling resume contract differs or is missing")
+            if "mp_opd_grass_noise" not in state:
+                raise ValueError("temporal pooling resume requires saved noise state")
         self.student_updates=state["student_updates"]
         self.energy_updates=state["energy_updates"]
         if self.grass_noise is not None and "mp_opd_grass_noise" in state:
@@ -596,12 +613,22 @@ class MetaPartitionedOPD:
     def note_optimizer_updates(self, count):
         self.student_updates += count
 
+    def _grass_temporal_contract(self):
+        return dict(start_step=self.grass_temporal_start, end_step=self.grass_temporal_end,
+                    chunk_source=self.grass_chunk_source, run_length=self.grass_chunk_run_length,
+                    straddle=self.grass_chunk_straddle, step_convention="one_based_optimizer_update")
+
     def prepare_optimizer_batch(self, batches, *, batch_loader=lambda x: x):
         """Calibrate TRUST-B once before replaying the accumulation window.
 
         Parameters stay fixed in both passes. Restoring each microbatch's RNG
         makes its train-mode dropout identical, with one logical RNG advance.
         """
+        if self.mode == "grass_chunk_temporal":
+            expected = getattr(self.strategy, "accumulated_gradient", len(batches))
+            if len(batches) != expected or getattr(self.strategy, "step", 0) != 0:
+                raise ValueError("temporal pooling requires one complete optimizer accumulation window")
+            return None
         if self.mode != "trust_b" or self.trust_scope != "batch":
             return None
         if getattr(self.strategy, "sp_size", 1) != 1:
@@ -1557,6 +1584,15 @@ class MetaPartitionedOPD:
             eps_d=self.grass_eps_d,
             negative_tol_rel=self.grass_negative_tol_rel,
         )
+        raw_tables = tables
+        if self.mode == "grass_chunk_temporal":
+            # student_updates advances only after the actor completes B64/M4.
+            # All responses/microbatches in this window share the upcoming index.
+            update = self.student_updates + 1
+            pooling_scale = temporal_pooling_scale(
+                update, self.grass_temporal_start, self.grass_temporal_end
+            )
+            tables = scale_chunk_shrinkage(raw_tables, pooling_scale)
         shrunk, _exact_residual = apply_chunk_shrinkage(
             credits.rate, credits.weight, tables
         )
@@ -1583,6 +1619,17 @@ class MetaPartitionedOPD:
             source=self.grass_chunk_source,
         )
         metrics.update(chunk_gram_diagnostics(head.gram, tables))
+        if self.mode == "grass_chunk_temporal":
+            metrics.update({
+                "mp_opd_grass_chunk_temporal_enabled": credits.rate.new_tensor(1.0),
+                "mp_opd_grass_chunk_temporal_optimizer_update": credits.rate.new_tensor(float(update)),
+                "mp_opd_grass_chunk_temporal_scale": credits.rate.new_tensor(pooling_scale),
+                "mp_opd_grass_chunk_temporal_start_step": credits.rate.new_tensor(float(self.grass_temporal_start)),
+                "mp_opd_grass_chunk_temporal_end_step": credits.rate.new_tensor(float(self.grass_temporal_end)),
+                "mp_opd_grass_chunk_raw_alpha_mean": raw_tables.alpha.mean(),
+                "mp_opd_grass_chunk_raw_alpha_hard_fraction": (raw_tables.alpha > .9).double().mean(),
+                "mp_opd_grass_chunk_effective_alpha_mean": tables.alpha.mean(),
+            })
         for key, value in chunk_boundary_diagnostics(
             credits.rate, credits.weight, head.gram, partition, gram_is_block_diagonal=True
         ).items():
@@ -2002,7 +2049,7 @@ class MetaPartitionedOPD:
                 credits, atoms, sample_index=sample_index
             )
 
-        if self.mode in {"grass", "grass_chunk", "align", "trust_r"}:
+        if self.mode in {"grass", "grass_chunk", "grass_chunk_temporal", "align", "trust_r"}:
             # Numeric guardrails are warnings here, not run killers. A geometry
             # failure on finite inputs falls back to the atomic credits the
             # atomic mode trains on -- a well-defined update, never a zeroed or
@@ -2032,7 +2079,7 @@ class MetaPartitionedOPD:
                         student_labels=student_labels,
                         student_hidden=student_hidden,
                     )
-                elif self.mode == "grass_chunk":
+                elif self.mode in {"grass_chunk", "grass_chunk_temporal"}:
                     loss, metrics = self._grass_chunk_loss(
                         credits,
                         atoms,

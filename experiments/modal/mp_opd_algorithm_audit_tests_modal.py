@@ -13,7 +13,7 @@ from pathlib import Path
 import modal
 
 ROOT = Path(__file__).resolve().parents[2] if modal.is_local() else Path("/work")
-RUN = "mp-opd-algorithm-audit-20261009-r1"
+RUN = os.environ.get("AUDIT_RUN_LABEL", "mp-opd-algorithm-audit-20261009-r1")
 GPU = os.environ.get("AUDIT_GPU", "0") == "1"
 GPU_REQUEST = os.environ.get("AUDIT_GPU_TYPE", "B200,H100").split(",")
 RUNTIME = "docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f"
@@ -54,10 +54,12 @@ LOSS_MODULES = (
 TESTS = (
     "test_grass_span.py",
     "test_algorithm_audit_regressions.py",
+    "test_algorithm_audit_launch.py",
     "test_trust_batch_replay.py",
     "test_sparse_metric_reduction.py",
     "test_parity_capture.py",
     "test_grass_chunk.py",
+    "test_grass_chunk_temporal.py",
     "test_align.py",
     "test_trust.py",
     "test_numeric_fallback.py",
@@ -74,7 +76,8 @@ image = (
 )
 image = (
     image
-    .env({"AUDIT_GPU": "1" if GPU else "0", "AUDIT_GPU_TYPE": ",".join(GPU_REQUEST)})
+    .env({"AUDIT_GPU": "1" if GPU else "0", "AUDIT_GPU_TYPE": ",".join(GPU_REQUEST),
+          "AUDIT_RUN_LABEL": RUN})
     .add_local_file(ROOT / "kdflow" / "__init__.py", "/work/kdflow/__init__.py")
     .add_local_file(
         ROOT / "kdflow" / "algorithms" / "__init__.py",
@@ -120,6 +123,8 @@ image = image.add_local_file(ROOT / "experiments/modal/vendor/xtoken_upstream_to
                              "/work/experiments/modal/vendor/xtoken_upstream_token_aligner.py")
 image = image.add_local_file(ROOT / "experiments/runai/run_single_gpu.py",
                              "/work/experiments/runai/run_single_gpu.py")
+image = image.add_local_file(ROOT / "experiments/runai/launch_algorithm_audit_fix.py",
+                             "/work/experiments/runai/launch_algorithm_audit_fix.py")
 
 app = modal.App(RUN, image=image)
 
@@ -138,6 +143,8 @@ def run_guardrail_tests():
     for name in ("kdflow/algorithms/mp_opd.py", "kdflow/ray/train/student_actor.py",
                  "kdflow/metric_reduction.py", "kdflow/arguments/distillation_args.py",
                  "kdflow/training_checkpoint.py", "kdflow/fused_logprob.py",
+                 "experiments/runai/run_single_gpu.py",
+                 "experiments/runai/launch_algorithm_audit_fix.py",
                  *["tests/mp_opd/"+t for t in TESTS]):
         digests[name] = hashlib.sha256((Path("/work")/name).read_bytes()).hexdigest()
     print(

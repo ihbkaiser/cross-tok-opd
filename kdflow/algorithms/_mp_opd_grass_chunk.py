@@ -40,7 +40,7 @@ geometry, nor a global risk optimum; both are listed as non-claims in
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence
 
 import torch
@@ -325,6 +325,30 @@ class GrassChunkTables:
     @property
     def chunk_count(self) -> int:
         return len(self.partition)
+
+
+def temporal_pooling_scale(optimizer_update: int, start_step: int, end_step: int) -> float:
+    """Linear pooling gate at the one-based optimizer update being computed."""
+    if start_step < 0 or end_step <= start_step:
+        raise ValueError("temporal pooling requires 0 <= start_step < end_step")
+    if optimizer_update < 1:
+        raise ValueError("optimizer_update must be one-based and positive")
+    return min(max((optimizer_update - start_step) / (end_step - start_step), 0.0), 1.0)
+
+
+def scale_chunk_shrinkage(tables: GrassChunkTables, scale: float) -> GrassChunkTables:
+    """Gate the selected strength and recompute diagnostics for the actual update.
+
+    D/V, partition and noise state stay unchanged. The gain is a read-out of the
+    effective strength, not the ungated optimum, and never selects a partition.
+    """
+    if not 0.0 <= scale <= 1.0:
+        raise ValueError("temporal pooling scale must be in [0, 1]")
+    alpha = tables.alpha * scale
+    usable_d = torch.where(tables.distortion > tables.eps_d, tables.distortion,
+                           torch.zeros_like(tables.distortion))
+    gain = 2.0 * alpha * tables.variance - alpha.square() * usable_d
+    return replace(tables, alpha=alpha, gain=gain)
 
 
 def _chunk_strength(

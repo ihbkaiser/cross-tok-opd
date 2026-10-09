@@ -196,7 +196,7 @@ class DistillationArguments:
     mp_opd_mode: str = field(
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
-                              "kernel", "grass", "grass_chunk", "airs", "align",
+                              "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align",
                               "trust_r", "trust_b", "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
@@ -331,6 +331,14 @@ class DistillationArguments:
         metadata={"help": "Diagnostic-only: also report hard chunk pooling and atomic "
                           "on the same batches. Never changes the update."},
     )
+    mp_opd_grass_chunk_temporal_start_step: int = field(
+        default=20,
+        metadata={"help": "One-based optimizer update through which temporal pooling is zero."},
+    )
+    mp_opd_grass_chunk_temporal_end_step: int = field(
+        default=160,
+        metadata={"help": "One-based optimizer update at which temporal pooling reaches full GRASS strength."},
+    )
     mp_opd_airs_warmup_steps: int = field(
         default=20,
         metadata={"help": "Optimizer updates during which AIRS keeps lambda=1 and only "
@@ -464,7 +472,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "airs", "align", "trust_r", "trust_b", "dpca"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "trust_r", "trust_b", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -532,8 +540,12 @@ class DistillationArguments:
                 )
             if self.mp_opd_grass_chunk_run_length < 1:
                 raise ValueError("mp_opd_grass_chunk_run_length must be positive")
+            if self.mp_opd_mode == "grass_chunk_temporal" and not (
+                0 <= self.mp_opd_grass_chunk_temporal_start_step < self.mp_opd_grass_chunk_temporal_end_step
+            ):
+                raise ValueError("temporal pooling requires 0 <= start_step < end_step")
             if (
-                self.mp_opd_mode in {"grass_chunk", "align"}
+                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align"}
                 and self.mp_opd_grass_chunk_source == "xtoken"
             ):
                 # TokenAligner.align is tokenizer/string alignment; vocabulary
@@ -584,7 +596,7 @@ class DistillationArguments:
                     "operator, and no such composition is defined"
                 )
             if (
-                self.mp_opd_mode in {"grass_chunk", "align", "trust_r", "trust_b"}
+                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align", "trust_r", "trust_b"}
                 and self.mp_opd_credit_transform != "identity"
             ):
                 # Same reasoning as GRASS-DP, applied to chunk-local shrinkage.

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "airs", "align", "trust_r", "trust_b"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "trust_r", "trust_b"}
 limit = int(limit)
 assert 0 <= limit <= 312
 
@@ -103,13 +103,23 @@ opts.update(
 # because switching it changes the algorithm even if the mode name is unchanged.
 # ALIGN reads the chunk from the same source as GRASS-Chunk and applies its own
 # projection afterwards, so it inherits that choice rather than duplicating it.
-if mode in {"grass_chunk", "align"}:
+if mode in {"grass_chunk", "grass_chunk_temporal", "align"}:
     opts.update(
-        mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "xtoken"),
+        mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "run" if mode == "grass_chunk_temporal" else "xtoken"),
         mp_opd_grass_chunk_run_length=int(os.environ.get("MP_GRASS_CHUNK_RUN_LENGTH", "2")),
         mp_opd_grass_chunk_straddle=os.environ.get("MP_GRASS_CHUNK_STRADDLE", "singleton"),
         mp_opd_grass_chunk_shadow=os.environ.get("MP_GRASS_CHUNK_SHADOW", "0") == "1",
     )
+    if mode == "grass_chunk_temporal":
+        opts.update(
+            mp_opd_grass_chunk_temporal_start_step=int(os.environ.get("MP_GRASS_CHUNK_TEMPORAL_START_STEP", "20")),
+            mp_opd_grass_chunk_temporal_end_step=int(os.environ.get("MP_GRASS_CHUNK_TEMPORAL_END_STEP", "160")),
+        )
+        print("GRASS_CHUNK_TEMPORAL=" + json.dumps({
+            "start_step": opts["mp_opd_grass_chunk_temporal_start_step"],
+            "end_step": opts["mp_opd_grass_chunk_temporal_end_step"],
+            "step_convention": "one_based_optimizer_update",
+        }), flush=True)
     if opts["mp_opd_grass_chunk_source"] == "xtoken":
         projection = os.environ.get("MP_XTOKEN_PROJECTION_PATH")
         expected = os.environ.get("MP_XTOKEN_PROJECTION_SHA256")

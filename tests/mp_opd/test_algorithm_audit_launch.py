@@ -65,3 +65,28 @@ def test_gpu_guard_rejects_a_holder_only_on_gpu3(monkeypatch):
     monkeypatch.setattr(launch.subprocess, "check_output", query)
     with pytest.raises(RuntimeError, match="765"):
         launch.require_idle_gpu()
+
+
+@pytest.mark.parametrize("run_length", [2, 3])
+def test_temporal_plan_keeps_run_source_and_pins_schedule(tmp_path, monkeypatch, run_length):
+    monkeypatch.setattr(launch, "ROOT", tmp_path)
+    paths = {k: str(tmp_path/k) for k in ("student", "teacher", "dataset")}
+    for path in paths.values():
+        launch.Path(path).touch()
+    reference = tmp_path/"campaign.json"
+    reference.write_text(json.dumps(paths))
+    (tmp_path/"ALGORITHM_AUDIT_RECEIPT.json").write_text(json.dumps(dict(commit="abc", source_sha256={})))
+    wrapper = tmp_path/"wrapper.sh"; wrapper.touch()
+    args = SimpleNamespace(reference=reference, runtime_wrapper=wrapper,
+        output=tmp_path/"fresh", seed=42, mode="grass_chunk_temporal", updates=2,
+        run_length=run_length, temporal_start_step=20, temporal_end_step=160)
+    monkeypatch.setenv("MP_GRASS_CHUNK_SOURCE", "xtoken")
+    plan, environment = launch.build_plan(args)
+    assert plan["chunk_source"] == "run"
+    assert plan["chunk_run_length"] == run_length
+    assert plan["temporal_pooling"] == dict(start_step=20, end_step=160)
+    assert environment["MP_GRASS_CHUNK_SOURCE"] == "run"
+    assert environment["MP_GRASS_CHUNK_RUN_LENGTH"] == str(run_length)
+    assert environment["MP_GRASS_CHUNK_TEMPORAL_START_STEP"] == "20"
+    assert environment["MP_GRASS_CHUNK_TEMPORAL_END_STEP"] == "160"
+    assert not (tmp_path/"fresh").exists()

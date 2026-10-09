@@ -1077,7 +1077,7 @@ def test_the_sure_gain_never_feeds_back_into_the_update():
         for name, node in functions.items()
         if "gain" in identifiers(node)
     }
-    assert readers <= {"grass_chunk_tables", "grass_chunk_metrics"}, readers
+    assert readers <= {"grass_chunk_tables", "grass_chunk_metrics", "scale_chunk_shrinkage"}, readers
 
 
 def _field_specs(source: str):
@@ -1173,6 +1173,6 @@ def test_every_advertised_mode_is_actually_accepted():
 def test_mode_dispatch_reaches_both_grass_modes():
     source = (ROOT / "kdflow/algorithms/mp_opd.py").read_text(encoding="utf-8")
     body = _ast.unparse(_ast.parse(source))
-    assert "if self.mode == 'grass_chunk':" in body
+    assert "self.mode in {'grass_chunk', 'grass_chunk_temporal'}" in body
     assert "self._grass_chunk_loss(" in body
     assert "_GRASS_MODES = frozenset" in body
