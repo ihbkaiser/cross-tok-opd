@@ -120,7 +120,7 @@ def cmd_prepare(a):
     plan = {"schema": "mathplus-queue-v1", "profile": D.PROFILE,
             "seeds": list(D.SEEDS), "data": data, "jobs": jobs,
             "hours": a.hours, "temperature": a.temperature,
-            "top_p": a.top_p, "protocol": a.protocol,
+            "top_p": a.top_p, "n": a.n, "protocol": a.protocol,
             "source": D.script_hashes(),
             "protocol_detail": {
                 "context_length": CONTEXT_LENGTH, "n": 1, "caps": D.CAPS,
@@ -196,8 +196,8 @@ def launch_server(ckpt_path, gpu, port, deadline):
         raise
 
 
-def request_seed(seed, item_id):
-    return int(digest([seed, item_id])[:8], 16) % (2 ** 31)
+def request_seed(seed, item_id, rep=0):
+    return int(digest([seed, item_id, rep])[:8], 16) % (2 ** 31)
 
 
 def cmd_gen(a):
@@ -272,25 +272,27 @@ def run_job(root, plan, job, a, port, deadline):
                 if (cell / "generation-complete.json").exists():
                     continue
                 out = cell / "generation.jsonl"
-                found = {}
+                found = set()
+                n = int(plan.get("n", 1))
                 if out.exists():
                     for line in out.read_text().splitlines():
                         row = json.loads(line)
-                        found[row["id"]] = row
+                        found.add((row["id"], row.get("rep", 0)))
                 base = f"http://127.0.0.1:{port}"
                 for item in data_items[bench]:
-                    if item["id"] in found:
-                        continue
-                    if time.time() >= deadline:
-                        raise Deadline("wall budget")
-                    msgs = (item["messages"] if plan.get("protocol", "simct") == "simct"
-                            else item["messages_harness"])
-                    payload = {"model": MODEL_ID, "messages": msgs,
-                               "temperature": plan.get("temperature", 0.0),
-                               "top_p": plan.get("top_p", 1.0),
-                               "max_tokens": D.CAPS[bench], "n": 1,
-                               "seed": request_seed(seed, item["id"]),
-                               "chat_template_kwargs": {"enable_thinking": False}}
+                    for rep in range(n):
+                        if (item["id"], rep) in found:
+                            continue
+                        if time.time() >= deadline:
+                            raise Deadline("wall budget")
+                        msgs = (item["messages"] if plan.get("protocol", "simct") == "simct"
+                                else item["messages_harness"])
+                        payload = {"model": MODEL_ID, "messages": msgs,
+                                   "temperature": plan.get("temperature", 0.0),
+                                   "top_p": plan.get("top_p", 1.0),
+                                   "max_tokens": D.CAPS[bench], "n": 1,
+                                   "seed": request_seed(seed, item["id"], rep),
+                                   "chat_template_kwargs": {"enable_thinking": False}}
                     req = urllib.request.Request(
                         base + "/v1/chat/completions",
                         data=json.dumps(payload).encode(),
@@ -306,7 +308,7 @@ def run_job(root, plan, job, a, port, deadline):
                     if not isinstance(content, str):
                         raise ValueError("missing content")
                     with out.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps({"id": item["id"], "seed": seed,
+                        f.write(json.dumps({"id": item["id"], "seed": seed, "rep": rep,
                                             "request_seed": payload["seed"], "text": content}) + "\n")
                 (cell / "generation-complete.json").write_text(json.dumps(
                     {"job": job["id"], "benchmark": bench, "seed": seed,
@@ -351,17 +353,25 @@ def cmd_score(a):
                 texts = {}
                 for line in (cell / "generation.jsonl").read_text().splitlines():
                     row = json.loads(line)
-                    texts[row["id"]] = row["text"]
-                correct, detail = 0, []
+                    texts.setdefault(row["id"], {})[row.get("rep", 0)] = row["text"]
+                n = int(plan.get("n", 1))
+                correct_reps, passed, detail = [0] * n, 0, []
                 for item_id, item in data_items[bench].items():
-                    text = texts.get(item_id, "")
-                    if bench == "gpqa-diamond":
-                        ok, pred = grade_gpqa(text, item["gold"])
-                    else:
-                        ok, pred = grade_math(text, item["gold"])
-                    correct += bool(ok)
-                    detail.append({"id": item_id, "gold": item["gold"],
-                                   "pred": pred, "correct": bool(ok)})
+                    reps = texts.get(item_id, {})
+                    hits = 0
+                    for rep in range(n):
+                        text = reps.get(rep, "")
+                        if bench == "gpqa-diamond":
+                            ok, pred = grade_gpqa(text, item["gold"])
+                        else:
+                            ok, pred = grade_math(text, item["gold"])
+                        correct_reps[rep] += bool(ok)
+                        hits += bool(ok)
+                        detail.append({"id": item_id, "rep": rep, "gold": item["gold"],
+                                       "pred": pred, "correct": bool(ok)})
+                    passed += (hits > 0)
+                total = len(data_items[bench])
+                avgs = [c / total for c in correct_reps]
                 with locked(cell / "scoring.lock", blocking=False) as own:
                     if own is None:
                         print("BUSY", key, flush=True)
@@ -369,13 +379,16 @@ def cmd_score(a):
                     (cell / "predictions.json").write_text(
                         json.dumps(detail, indent=2), encoding="utf-8")
                     (cell / "metrics.json").write_text(json.dumps(
-                        {"mean": correct / len(data_items[bench]),
-                         "correct": correct, "total": len(data_items[bench]),
+                        {"mean": sum(avgs) / n, "avg_at_n": sum(avgs) / n,
+                         "pass_at_n": passed / total, "n": n,
+                         "rep_avgs": avgs, "passed": passed,
+                         "correct": correct_reps[0], "total": total,
                          "n_present": 1, "eval_n": 1,
-                         "seeds": {str(seed): correct / len(data_items[bench])}},
+                         "seeds": {str(seed): sum(avgs) / n}},
                         indent=2), encoding="utf-8")
                 print("SCORE_DONE", key,
-                      f"{correct}/{len(data_items[bench])}", flush=True)
+                      f"avg@{n}={sum(avgs) / n:.4f} pass@{n}={passed / total:.4f}",
+                      flush=True)
     print("SCORING_PASS_DONE", flush=True)
 
 
@@ -392,6 +405,8 @@ def main():
     q.add_argument("--hours", type=float, default=20.)
     q.add_argument("--temperature", type=float, default=0.0)
     q.add_argument("--top_p", type=float, default=1.0)
+    q.add_argument("--n", type=int, default=1,
+                   help="samples per item; pass@n needs temperature>0")
     q.add_argument("--protocol", choices=("simct", "harness"), default="simct")
     q.add_argument("--benches", default="",
                    help="comma subset, e.g. aime24,aime25 (default: all 5)")
