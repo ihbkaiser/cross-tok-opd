@@ -55,6 +55,45 @@ gói khác chưa có commit, để tránh gắn nhầm hash commit cũ cho code 
 
 ## Chạy trên node
 
+### Bổ sung: OOM của native GRASS-Chunk ở full run
+
+Run `qwen-gemma-mp_opd-grass_chunk-gpu3-limit312-20261008-201848-22869`
+trên source `7ef62e89` gặp OOM sau step 112: gather trong
+`grass_chunk_tables` yêu cầu **38.11 GiB**, GPU còn **22.17 GiB**.
+Nguyên nhân là tensor FP64 `[num_chunks, max_chunk_length, max_chunk_length]`:
+một native chunk dài làm tất cả chunk ngắn bị pad lên cùng kích thước. Chia
+nhóm cố định 32 nhưng giữ `max_chunk_length` toàn partition vẫn chưa chặn được lỗi.
+
+Bản vá dùng padding cục bộ cho nhóm tối đa 32 chunk ngắn (dài tối đa 256),
+còn chunk dài được reduce bằng view và tile **256 x 256** trên cả hai chiều.
+Không cắt/split native partition, không đổi FP64, công thức D/V/alpha hoặc
+credit conservation. Thứ tự cộng floating point của nhánh tiled có thể khác.
+Một block batched tối đa **16 MiB**, một product tile FP64 tối đa **0.5 MiB**;
+các tensor trung gian cùng tồn tại làm peak cao hơn các con số từng tensor này.
+Dense Gram và các allocation khác vẫn có chi phí O(n²); đây là giới hạn workspace
+của phép reduce, không phải bảo đảm toàn bộ training không bao giờ OOM.
+
+Kiểm chứng source sau vá, cùng runtime digest đã ghi ở trên:
+
+| GPU thực tế | Kết quả | Thời gian pytest | Peak thêm của ca chunk dài |
+|---|---|---|---|
+| [H100](https://modal.com/apps/billionaireproject8/main/ap-uS9jI9w6dWOQ11vyIipITV) | 178 passed, 0 failed, 0 skipped | 21.96 s | 104887296 bytes |
+| [B200](https://modal.com/apps/billionaireproject8/main/ap-0ln8U37IlyZOw6hrw97fYC) | 178 passed, 0 failed, 0 skipped | 13.58 s | 104887296 bytes |
+
+Ca memory dùng n=2560, một chunk dài 2048 và 512 singleton; peak thêm khoảng
+100.03 MiB đã bao gồm symmetrization của dense Gram. Regression khác so D/V
+với matrix oracle độc lập cho chunk dài 513 xen nhiều chunk ngắn/ragged trên
+CPU và CUDA, kiểm finite credit/conservation, và chặn padded 3-D allocation quá lớn.
+Bộ test cũng kiểm TRUST-B Gemma-2 BF16 B64/M4: gradient và parameter error đều 0,
+dropout replay exact trên cả H100/B200. Đây là test implementation, chưa phải
+replay batch làm run cũ chết hoặc full campaign Qwen/Gemma 312 updates.
+
+Raw logs và source SHA-256 được giữ tại
+`remote_artifacts/grass_chunk_workspace_20261009/{test_cuda.log,test_b200.log,verification.json}`.
+Chưa publish hoặc thay source của run đang chạy trên node công ty.
+
+### Bàn giao hiện có
+
 Giải nén gói source vào một thư mục mới. Không ghi đè clone đang phục vụ run cũ.
 `REF` là file `launch-config.json` hoặc `campaign.json` của campaign đúng cặp
 Qwen teacher → Gemma SFT; launcher đọc ba đường dẫn asset từ file này.

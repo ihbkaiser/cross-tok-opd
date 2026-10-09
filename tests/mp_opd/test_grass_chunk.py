@@ -272,6 +272,83 @@ def test_singleton_chunks_are_pinned_to_zero_and_never_pool():
     assert torch.allclose(shrunk, rate.to(torch.float64))
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_native_long_chunk_and_ragged_neighbours_match_matrix_oracle(device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA required")
+    # More than two reduction groups, a multi-tile chunk, ragged chunks, and
+    # singletons. The long chunk deliberately shares a group with short ones.
+    sizes = [1] * 35 + [513, 3, 17, 2] + [1, 2, 7] * 12
+    ends = [0]
+    for size in sizes:
+        ends.append(ends[-1] + size)
+    partition = tuple(zip(ends[:-1], ends[1:]))
+    n = ends[-1]
+    rate, weight = (t.to(device) for t in _credits(n, seed=971))
+    g = torch.Generator().manual_seed(971)
+    head = torch.randn(n, 9, generator=g, dtype=torch.float64).to(device)
+    gram = head @ head.T + torch.eye(n, dtype=torch.float64, device=device)
+    sigma2 = 0.3
+    tables = grass_chunk_tables(rate, weight, gram, partition, sigma2)
+    assert tables.partition == partition
+    assert tables.distortion.dtype == torch.float64
+    expected_d, expected_v = [], []
+    for start, end in partition:
+        block = gram[start:end, start:end]
+        w, r = weight[start:end], rate[start:end]
+        deviation = r - (w * r).sum() / w.sum()
+        expected_d.append(deviation @ block @ deviation)
+        # Independent A Sigma trace identity, without a padded gather.
+        expected_v.append(sigma2 * ((block.diagonal() / w).sum() - block.sum() / w.sum()))
+    torch.testing.assert_close(tables.distortion, torch.stack(expected_d), rtol=1e-9, atol=1e-10)
+    torch.testing.assert_close(tables.variance, torch.stack(expected_v), rtol=1e-9, atol=1e-10)
+    shrunk, residual = apply_chunk_shrinkage(rate, weight, tables)
+    assert torch.isfinite(shrunk).all()
+    assert float(residual) < 1e-9
+
+
+def test_chunk_reduction_never_materializes_global_padding():
+    from torch.utils._python_dispatch import TorchDispatchMode
+
+    class BoundPaddedBlock(TorchDispatchMode):
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            result = func(*args, **(kwargs or {}))
+            if isinstance(result, torch.Tensor) and result.ndim == 3:
+                assert result.numel() <= 32 * 256 * 256, (
+                    "quadratic workspace expanded with native max chunk length",
+                    result.shape,
+                )
+            return result
+
+    # Both the original all-chunk gather and the unfinished group32 patch
+    # allocate oversized 3-D blocks for this otherwise small input.
+    n = 513 + 70
+    rate, weight = _credits(n, seed=972)
+    partition = ((0, 513),) + tuple((i, i + 1) for i in range(513, n))
+    with BoundPaddedBlock():
+        tables = grass_chunk_tables(rate, weight, torch.eye(n, dtype=torch.float64), partition, 0.5)
+    assert len(tables.alpha) == 71
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_native_chunk_cuda_peak_has_no_chunks_times_max_length_squared_allocation():
+    n, long_size = 2560, 2048
+    rate, weight = (t.cuda() for t in _credits(n, seed=973))
+    gram = torch.eye(n, dtype=torch.float64, device="cuda")
+    partition = ((0, long_size),) + tuple((i, i + 1) for i in range(long_size, n))
+    torch.cuda.synchronize()
+    baseline = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    tables = grass_chunk_tables(rate, weight, gram, partition, 0.5)
+    torch.cuda.synchronize()
+    extra = torch.cuda.max_memory_allocated() - baseline
+    # Dense symmetrization is still O(n^2). The old group32 gather alone is
+    # 1 GiB here; all-chunk padding is >16 GiB. Neither fits this bound.
+    assert extra < 192 * 1024**2, f"unexpected reduction peak: {extra / 1024**2:.2f} MiB"
+    assert torch.isfinite(tables.distortion).all()
+    print(f"CHUNK_WORKSPACE_JSON={{\"n\":{n},\"long_size\":{long_size},\"extra_peak_bytes\":{extra}}}")
+
+
 def test_alpha_matches_the_closed_form_including_the_degenerate_branches():
     n = 6
     rate, weight = _credits(n, seed=33)

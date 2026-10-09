@@ -341,6 +341,73 @@ def _chunk_strength(
     return _shrunk_strength(distortion, variance, eps_d)
 
 
+# Workspace bounds, independent of the algorithm's native chunk boundaries.
+# Small chunks retain batched GPU reductions (at most 16 MiB per fp64 block).
+# Large chunks use 256 x 256 views and at most 0.5 MiB per product temporary.
+_CHUNK_REDUCTION_GROUP = 32
+_CHUNK_REDUCTION_TILE = 256
+
+
+def _chunk_risk_reductions(h, diagonal, r, w, spans, chunk_rate, chunk_weight):
+    """Reduce D and the two V terms without padding to the longest chunk.
+
+    All inputs are detached FP64 statistics. Tiling changes only the reduction
+    order, never the partition, precision, or shrinkage rule. The dense input
+    Gram remains O(n^2); additional quadratic workspace has a fixed bound.
+    """
+    count = len(spans)
+    distortion = h.new_empty(count)
+    off_diagonal = h.new_empty(count)
+    scaled_trace = h.new_empty(count)
+    tile = _CHUNK_REDUCTION_TILE
+    for first in range(0, count, _CHUNK_REDUCTION_GROUP):
+        last = min(first + _CHUNK_REDUCTION_GROUP, count)
+        group = spans[first:last]
+        width = max(end - start for start, end in group)
+        if width <= tile:
+            starts = torch.tensor([s for s, _e in group], device=r.device)
+            lengths = torch.tensor([e - s for s, e in group], device=r.device)
+            positions = torch.arange(width, device=r.device).unsqueeze(0)
+            inside = positions < lengths.unsqueeze(-1)
+            index = torch.where(inside, starts.unsqueeze(-1) + positions, starts.unsqueeze(-1))
+            block = h[index.unsqueeze(-1), index.unsqueeze(-2)]
+            # Mask both axes: padded entries must not enter the V entry sum.
+            block.mul_(inside.unsqueeze(-1)).mul_(inside.unsqueeze(-2))
+            deviation = (r[index] - chunk_rate[first:last].unsqueeze(-1)) * inside
+            distortion[first:last] = (
+                deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)
+            ).sum(dim=(1, 2))
+            block_trace = (diagonal[index] * inside).sum(dim=1)
+            off_diagonal[first:last] = block.sum(dim=(1, 2)) - block_trace
+            own_weight_share = chunk_weight[first:last].unsqueeze(-1) / w[index] - 1.0
+            scaled_trace[first:last] = (diagonal[index] * own_weight_share * inside).sum(dim=1)
+            del block
+            continue
+
+        # A single large native chunk must not inflate its short neighbours.
+        # Basic slices are views; products are bounded on BOTH matrix axes.
+        for ci in range(first, last):
+            start, end = spans[ci]
+            deviation = r[start:end] - chunk_rate[ci]
+            d = h.new_zeros(())
+            entry_sum = h.new_zeros(())
+            for row in range(start, end, tile):
+                row_end = min(row + tile, end)
+                left = deviation[row - start:row_end - start]
+                for col in range(start, end, tile):
+                    col_end = min(col + tile, end)
+                    block = h[row:row_end, col:col_end]
+                    right = deviation[col - start:col_end - start]
+                    d.add_((left.unsqueeze(-1) * block * right.unsqueeze(0)).sum())
+                    entry_sum.add_(block.sum())
+            distortion[ci] = d
+            off_diagonal[ci] = entry_sum - diagonal[start:end].sum()
+            scaled_trace[ci] = (
+                diagonal[start:end] * (chunk_weight[ci] / w[start:end] - 1.0)
+            ).sum()
+    return distortion, off_diagonal, scaled_trace
+
+
 def grass_chunk_tables(
     rate: torch.Tensor,
     weight: torch.Tensor,
@@ -402,29 +469,13 @@ def grass_chunk_tables(
 
     starts = torch.tensor([start for start, _end in spans], dtype=torch.int64, device=r.device)
     ends = torch.tensor([end for _start, end in spans], dtype=torch.int64, device=r.device)
-    positions = torch.arange(int(lengths.max()), device=r.device).view(1, -1)
-    # Chunks have different lengths, so the block gather is padded to the widest one.
-    # Padded slots point at their own chunk's first atom - always a valid index - and
-    # are then zeroed by multiplying a masked deviation, so no junk can reach D_c.
-    inside = positions < lengths.unsqueeze(-1)
-    index = torch.where(inside, positions + starts.unsqueeze(-1), starts.unsqueeze(-1))
-
     chunk_weight = weight_prefix[ends] - weight_prefix[starts]
     chunk_rate = (weighted_rate_prefix[ends] - weighted_rate_prefix[starts]) / chunk_weight
-    deviation = (r[index] - chunk_rate.unsqueeze(-1)) * inside
-    # `index` already holds absolute atom ids, so the block is the two-axis gather -
-    # adding the two index tensors instead would address start+i + start+j.
-    #
-    # The padding is then zeroed on both axes, once. A padded slot points at its own
-    # chunk's first atom, so it reads H[start, start] rather than zero, and that
-    # entry survives every reduction that does not carry `inside` along with it:
-    # the deviation kills it in D_c, and nothing kills it in the off-diagonal sum
-    # below. For a two-atom chunk in a four-atom partition that is twelve phantom
-    # diagonals - enough to drive V_c negative and alpha to 0 on a chunk that is
-    # poolable on sight.
-    block = h[index.unsqueeze(-1), index.unsqueeze(-2)]
-    block = block * inside.unsqueeze(-1) * inside.unsqueeze(-2)
-    distortion = (deviation.unsqueeze(-1) * block * deviation.unsqueeze(-2)).sum(dim=(1, 2))
+    # Native alignment exposed a 38.11 GiB padded gather in the first full run.
+    # Bound reduction workspace rather than capping or changing native chunks.
+    distortion, off_diagonal, scaled_trace = _chunk_risk_reductions(
+        h, diagonal, r, w, spans, chunk_rate, chunk_weight
+    )
     trace = sigma2 * (trace_prefix[ends] - trace_prefix[starts])
     # tr(H_c A_c Sigma_c) with A_c = I - 1 w^T/W_c and Sigma_c = sigma^2 diag(1/w):
     # Sigma_c has diagonal 1/w_i - 1/W_c and off-diagonal -1/W_c, so
@@ -434,10 +485,6 @@ def grass_chunk_tables(
     # from a sigma^2-scaled entry sum is exact in principle, but once the block is
     # close to rank one it returns the sign of round-off - and that is exactly the
     # regime where the sign of V_c is the question being asked.
-    block_trace = (diagonal[index] * inside).sum(dim=1)
-    own_weight_share = chunk_weight.unsqueeze(-1) / w[index] - 1.0
-    scaled_trace = (diagonal[index] * own_weight_share * inside).sum(dim=1)
-    off_diagonal = block.sum(dim=(1, 2)) - block_trace
     variance = sigma2 * (scaled_trace - off_diagonal) / chunk_weight
 
     non_singleton = lengths > 1
