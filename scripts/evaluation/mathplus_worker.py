@@ -11,6 +11,7 @@ import concurrent.futures as cf
 import contextlib
 import fcntl
 import json
+import urllib.error
 import os
 import socket
 import subprocess
@@ -301,8 +302,12 @@ def run_job(root, plan, job, a, port, deadline):
                         data=json.dumps(payload).encode(),
                         headers={"Content-Type": "application/json"})
                     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                    with opener.open(req, timeout=600) as resp:
-                        result = json.load(resp)
+                    try:
+                        with opener.open(req, timeout=600) as resp:
+                            result = json.load(resp)
+                    except urllib.error.HTTPError as exc:
+                        body = exc.read().decode(errors="replace")[:500]
+                        raise ValueError(f"HTTP {exc.code}: {body}")
                     choices = result.get("choices", [])
                     if result.get("error") or len(choices) != 1 or choices[0].get(
                             "finish_reason") not in {"stop", "length"}:
