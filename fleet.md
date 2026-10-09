@@ -94,5 +94,8 @@ Eval và report của đời mới dùng case/group tên riêng (hậu tố `-ne
 
 - 8b/GPU 2: cho mượn. 8b/GPU 1,4,5,6 + 4b/GPU 0: job minhpn19/người khác.
 - 8b toàn node: cấm launch train (RAM host), chỉ đọc log.
+- **huyhq21-membedding-v1-0-0 = CÙNG HARDWARE với 8b-v2** (GPU 1/2/3 trùng UUID
+  GPU 5/6/7 bên 8b-v2; GPU 0 trùng GPU 4). Jobs 2 bên thấy nhau — đặt việc phải
+  tính cả 2 tên. Runtime R107 xong (verify 8/8, smoke pass). GPU 3 bận (job khác).
 - nlp/GPU 0,1: chưa bao giờ đụng (không có UUID, không gate được).
 - ihbkaiser5: cấm dùng. ihbkaiser6 (4 GPUs): sân mới, runtime R97 xong.
