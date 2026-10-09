@@ -224,13 +224,11 @@ def _behavior_parity_metrics(
     # Synthetic terminal events are represented by NaN and intentionally have
     # no behavior probability. Infinity is never a valid sentinel.
     finite = torch.isfinite(behavior_log_probs)
-    # SGLang leaves some output_token_logprobs slots at exactly 0.0, and the trainer
-    # already reports those as unfilled rather than as p=1. There is no comparison to
-    # make on them: a genuine log-probability of exactly 0.0 would mean p == 1.0
-    # exactly, which a softmax does not produce, so scoring such a slot measures the
-    # magnitude of log p instead of an engine/trainer mismatch. That difference is
-    # not cosmetic - a handful of them in one batch pushed p99 past its gate and
-    # killed an otherwise healthy 312-update run at step 75.
+    # Retain the existing zero exclusion policy for parity telemetry. Exact zero
+    # can be an unfilled engine slot, but FP32 log_softmax can also round an almost
+    # certain token to zero. B200 same-token rescoring on 2026-10-10 confirmed the
+    # latter in all 269 zero positions of three independent probes. This mask is
+    # a legacy heuristic, not proof that every excluded value is missing.
     unfilled = finite & (behavior_log_probs == 0.0)
     real = finite & ~unfilled
     unfilled_fraction = unfilled.float().mean() if unfilled.numel() else real.new_zeros(())
@@ -1811,17 +1809,11 @@ class MetaPartitionedOPD:
                 f"but the atom-selected prior covers {prior.numel()}"
             )
 
-        # SGLang 0.5.11 leaves a measurable share of its output_token_logprobs slots
-        # at exactly 0.0: 10-16% of the loss mask here, reproduced on an L4 with a
-        # 0.5B model, so this is the engine's bookkeeping rather than anything about
-        # this run's setup. Those slots are unfilled placeholders, not p=1 - across
-        # every request probed the maximum log-probability is exactly 0.0 while the
-        # real values sit several nats lower. Left in place they enter L_S as zero
-        # and shrink the denominator of the likelihood ratio, which is what made the
-        # semantic prior partly fabricated. On-policy the token was drawn from this
-        # very distribution, so the recomputed value is the correct one for those
-        # positions, and parity shows the two agree to about 0.007 nats wherever
-        # both exist.
+        # Preserve the existing zero fallback without interpreting every zero as
+        # missing: it can also be a numerically saturated valid probability. This
+        # substitution relies on same-policy recomputation; independent rescoring
+        # is needed to diagnose missing values. The metric's legacy "unfilled"
+        # name counts zeros and does not by itself establish an engine defect.
         unfilled_prior = prior == 0.0
         unfilled_fraction = unfilled_prior.float().mean()
         if bool(unfilled_prior.any()):

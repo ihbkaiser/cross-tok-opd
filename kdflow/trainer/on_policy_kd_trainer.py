@@ -971,8 +971,9 @@ class OnPolicyKDTrainer:
             _n_zero = sum(1 for x in logprobs if float(x[0]) == 0.0)
             print(
                 f"[exact-rollout] WARNING: {_n_zero}/{len(logprobs)} behavior logprobs are exactly "
-                "0.0; these are unfilled SGLang output_token_logprobs slots, not real p=1. They "
-                "still enter the DPCA semantic prior, so a loss that needs them fails closed.",
+                "0.0; this can reflect numerical saturation near p=1 or missing engine values. "
+                "Independent same-token rescoring is required to distinguish them; zero counts "
+                "alone do not establish an engine bug.",
                 flush=True,
             )
             _probe_zero_slots(logprobs)
@@ -1047,4 +1048,3 @@ class OnPolicyKDTrainer:
             if self._tensorboard is not None:
                 self._tensorboard.log(logs, step=self.global_step)
             self.log_state.clear()
-
