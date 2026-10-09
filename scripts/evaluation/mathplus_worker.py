@@ -497,6 +497,108 @@ def cmd_mark_done(a):
           flush=True)
 
 
+def cmd_loadtest(a):
+    """VRAM/latency probe: serve a checkpoint and fire concurrent fixed
+    requests. Reports p50/p95 latency, error count and GPU memory."""
+    import statistics
+    ckpt = Path(a.checkpoint).resolve()
+    ident = E.checkpoint_identity(str(ckpt))
+    deadline = time.time() + a.minutes * 60
+    port = 32100 + 1000 * a.gpu
+    with socket.socket() as sock:
+        if sock.connect_ex(("127.0.0.1", port)) == 0:
+            raise RuntimeError("server port already occupied")
+    env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(a.gpu), HF_HUB_OFFLINE="1",
+               TRANSFORMERS_OFFLINE="1", HF_DATASETS_OFFLINE="1",
+               OMP_NUM_THREADS="4", TOKENIZERS_PARALLELISM="false",
+               PYTHONUNBUFFERED="1",
+               PYTHONPATH=str(HERE.parents[1] / "experiments/modal/vendor") + ":"
+               + str(HERE.parents[1]))
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy",
+                 "https_proxy", "all_proxy", "WANDB_API_KEY", "HF_TOKEN"):
+        env.pop(name, None)
+    host_sh = HERE.parents[1] / "experiments/runai/python-b200-host.sh"
+    command = ["bash", str(host_sh), "-m", "sglang.launch_server",
+               "--model-path", str(ckpt), "--served-model-name", MODEL_ID,
+               "--host", "127.0.0.1", "--port", str(port),
+               "--tp-size", "1", "--mem-fraction-static", "0.8",
+               "--context-length", str(a.context_length),
+               "--attention-backend", "triton", "--disable-cuda-graph",
+               "--random-seed", "42"]
+    log = open(f"/tmp/mathplus-loadtest-gpu{a.gpu}.log", "ab")
+    process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT,
+                               start_new_session=True)
+    watchdog = threading.Timer(max(0., deadline - time.time()),
+                               stop_group, args=(process,))
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        startup = min(deadline, time.time() + 900)
+        while True:
+            if time.time() >= deadline:
+                raise Deadline("wall budget")
+            if time.time() >= startup:
+                raise RuntimeError("server readiness exceeded 900s")
+            if process.poll() is not None:
+                raise RuntimeError("SGLang exited")
+            try:
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                with opener.open(f"http://127.0.0.1:{port}/health", timeout=2):
+                    pass
+                break
+            except (OSError, ValueError):
+                time.sleep(2)
+        E.verify_server(f"http://127.0.0.1:{port}", str(ckpt), MODEL_ID)
+        prompt = ("Solve step by step and put the final answer in \\boxed{}. "
+                  "If a train travels 120 km in 2 hours, what is its average speed in km/h? "
+                  "Show the formula, substitute the numbers, and compute carefully. " * 4)
+
+        def one(i):
+            payload = {"model": MODEL_ID,
+                       "messages": [{"role": "user", "content": prompt}],
+                       "temperature": 0.6, "top_p": 0.95,
+                       "max_tokens": a.max_tokens, "n": 1, "seed": i}
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/chat/completions",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"})
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            t0 = time.time()
+            try:
+                with opener.open(req, timeout=900) as resp:
+                    result = json.load(resp)
+                ok = bool(result.get("choices")) and result["choices"][0].get(
+                    "finish_reason") in {"stop", "length"}
+                return (time.time() - t0, ok, "")
+            except Exception as exc:
+                return (time.time() - t0, False,
+                        f"{type(exc).__name__}: {str(exc)[:120]}")
+
+        results = []
+        with cf.ThreadPoolExecutor(max_workers=a.concurrency) as pool:
+            futs = [pool.submit(one, i) for i in range(a.requests)]
+            for fut in cf.as_completed(futs):
+                results.append(fut.result())
+                if len(results) % 20 == 0:
+                    print(f"PROGRESS {len(results)}/{len(futs)}", flush=True)
+        lat = sorted(r[0] for r in results)
+        ok = sum(1 for r in results if r[1])
+        errs = {}
+        for _, good, msg in results:
+            if not good:
+                errs[msg] = errs.get(msg, 0) + 1
+        print(json.dumps({
+            "gpu": a.gpu, "context_length": a.context_length,
+            "max_tokens": a.max_tokens, "concurrency": a.concurrency,
+            "requests": len(results), "ok": ok,
+            "lat_p50": statistics.median(lat),
+            "lat_p95": lat[max(0, int(len(lat) * 0.95) - 1)],
+            "lat_max": lat[-1], "errors": errs}, indent=2), flush=True)
+    finally:
+        watchdog.cancel()
+        stop_group(process)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -531,6 +633,15 @@ def main():
     q.add_argument("--run", required=True,
                    help="substring of job id, e.g. a run-dir name")
     q.set_defaults(func=cmd_mark_done)
+    q = sub.add_parser("loadtest")
+    q.add_argument("--checkpoint", required=True)
+    q.add_argument("--gpu", type=int, choices=range(8), required=True)
+    q.add_argument("--context-length", type=int, default=16384)
+    q.add_argument("--max-tokens", type=int, default=8192)
+    q.add_argument("--concurrency", type=int, default=128)
+    q.add_argument("--requests", type=int, default=64)
+    q.add_argument("--minutes", type=float, default=30.)
+    q.set_defaults(func=cmd_loadtest)
     a = p.parse_args()
     a.func(a)
 
