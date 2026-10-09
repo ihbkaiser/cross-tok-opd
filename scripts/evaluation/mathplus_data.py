@@ -111,22 +111,24 @@ def normalize_gpqa(row, idx):
 
 
 def prompt(benchmark, item, protocol="simct"):
-    """Build chat messages. Default protocol mirrors the SimCT AIME path
-    (0-shot chat + QWEN boxed prompt). ``protocol="harness"`` mirrors the
-    server lm-eval yaml (plain Question/Answer, no system prompt)."""
+    """Build chat messages with user role only: the eval server rejects the
+    system role (HTTP 400 'System role not supported'), so the SimCT system
+    prompts are merged into the user message, like the main pipeline's
+    ``system-role merge``. ``protocol="harness"`` mirrors the server lm-eval
+    yaml (plain Question/Answer, no system prompt)."""
     if benchmark in MATH_BENCHES:
         if protocol == "harness":
             return [{"role": "user",
                      "content": f"Question: {item['problem']}\nAnswer:"}]
-        return [{"role": "system", "content": QWEN_MATH_SYSTEM_PROMPT},
-                {"role": "user", "content": item["problem"]}]
+        return [{"role": "user", "content":
+                 QWEN_MATH_SYSTEM_PROMPT + "\n\n" + item["problem"]}]
     if benchmark == "gpqa-diamond":
         body = item["problem"] + "\n" + "\n".join(
             f"({chr(65 + i)}) {c}" for i, c in enumerate(item["choices"]))
         if protocol == "harness":
             return [{"role": "user", "content": body}]
-        return [{"role": "system", "content": GPQA_SYSTEM_PROMPT},
-                {"role": "user", "content": body + "\nAnswer:"}]
+        return [{"role": "user", "content":
+                 GPQA_SYSTEM_PROMPT + "\n\n" + body + "\nAnswer:"}]
     raise ValueError(benchmark)
 
 
