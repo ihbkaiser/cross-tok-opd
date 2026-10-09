@@ -41,6 +41,27 @@ COUNTS = {"aime24": 30, "aime25": 30, "aime26": 30,
 
 MATH_BENCHES = ("aime24", "aime25", "aime26", "amc23")
 
+# Math-generation registry: run-dir name substring -> "old" (<=ccec1966) / "new"
+# (>=ef49e0ba). Anything unmatched is "unknown" on purpose: never guess, the
+# report shows it and the pool still evaluates it.
+MATH_ERA = [
+    ("align-gpu4-limit312-20261008-200515-988425", "new"),
+    ("grass_chunk-gpu3-limit312-20261009-021201-98822", "new"),
+    ("grass-gpu6-limit312-20261008-185835-948792", "new"),
+    ("trust_r-gpu7-limit312-20261008-202234-1000470", "new"),
+    ("mp-atomic-gpu0-limit0-20260909-052816-153554", "old"),
+    ("mp-fixed-gpu1-limit0-20260909-052816-153555", "old"),
+]
+
+
+def era_of(checkpoint_path):
+    """Return (era, matched_rule) for a checkpoint dir; era is old/new/unknown."""
+    name = str(checkpoint_path)
+    for sub, era in MATH_ERA:
+        if sub in name:
+            return era, sub
+    return "unknown", ""
+
 QWEN_MATH_SYSTEM_PROMPT = (
     "Please reason step by step, and put your final answer within \\boxed{}."
 )

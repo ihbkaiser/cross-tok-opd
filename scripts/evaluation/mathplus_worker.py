@@ -117,8 +117,11 @@ def cmd_prepare(a):
     for spec in a.checkpoint:
         ckpt = Path(spec).resolve()
         ident = E.checkpoint_identity(str(ckpt))
+        era, rule = D.era_of(str(ckpt))
+        print(f"MATH_ERA {ckpt.parent.name}/{ckpt.name} -> {era}"
+              + (f" ({rule})" if rule else " (no rule, explicit unknown)"), flush=True)
         jobs.append({"id": f"mathplus-{ckpt.parent.parent.name}-{ckpt.name}",
-                     "checkpoint": ident, "tier": 0})
+                     "checkpoint": ident, "tier": 0, "math": era})
     plan = {"schema": "mathplus-queue-v1", "profile": D.PROFILE,
             "seeds": list(D.SEEDS), "data": data, "jobs": jobs,
             "hours": a.hours, "temperature": a.temperature,
@@ -407,6 +410,8 @@ def cmd_score(a):
                          "pass_at_n": passed / total, "n": n,
                          "rep_avgs": avgs, "passed": passed,
                          "correct": correct_reps[0], "total": total,
+                         "math": job.get("math", "unknown"),
+                         "checkpoint_sha256": job["checkpoint"]["sha256"],
                          "n_present": 1, "eval_n": 1,
                          "seeds": {str(seed): sum(avgs) / n}},
                         indent=2), encoding="utf-8")
