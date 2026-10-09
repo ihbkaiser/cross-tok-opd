@@ -7,6 +7,7 @@ validates against its own profile/source, so the main 4-bench queues are
 untouched. New file only.
 """
 import argparse
+import concurrent.futures as cf
 import contextlib
 import fcntl
 import json
@@ -279,20 +280,22 @@ def run_job(root, plan, job, a, port, deadline):
                         row = json.loads(line)
                         found.add((row["id"], row.get("rep", 0)))
                 base = f"http://127.0.0.1:{port}"
-                for item in data_items[bench]:
-                    for rep in range(n):
-                        if (item["id"], rep) in found:
-                            continue
-                        if time.time() >= deadline:
-                            raise Deadline("wall budget")
-                        msgs = (item["messages"] if plan.get("protocol", "simct") == "simct"
-                                else item["messages_harness"])
-                        payload = {"model": MODEL_ID, "messages": msgs,
-                                   "temperature": plan.get("temperature", 0.0),
-                                   "top_p": plan.get("top_p", 1.0),
-                                   "max_tokens": D.CAPS[bench], "n": 1,
-                                   "seed": request_seed(seed, item["id"], rep),
-                                   "chat_template_kwargs": {"enable_thinking": False}}
+                pending = [(item, rep) for item in data_items[bench]
+                           for rep in range(n)
+                           if (item["id"], rep) not in found]
+                proto = plan.get("protocol", "simct")
+                temp = plan.get("temperature", 0.0)
+                topp = plan.get("top_p", 1.0)
+
+                def one(task):
+                    item, rep = task
+                    msgs = (item["messages"] if proto == "simct"
+                            else item["messages_harness"])
+                    payload = {"model": MODEL_ID, "messages": msgs,
+                               "temperature": temp, "top_p": topp,
+                               "max_tokens": D.CAPS[bench], "n": 1,
+                               "seed": request_seed(seed, item["id"], rep),
+                               "chat_template_kwargs": {"enable_thinking": False}}
                     req = urllib.request.Request(
                         base + "/v1/chat/completions",
                         data=json.dumps(payload).encode(),
@@ -307,9 +310,25 @@ def run_job(root, plan, job, a, port, deadline):
                     content = choices[0]["message"]["content"]
                     if not isinstance(content, str):
                         raise ValueError("missing content")
-                    with out.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps({"id": item["id"], "seed": seed, "rep": rep,
-                                            "request_seed": payload["seed"], "text": content}) + "\n")
+                    return (item["id"], rep, payload["seed"], content)
+
+                workers = min(a.concurrency, len(pending) or 1)
+                with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+                    future_map = {pool.submit(one, t): t for t in pending}
+                    done = 0
+                    for fut in cf.as_completed(future_map):
+                        if time.time() >= deadline:
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            raise Deadline("wall budget")
+                        item_id, rep, rseed, content = fut.result()
+                        with out.open("a", encoding="utf-8") as f:
+                            f.write(json.dumps(
+                                {"id": item_id, "seed": seed, "rep": rep,
+                                 "request_seed": rseed, "text": content}) + "\n")
+                        done += 1
+                        if done % 50 == 0:
+                            print("PROGRESS", job["id"], bench, seed,
+                                  f"{done}/{len(pending)}", flush=True)
                 (cell / "generation-complete.json").write_text(json.dumps(
                     {"job": job["id"], "benchmark": bench, "seed": seed,
                      "server": server, "count": len(data_items[bench])}), encoding="utf-8")
@@ -414,6 +433,7 @@ def main():
     q = sub.add_parser("gen")
     q.add_argument("--plan", type=Path, required=True)
     q.add_argument("--gpu", type=int, choices=range(8), required=True)
+    q.add_argument("--concurrency", type=int, default=128)
     q.set_defaults(func=cmd_gen)
     q = sub.add_parser("score")
     q.add_argument("--plan", type=Path, required=True)
