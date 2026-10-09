@@ -95,6 +95,32 @@ def grade_gpqa(text, gold):
     return (pred == gold), pred
 
 
+MILESTONES = ("312", "280", "240", "200", "160", "120", "80", "40")
+
+
+def resolve_checkpoints(specs):
+    """Expand runs-file lines / --checkpoint specs to (ckptdir, steps).
+
+    A runs-file line is ``RUNDIR [step ...]``; without steps the milestone
+    steps that exist on disk are used, newest first. ``#`` starts a comment.
+    """
+    out = []
+    for spec in specs:
+        parts = spec.split()
+        if not parts or parts[0].startswith("#"):
+            continue
+        run = Path(parts[0])
+        if not run.is_absolute():
+            run = Path("/workspace/storage-shared/nlp/tungks") / run
+        steps = [p for p in parts[1:] if (run / "checkpoint" / f"step{p}").is_dir()]
+        if len(parts) == 1:
+            steps = [s for s in MILESTONES
+                     if (run / "checkpoint" / f"step{s}").is_dir()]
+        for s in steps:
+            out.append(run / "checkpoint" / f"step{s}")
+    return out
+
+
 def cmd_prepare(a):
     root = a.out.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -114,13 +140,22 @@ def cmd_prepare(a):
                        "count": len(items), "source": source}
         print(f"PREPARED {bench} {len(items)}", flush=True)
     jobs = []
-    for spec in a.checkpoint:
+    specs = list(a.checkpoint)
+    queue_lines = []
+    if a.runs_file:
+        lines = Path(a.runs_file).read_text().splitlines()
+        queue_lines = [ln for ln in lines if ln.strip() and not ln.strip().startswith("#")]
+        (root / "runs.queue").write_text("\n".join(queue_lines) + "\n", encoding="utf-8")
+        (root / "runs.evaluated").write_text("", encoding="utf-8")
+        specs = [str(p) for p in resolve_checkpoints(queue_lines)]
+    for spec in specs:
         ckpt = Path(spec).resolve()
         ident = E.checkpoint_identity(str(ckpt))
         era, rule = D.era_of(str(ckpt))
         print(f"MATH_ERA {ckpt.parent.name}/{ckpt.name} -> {era}"
               + (f" ({rule})" if rule else " (no rule, explicit unknown)"), flush=True)
         jobs.append({"id": f"mathplus-{ckpt.parent.parent.name}-{ckpt.name}",
+                     "run": ckpt.parent.name,
                      "checkpoint": ident, "tier": 0, "math": era})
     plan = {"schema": "mathplus-queue-v1", "profile": D.PROFILE,
             "seeds": list(D.SEEDS), "data": data, "jobs": jobs,
@@ -421,6 +456,47 @@ def cmd_score(a):
     print("SCORING_PASS_DONE", flush=True)
 
 
+def cmd_mark_done(a):
+    """Move a fully scored run from runs.queue to runs.evaluated.
+
+    A run counts as done only when every one of its jobs has metrics.json
+    for every bench x seed cell. Refuses otherwise (prints what is missing).
+    """
+    root = a.plan.resolve().parent
+    plan = json.loads(a.plan.resolve().read_text(encoding="utf-8"))
+    queue_path = root / "runs.queue"
+    done_path = root / "runs.evaluated"
+    if not queue_path.exists():
+        raise ValueError("no runs.queue (plan was not prepared with --runs-file)")
+    targets = [j for j in plan["jobs"] if a.run in j["id"]]
+    if not targets:
+        raise ValueError(f"no jobs match {a.run!r}")
+    missing = []
+    for job in targets:
+        for seed in plan["seeds"]:
+            for bench in plan["data"]:
+                if not (root / "cells" / job["id"] / bench / str(seed)
+                        / "metrics.json").exists():
+                    missing.append(f"{job['id']}/{bench}/{seed}")
+    if missing:
+        print(f"NOT DONE {a.run}: {len(missing)} cells missing, e.g. {missing[:3]}",
+              flush=True)
+        return
+    lines = queue_path.read_text().splitlines()
+    keep, moved = [], []
+    for ln in lines:
+        if ln.strip() and not ln.strip().startswith("#") and a.run in ln:
+            moved.append(ln)
+        else:
+            keep.append(ln)
+    queue_path.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+    with done_path.open("a", encoding="utf-8") as f:
+        for ln in moved:
+            f.write(ln + "\n")
+    print(f"MARKED DONE {a.run}: {len(targets)} jobs, moved {len(moved)} queue lines",
+          flush=True)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -428,6 +504,8 @@ def main():
     q.add_argument("--out", type=Path, required=True)
     q.add_argument("--checkpoint", action="append", default=[],
                    help="checkpoint dir (repeatable)")
+    q.add_argument("--runs-file", default="",
+                   help="queue file: one RUNDIR [steps...] per line")
     q.add_argument("--shared", type=Path,
                    default=Path("/workspace/storage-shared/nlp/tungks"))
     q.add_argument("--proxy", default="http://10.30.154.118:80")
@@ -448,6 +526,11 @@ def main():
     q = sub.add_parser("score")
     q.add_argument("--plan", type=Path, required=True)
     q.set_defaults(func=cmd_score)
+    q = sub.add_parser("mark-done")
+    q.add_argument("--plan", type=Path, required=True)
+    q.add_argument("--run", required=True,
+                   help="substring of job id, e.g. a run-dir name")
+    q.set_defaults(func=cmd_mark_done)
     a = p.parse_args()
     a.func(a)
 
