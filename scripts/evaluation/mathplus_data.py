@@ -63,6 +63,22 @@ MATH_ERA = [
     ("ALT-main-s43", "old"),
     ("RND-random5-s43", "old"),
     ("RND-random5-s44", "old"),
+    # Verified 20261009 via launch-config source_commit + ancestry vs new-math
+    # tip ef49e0ba (7ef62e89 is the new-math argv fix itself).
+    ("trust_b-gpu5-limit312-20261008-210403-1025563", "new"),
+    ("grass_chunk-gpu6-limit312-20261008-220522-2706144", "new"),
+    ("trust_r-gpu3-limit312-20261008-200859-2616527", "new"),
+    ("grass-gpu0-limit312-20261008-170030-4008059", "old"),
+    ("align-gpu3-limit312-20261008-044821-1731804", "old"),
+    ("dpca-gpu0-limit312-20261008-044519-145031", "old"),
+    ("trust_r-gpu0-limit312-20261008-011142-2514185", "old"),
+    ("trust_b-gpu6-limit312-20261008-005448-117514", "old"),
+    ("align-gpu0-limit312-20261007-190227-1082160", "old"),
+    ("grass_chunk-gpu5-limit312-20261007-190837-14654", "old"),
+    ("grass-gpu3-limit312-20261007-142741-762280", "old"),
+    ("grass-gpu0-limit312-20261007-040709-668937", "old"),
+    ("grass-gpu0-limit312-20261007-045743-739561", "old"),
+    ("grass-gpu0-limit312-20261007-151301-811809", "old"),
 ]
 
 
