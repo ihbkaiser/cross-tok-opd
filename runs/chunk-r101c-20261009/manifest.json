@@ -1,0 +1,12 @@
+{
+  "source_archive": "chunk-r101c-logs-20261009.zip",
+  "source_sha256": "7106feaa95ef9650042dbf3b076ab541072681a8d57e2cec3d4d9df6432113fe",
+  "entries": 3,
+  "extracted_bytes": 14404700,
+  "files": {
+    "extracted/simct-runs/qwen-gemma-mp_opd-grass_chunk-gpu3-limit312-20261009-021201-98822/launch-config.json": "7e05440b6a762ca2ba9dd5bd48db49b30581b15a67cd82d93a551b232ae9592e",
+    "extracted/simct-runs/qwen-gemma-mp_opd-grass_chunk-gpu3-limit312-20261009-021201-98822/checkpoint/tensorboard/events.out.tfevents.1791512199.ihbkaiser6-0-0.98834.0": "73f31e59b303cee6769c5e5ab0c3fcaa643dbf3d9bf91505dc093dc520de79ff",
+    "extracted/simct-runs/qwen-gemma-mp_opd-grass_chunk-gpu3-limit312-20261009-021201-98822.log": "9e6d4ff2ff3e37061af60ae6c584b135b26ac35eaa1808ecf9438380486d9c5d",
+    "chunk-r101c-logs-20261009.zip": "7106feaa95ef9650042dbf3b076ab541072681a8d57e2cec3d4d9df6432113fe"
+  }
+}

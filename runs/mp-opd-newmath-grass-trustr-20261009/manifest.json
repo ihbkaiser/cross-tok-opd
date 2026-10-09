@@ -1,0 +1,13 @@
+{
+  "source_archive": "mp-opd-newmath-grass-trustr-20261009.tgz",
+  "source_sha256": "055e3decf72e0999522d8f95023d800d9d64dc25796597fd9d87afdb561cd2fb",
+  "entries": 4,
+  "extracted_bytes": 30348297,
+  "files": {
+    "extracted/trustr-new-tb/events.out.tfevents.1791491278.nlp-core-team-0-0.1000488.0": "ac17ff0bef6c5aa9883487bcaddee0f67379fb693c7ad7bb2f3ca2ab71120c86",
+    "extracted/grass-new-tb/events.out.tfevents.1791486236.nlp-core-team-0-0.948804.0": "0c3b6f01a6a83e10b0bc6d9adeefbb3cb8629afad0dc557360febc05837b44a0",
+    "extracted/trustr-new.log": "f388ed2878bf7bc44952de44e6abc27f65fbfb2f21dbb470c2bf481e0ac0e609",
+    "extracted/grass-new.log": "cb34853e93d96c6a09a7b4530e1a9c6c55510a4a2d1a05b31458e706604da285",
+    "mp-opd-newmath-grass-trustr-20261009.tgz": "055e3decf72e0999522d8f95023d800d9d64dc25796597fd9d87afdb561cd2fb"
+  }
+}

@@ -12,3 +12,9 @@ optimizer state belong here. Historical runs outside this snapshot are not yet a
 
 Code checkout command: scripts/ops/sync_github_branches.ps1 synchronizes both refs
 from local to both GitHub repositories and verifies identical commit hashes.
+
+## User-supplied archives added 2026-10-10
+
+- `runs/chunk-r101c-20261009/`: GRASS-Chunk r101c log, launch config and TensorBoard; original ZIP retained.
+- `runs/mp-opd-newmath-grass-trustr-20261009/`: GRASS new-math and TRUST-R logs/TensorBoard; original TGZ retained.
+Each directory contains `manifest.json` with source and per-file SHA-256. Archives were validated, paths checked and payloads scanned for credential patterns before commit. These are supplied run artifacts; importing does not validate scientific correctness or performance.
