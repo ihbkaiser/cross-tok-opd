@@ -15,10 +15,10 @@ from pathlib import Path
 PROFILE = "company-internal-mathplus-v1"
 SEEDS = (42, 43, 44)
 
-# Bench -> gen cap (new tokens). Loadtest 20261009 (B200, real aime24 items):
-# 6144 toks holds at concurrency 128 (64/64 ok, p50 8.2s, p95 49s).
-# Server context stays 8192 (Gemma-2 max_position_embeddings, hard ceiling).
-CAPS = {"aime24": 6144, "aime25": 6144, "aime26": 6144,
+# Bench -> gen cap (new tokens). Loadtests 20261009 (B200, real aime24 items):
+# 6144+256 ok (p50 7.6s), 7168+128 ok, 7168+256 ok (p50 7.3s, p95 64s).
+# 8192 fails (prompt+8192 > context). Server context 8192 = Gemma-2 ceiling.
+CAPS = {"aime24": 7168, "aime25": 7168, "aime26": 7168,
         "amc23": 2048, "gpqa-diamond": 2048}
 BENCHES = tuple(CAPS)
 
