@@ -43,43 +43,19 @@ COUNTS = {"aime24": 30, "aime25": 30, "aime26": 30,
 
 MATH_BENCHES = ("aime24", "aime25", "aime26", "amc23")
 
-# Math-generation registry: run-dir name substring -> "old" (<=ccec1966) / "new"
-# (>=ef49e0ba). Anything unmatched is "unknown" on purpose: never guess, the
-# report shows it and the pool still evaluates it.
-MATH_ERA = [
-    ("align-gpu4-limit312-20261008-200515-988425", "new"),
-    ("grass_chunk-gpu3-limit312-20261009-021201-98822", "new"),
-    ("grass-gpu6-limit312-20261008-185835-948792", "new"),
-    ("trust_r-gpu7-limit312-20261008-202234-1000470", "new"),
-    ("mp-atomic-gpu0-limit0-20260909-052816-153554", "old"),
-    ("mp-fixed-gpu1-limit0-20260909-052816-153555", "old"),
-    # Provenance-verified 20261009: trust_b-gpu0 source_commit a024d3b7
-    # (fleet: pair-Gram a024d3b7 is old math); ALT-s43 source a1934d2b is an
-    # ancestor of old-tip ccec1966; RND-s43/s44 trained 20261002-04, before
-    # new-math ef49e0ba (20261009).
-    ("trust_b-gpu0-limit312-20261008-105604-2494797", "old"),
-    ("ALT-every4-s43", "old"),
-    ("ALT-lowLR-s43", "old"),
-    ("ALT-main-s43", "old"),
-    ("RND-random5-s43", "old"),
-    ("RND-random5-s44", "old"),
-    # Verified 20261009 via launch-config source_commit + ancestry vs new-math
-    # tip ef49e0ba (7ef62e89 is the new-math argv fix itself).
-    ("trust_b-gpu5-limit312-20261008-210403-1025563", "new"),
-    ("grass_chunk-gpu6-limit312-20261008-220522-2706144", "new"),
-    ("trust_r-gpu3-limit312-20261008-200859-2616527", "new"),
-    ("grass-gpu0-limit312-20261008-170030-4008059", "old"),
-    ("align-gpu3-limit312-20261008-044821-1731804", "old"),
-    ("dpca-gpu0-limit312-20261008-044519-145031", "old"),
-    ("trust_r-gpu0-limit312-20261008-011142-2514185", "old"),
-    ("trust_b-gpu6-limit312-20261008-005448-117514", "old"),
-    ("align-gpu0-limit312-20261007-190227-1082160", "old"),
-    ("grass_chunk-gpu5-limit312-20261007-190837-14654", "old"),
-    ("grass-gpu3-limit312-20261007-142741-762280", "old"),
-    ("grass-gpu0-limit312-20261007-040709-668937", "old"),
-    ("grass-gpu0-limit312-20261007-045743-739561", "old"),
-    ("grass-gpu0-limit312-20261007-151301-811809", "old"),
-]
+# Math-generation registry lives in mathplus_era.json (NOT covered by
+# script_hashes): adding verified era labels must never invalidate plans
+# that are already generating. Anything unmatched is "unknown" on purpose.
+def _load_era():
+    try:
+        return [(sub, era) for sub, era in json.loads(
+            (Path(__file__).resolve().parent / "mathplus_era.json").read_text(
+                encoding="utf-8"))]
+    except (OSError, ValueError):
+        return []
+
+
+MATH_ERA = _load_era()
 
 
 def era_of(checkpoint_path):

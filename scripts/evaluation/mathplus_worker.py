@@ -618,6 +618,20 @@ def cmd_loadtest(a):
         stop_group(process)
 
 
+def cmd_migrate_source(a):
+    """Re-stamp an existing plan with the current source record without
+    touching jobs/cells: used when only the worker (never the data contract)
+    changed. Records the previous stamp for provenance."""
+    root = a.plan.resolve().parent
+    plan = json.loads(a.plan.resolve().read_text(encoding="utf-8"))
+    prev = plan.get("source")
+    plan["source"] = D.script_hashes()
+    plan.setdefault("source_migrations", []).append(
+        {"previous": prev, "time": time.time()})
+    atomic_json(a.plan.resolve(), plan)
+    print("MIGRATED", a.plan, flush=True)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -654,6 +668,9 @@ def main():
     q.add_argument("--run", required=True,
                    help="substring of job id, e.g. a run-dir name")
     q.set_defaults(func=cmd_mark_done)
+    q = sub.add_parser("migrate-source")
+    q.add_argument("--plan", type=Path, required=True)
+    q.set_defaults(func=cmd_migrate_source)
     q = sub.add_parser("loadtest")
     q.add_argument("--checkpoint", required=True)
     q.add_argument("--gpu", type=int, choices=range(8), required=True)
