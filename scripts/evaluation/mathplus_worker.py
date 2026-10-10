@@ -247,8 +247,10 @@ def cmd_gen(a):
     plan_hash = D.file_hash(plan_path)
     if plan.get("profile") != D.PROFILE or plan.get("schema") != "mathplus-queue-v1":
         raise ValueError("not a mathplus plan")
-    if plan.get("source") != D.script_hashes():
-        raise ValueError("mathplus source changed")
+    data_ok, note = D.source_matches(plan.get("source"))
+    if not data_ok:
+        raise ValueError("mathplus data contract changed")
+    print("SOURCE", note, flush=True)
     for data in plan["data"].values():
         if D.file_hash(data["path"]) != data["sha256"]:
             raise ValueError("prepared data changed")
@@ -391,19 +393,29 @@ def cmd_score(a):
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if plan.get("profile") != D.PROFILE or plan.get("schema") != "mathplus-queue-v1":
         raise ValueError("not a mathplus plan")
-    if plan.get("source") != D.script_hashes():
-        raise ValueError("mathplus source changed")
+    data_ok, note = D.source_matches(plan.get("source"))
+    if not data_ok:
+        raise ValueError("mathplus data contract changed")
+    print("SOURCE", note, flush=True)
     data_items = {}
     for bench, data in plan["data"].items():
         if D.file_hash(data["path"]) != data["sha256"]:
             raise ValueError("prepared data changed")
         payload = json.loads(Path(data["path"]).read_text(encoding="utf-8"))
         data_items[bench] = {x["id"]: x for x in payload["items"]}
+    nshard = max(1, int(a.shard_count))
+    ishhard = int(a.shard_index) % nshard
+    print(f"SHARD {ishhard}/{nshard}", flush=True)
+    idx = 0
     for job in plan["jobs"]:
         for seed in plan["seeds"]:
             for bench in plan["data"]:
+                mine = (idx % nshard) == ishhard
+                idx += 1
                 cell = root / "cells" / job["id"] / bench / str(seed)
                 key = f"{job['id']}/{bench}/{seed}"
+                if not mine:
+                    continue
                 complete = cell / "generation-complete.json"
                 if not complete.exists():
                     print("SKIP", key, "(no generation)", flush=True)
@@ -634,6 +646,8 @@ def main():
     q.set_defaults(func=cmd_gen)
     q = sub.add_parser("score")
     q.add_argument("--plan", type=Path, required=True)
+    q.add_argument("--shard-index", type=int, default=0)
+    q.add_argument("--shard-count", type=int, default=1)
     q.set_defaults(func=cmd_score)
     q = sub.add_parser("mark-done")
     q.add_argument("--plan", type=Path, required=True)

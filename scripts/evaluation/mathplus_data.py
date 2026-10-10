@@ -109,8 +109,28 @@ def file_hash(path):
 
 
 def script_hashes():
+    """Provenance: data-file hash is the hard contract (prompts, caps,
+    counts, registry); worker hash is recorded for info only, so worker
+    upgrades (locks, logging, sharding) never invalidate running plans."""
     here = Path(__file__).resolve().parent
-    return {n: file_hash(here / n) for n in ("mathplus_data.py", "mathplus_worker.py")}
+    return {"data": file_hash(here / "mathplus_data.py"),
+            "worker": file_hash(here / "mathplus_worker.py")}
+
+
+def source_matches(plan_source):
+    """Accept current and legacy (per-file dict) source records; return
+    (data_ok, worker_note). Data mismatch is fatal; worker drift only warns."""
+    here = Path(__file__).resolve().parent
+    want = file_hash(here / "mathplus_data.py")
+    if isinstance(plan_source, dict) and "data" in plan_source:
+        data_ok = plan_source["data"] == want
+        w = plan_source.get("worker")
+        note = ("worker-same" if w == file_hash(here / "mathplus_worker.py")
+                else "worker-drift-allowed")
+        return data_ok, note
+    if isinstance(plan_source, dict) and "mathplus_data.py" in plan_source:
+        return plan_source["mathplus_data.py"] == want, "legacy-source-record"
+    return False, "unrecognized-source-record"
 
 
 def _pick(row, *names):
