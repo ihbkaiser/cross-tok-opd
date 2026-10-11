@@ -18,6 +18,11 @@ update 160. Node runners default this mode to `run` chunks of length 2;
 length 3 is also supported. See [temporal pooling](docs/mp_opd_design.md#temporal-grass-chunk)
 for the schedule, configuration, diagnostics and resume contract.
 
+For existing checkpoint failures, use the
+[bounded Modal checkpoint replay](docs/checkpoint_replay.md) to compare raw
+generation, independent fixed-prefix logprobs and isolated code/math checks.
+This diagnostic does not replace the original full evaluation contract.
+
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in
 [Full alternating and pipeline resume](docs/full_alternating_resume.md).
