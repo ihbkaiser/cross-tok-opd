@@ -394,6 +394,8 @@ if os.environ.get("MP_PREFLIGHT_ONLY") == "1":
     raise SystemExit(0)
 
 import ray
+from ray_socket_layout import install_local_socket_layout
+install_local_socket_layout()
 ray.init(
     address="local",
     num_gpus=1,

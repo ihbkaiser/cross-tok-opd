@@ -34,11 +34,18 @@ export KDFLOW_ROUTER_PROMETHEUS_PORT="$((20000 + 1000 * GPU))"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 unset RAY_ADDRESS RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES
 
-TASK_CACHE="$(mktemp -d "/tmp/mp-${MODE}-XXXXXXXX")"
+# Keep JIT/task evidence across node reboot. Ray's Unix socket address must
+# stay on local storage; the Python launcher separates those IPC endpoints.
+TASK_CACHE_ROOT="${MP_TASK_CACHE_ROOT:-/workspace/storage-shared/nlp/tungks/tmp}"
+mkdir -p "$TASK_CACHE_ROOT"
+TASK_CACHE_ROOT="$(cd -- "$TASK_CACHE_ROOT" && pwd)"
+TASK_CACHE="$(mktemp -d "$TASK_CACHE_ROOT/mp-${MODE}-XXXXXXXX")"
 export XDG_CACHE_HOME="$TASK_CACHE"
 export TRITON_CACHE_DIR="$TASK_CACHE/triton"
 export TORCH_EXTENSIONS_DIR="$TASK_CACHE/torch"
+mkdir -p "$TASK_CACHE/ray"
 export MP_RAY_TMP="$TASK_CACHE/ray"
+printf 'TASK_CACHE=%s RAY_SESSION_ROOT=%s\n' "$TASK_CACHE" "$MP_RAY_TMP"
 export MP_SOURCE_COMMIT="$(git -C "$CODE_ROOT" rev-parse HEAD)"
 export MP_SOURCE_DIRTY="$(git -C "$CODE_ROOT" status --porcelain --untracked-files=no)"
 RUN_ROOT="${MP_RUN_ROOT:-$(dirname "$CODE_ROOT")/simct-runs}"

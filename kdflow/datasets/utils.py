@@ -3,7 +3,8 @@ from typing import List, Dict, Any
 
 import torch
 from datasets import interleave_datasets, load_dataset, load_from_disk
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoProcessor
+from kdflow.utils.tokenizer_loader import load_tokenizer
 
 from kdflow.utils.logging_utils import init_logger
 
@@ -121,7 +122,7 @@ def get_processor(model_name_or_path, model=None, padding_side="right", use_fast
 
 
 def get_tokenizer(model_name_or_path, model=None, padding_side="right", use_fast=True):
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=os.environ.get("KDFLOW_TRUST_REMOTE_CODE", "1") == "1", use_fast=use_fast)
+    tokenizer = load_tokenizer(model_name_or_path, trust_remote_code=os.environ.get("KDFLOW_TRUST_REMOTE_CODE", "1") == "1", use_fast=use_fast)
     tokenizer.padding_side = padding_side
     if tokenizer.pad_token is None:
         logger.info("Detect no pad_token in tokenizer, set it to eos_token.")

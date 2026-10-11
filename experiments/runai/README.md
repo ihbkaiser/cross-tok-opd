@@ -1,5 +1,11 @@
 # RunAI single-GPU MP-OPD launcher
 
+For the2026-10-11 Phi tokenizer, semantic SimCT vocabulary, and persistent Ray
+session fixes, use [pipeline readiness and node handoff](PIPELINE_FIX_HANDOFF.md).
+It separates source fixes from runtime restoration and checkpoint-dependent
+diagnostics. Task/JIT/Ray evidence now stays under shared `tmp/`; only Unix IPC
+endpoints remain local. Batch64/micro4 still requires a target-node canary.
+
 Evaluation preparation (protocol, known paper/code mismatches, read-only inventory):
 [SimCT evaluation preparation](../../docs/simct_eval_preparation_20260909.md).
 This does not schedule evaluation or start GPU work.

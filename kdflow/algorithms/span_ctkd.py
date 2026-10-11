@@ -121,18 +121,13 @@ class SpanCrossTokenizerKD:
     # Overlap vocabulary (copied from simple_ctkd)
     # ------------------------------------------------------------------
     def _find_overlap_tokens(self):
-        """Find the overlap tokens between student and teacher tokenizer."""
-        student_vocab = {k.replace("Ġ", "▁"): v for k, v in self.student_tokenizer.get_vocab().items()}
-        teacher_vocab = {k.replace("Ġ", "▁"): v for k, v in self.teacher_tokenizer.get_vocab().items()}
-        overlap_tokens = set(student_vocab.keys()) & set(teacher_vocab.keys())
-        student_ids = [student_vocab[token] for token in overlap_tokens]
-        teacher_ids = [teacher_vocab[token] for token in overlap_tokens]
-        stu_eos, tea_eos = self.student_tokenizer.eos_token_id, self.teacher_tokenizer.eos_token_id
-        if stu_eos not in student_ids or tea_eos not in teacher_ids:
-            student_ids.append(stu_eos)
-            teacher_ids.append(tea_eos)
+        """Match emitted bytes, with deterministic duplicate handling and EOS role."""
+        from kdflow.algorithms._semantic_overlap import semantic_overlap
+        student_ids, teacher_ids, self.overlap_provenance = semantic_overlap(
+            self.student_tokenizer, self.teacher_tokenizer
+        )
         device = self.teacher_lm_head.weight.device
-        logger.info(f"[SpanCTKD] Num of overlap_tokens between student & teacher: {len(student_ids)}")
+        logger.info("[SpanCTKD] semantic overlap: %s", self.overlap_provenance)
         return (
             torch.tensor(student_ids, dtype=torch.long, device=device),
             torch.tensor(teacher_ids, dtype=torch.long, device=device),

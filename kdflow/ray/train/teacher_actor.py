@@ -19,6 +19,16 @@ def chunk_batch_indices(batch_indices, chunk_size):
     ]
 
 
+def teacher_input_trajectories(batches, image_data=None, exact_mode=False):
+    """Use the very IDs defining the masks for every text-only algorithm."""
+    if image_data is not None:
+        if exact_mode:
+            raise ValueError("explicit trajectory mode is text-only")
+        return None
+    return [ids.tolist() for mb in batches for ids in remove_pad_token(
+        mb["tea_input_ids"], mb["tea_attn_mask"], return_tensors=True)]
+
+
 @ray.remote
 class TeacherRayActor:
     """
@@ -133,13 +143,10 @@ class TeacherRayActor:
                 len(batches),
                 len(prompts),
             )
-            exact_ids = None
-            if getattr(self.strategy.args.rollout, "exact_token_trajectory", False):
-                if image_data is not None:
-                    raise ValueError("explicit trajectory mode is text-only")
-                exact_ids = []
-                for mb in batches:
-                    exact_ids.extend([x.tolist() for x in remove_pad_token(mb["tea_input_ids"], mb["tea_attn_mask"], return_tensors=True)])
+            exact_ids = teacher_input_trajectories(
+                batches, image_data,
+                getattr(self.strategy.args.rollout, "exact_token_trajectory", False),
+            )
             hidden_states_list = self.engine_service.generate(
                 prompt=prompts,
                 loss_masks=unpadded_loss_masks,
