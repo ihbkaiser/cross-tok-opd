@@ -89,10 +89,9 @@ def baseline(model_path,arm,cases):
     print('BASELINE_SUMMARY_JSON='+json.dumps(summary),flush=True)
     return samples,summary
 
-def teacher_probe(samples):
-    path='/teacher_assets/teacher'
+def teacher_probe(samples, path='/teacher_assets/teacher', student_arm='phi', teacher_name='Phi-4-mini-instruct'):
     tok=AutoTokenizer.from_pretrained(path,local_files_only=True)
-    student_tok=AutoTokenizer.from_pretrained(json.loads(Path('/warmup/ready.json').read_text())['models']['phi'],local_files_only=True)
+    student_tok=AutoTokenizer.from_pretrained(json.loads(Path('/warmup/ready.json').read_text())['models'][student_arm],local_files_only=True)
     records=[]
     for sample in samples[:4]:
         response=student_tok.decode([x for x in sample['output_ids'][:96] if x not in STOP_IDS],skip_special_tokens=False)
@@ -101,7 +100,7 @@ def teacher_probe(samples):
         if not content:continue
         records.append({'case_id':sample['case']['id'],'prompt_ids':prompt,'content_ids':content,'full_ids':prompt+content+[tok.eos_token_id]})
     kwargs=_engine_kwargs(path,torch.cuda.get_device_name(0),'default',None)
-    kwargs.update(dtype='bfloat16',context_length=16384,chunked_prefill_size=-1,disable_radix_cache=True,enable_return_hidden_states=True)
+    kwargs.update(dtype='bfloat16',context_length=16384,chunked_prefill_size=-1,disable_radix_cache=True,enable_return_hidden_states=True,disable_cuda_graph=True)
     engine=sglang.Engine(**kwargs);hidden=[];direct=[]
     try:
         outputs=engine.generate(input_ids=[r['full_ids'] for r in records],sampling_params={'max_new_tokens':0},
@@ -136,7 +135,7 @@ def teacher_probe(samples):
             rows.append({'case_id':record['case_id'],'content_ids':record['content_ids'],'direct_sglang_raw':direct_scores,
               'production_hidden_head_raw':raw.tolist(),'norm_then_head_raw':corrected.tolist(),'hf_eager_raw':actual.tolist()})
     flat_direct=[v for rr in direct for v in rr]
-    result={'teacher':'Phi-4-mini-instruct','server_args':server_args,
+    result={'teacher':teacher_name,'server_args':server_args,
       'hidden_head_vs_direct':_stats(reconstructed,flat_direct),'direct_vs_hf':_stats(flat_direct,hf_scores),
       'hidden_head_vs_hf':_stats(reconstructed,hf_scores),'norm_then_head_vs_direct':_stats(normalized,flat_direct),
       'hidden_state_vs_hf_final':hidden_comparisons,'samples':rows,
