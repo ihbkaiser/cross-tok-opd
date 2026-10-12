@@ -60,7 +60,8 @@ def test_actual_python_launcher_preflight_records_new_mode_without_loading_model
     dataset.write_bytes(b"offline fixture, not a real dataset")
     env["MP_DATASET_PATH"] = str(dataset)
     env.update(MP_PREFLIGHT_ONLY="1", MP_GRASS_CHUNK_SOURCE="run", MP_GRASS_CHUNK_RUN_LENGTH="2",
-               MP_TRUST_SCOPE="batch", MP_ALIGN_NEW_MIN_DESCENT_FRACTION="0.25")
+               MP_TRUST_SCOPE="batch", MP_ALIGN_NEW_MIN_DESCENT_FRACTION="0.25",
+               CUDA_VISIBLE_DEVICES="")
     result = subprocess.run([sys.executable, str(ROOT/"experiments/runai/run_single_gpu.py"), mode, "2", str(output)],
                             env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stdout+result.stderr
