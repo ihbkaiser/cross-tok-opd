@@ -11,6 +11,13 @@ import sglang
 from mp_opd_parity_worker import _stats,_engine_kwargs
 
 
+def selected_arms(argv):
+    """The evaluated policy and the source of shared prefixes are independent."""
+    stage,arm=argv[1:3]
+    probe_arm=argv[3] if stage=='deep-prefix' else 'temporal-rl2-s44-step160' if stage=='deep-temporal' else 'grass-rl3-s42-step312'
+    return arm,probe_arm
+
+
 def healthy_terminal_prefixes(root):
     """Common completed SFT answers, selected only after successful math grading."""
     samples=json.loads((root/'warmup-responses.json').read_text())
@@ -28,10 +35,9 @@ def healthy_terminal_prefixes(root):
 
 def main():
     OUT=Path('/results')
-    arm=sys.argv[-1]
+    arm,probe_arm=selected_arms(sys.argv)
     if arm=='warmup':path=json.loads(Path('/warmup/ready.json').read_text())['models']['qwen']
     else:path=json.loads(Path('/checkpoints/ready.json').read_text())['models'][arm]['model_path']
-    probe_arm=sys.argv[3] if sys.argv[1]=='deep-prefix' else 'temporal-rl2-s44-step160' if sys.argv[1]=='deep-temporal' else 'grass-rl3-s42-step312'
     source=OUT/(probe_arm+'-responses.json')
     samples=json.loads(source.read_text())
     targets=[s for s in samples if s['tokens']==4096][:3]

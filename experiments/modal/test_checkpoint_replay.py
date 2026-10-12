@@ -18,6 +18,17 @@ from degen_checkpoint_assets import checkpoint_groups, REQUIRED
 
 
 class ReplayTests(unittest.TestCase):
+    def test_shared_prefix_source_does_not_replace_evaluated_policy(self):
+        fake_tf=types.ModuleType('transformers')
+        fake_tf.AutoModelForCausalLM=mock.Mock();fake_tf.AutoTokenizer=mock.Mock()
+        with mock.patch.dict('sys.modules',{'torch':types.ModuleType('torch'),'sglang':types.ModuleType('sglang'),'transformers':fake_tf}):
+            namespace=runpy.run_path(str(Path(__file__).parent/'checkpoint_replay_deep.py'),run_name='spawned_worker')
+        select=namespace['selected_arms']
+        for arm in ('warmup','trust-r-step160','trust-r-step312'):
+            self.assertEqual(select(['worker','deep-prefix',arm,'trust-r-step312']),(arm,'trust-r-step312'))
+        self.assertEqual(select(['worker','deep','warmup']),('warmup','grass-rl3-s42-step312'))
+        self.assertEqual(select(['worker','deep-temporal','warmup']),('warmup','temporal-rl2-s44-step160'))
+
     def test_healthy_terminal_probe_requires_correct_completed_answer(self):
         import json
         fake_sg=types.ModuleType('sglang');fake_tf=types.ModuleType('transformers')
