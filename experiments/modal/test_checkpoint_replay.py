@@ -18,6 +18,15 @@ from degen_checkpoint_assets import checkpoint_groups, REQUIRED
 
 
 class ReplayTests(unittest.TestCase):
+    def test_cloud_overlay_forwards_importer_and_volume_selection(self):
+        # Modal imports the module again inside its worker; client-only env is lost.
+        path=Path(__file__).parent/'checkpoint_replay_modal.py'
+        tree=ast.parse(path.read_text())
+        env=next(n for n in ast.walk(tree) if isinstance(n,ast.Call)
+                 and isinstance(n.func,ast.Attribute) and n.func.attr=='env')
+        keys={k.value for k in env.args[0].keys}
+        self.assertEqual(keys,{'CHECKPOINT_REPLAY_RUN','CHECKPOINT_REPLAY_ASSETS','CHECKPOINT_REPLAY_PREPARE'})
+
     def test_flat_checkpoint_group_has_one_complete_run(self):
         base='simct-runs/qwen-gemma-mp_opd-trust_r-gpu7-run/checkpoint/step160/'
         infos=[zipfile.ZipInfo(base+name) for name in REQUIRED]

@@ -17,7 +17,11 @@ IMAGE = 'docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b6
 PY = '/opt/venvs/simct-b200/bin/python'
 HERE = Path(__file__).parent
 app = modal.App(RUN)
-image = modal.Image.from_registry(IMAGE).entrypoint([])
+image = modal.Image.from_registry(IMAGE).entrypoint([]).env({
+    'CHECKPOINT_REPLAY_RUN':RUN,
+    'CHECKPOINT_REPLAY_ASSETS':ASSETS,
+    'CHECKPOINT_REPLAY_PREPARE':PREPARE_SCRIPT,
+})
 for name in ['checkpoint_replay_assets.py', 'warmup_zip_access.py']:
     image = image.add_local_file(str(HERE/name), '/opt/replay/'+name)
 if PREPARE_SCRIPT != 'checkpoint_replay_assets.py':
