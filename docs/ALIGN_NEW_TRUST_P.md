@@ -237,3 +237,36 @@ trộn hiệu ứng partition với guard. Với TRUST-P, kiểm tra chất lư�
 S/M và mức orthogonal mismatch thực sự được giữ. Giữ raw responses, launch-config,
 train/TB, weights/tokenizer/config và SHA256. Không lấy finite loss, norm hữu hạn,
 hoặc canary pass làm bằng chứng accuracy phục hồi.
+
+## 5. Kiểm chứng implementation — 2026-10-12
+
+Source có code đã kiểm tra: `1cbd804d384052ca462f2b7fee476b04c8f96b6e`.
+Lượt B200 cuối: **263 passed, 0 failed, 0 skipped**, pytest 19.96 giây,
+[Modal app](https://modal.com/apps/lhtu05/main/ap-tnISe96UWB3fpRysvjNFKd).
+Đây là bộ kiểm tra audit được chọn, không phải toàn bộ tests của repo.
+Raw log và receipt SHA256 nằm tại
+`remote_artifacts/align_new_trust_p_20261012/` (persistent, không commit).
+
+Runtime dùng lại nguyên image digest
+`docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f`;
+Python 3.12.12, Torch 2.11.0+cu130, NVIDIA B200. Không đổi Transformers hoặc
+đóng gói lại payload runtime. Lượt đầu có 261 pass, hai fixture preflight thiếu
+`CUDA_VISIBLE_DEVICES`; chỉ sửa fixture rồi chạy lại, giữ nguyên guard launcher.
+
+- Geometry head đối chiếu independent autograd; có phản ví dụ cross-chunk,
+  projection conflict, zero anchor, rounding, resume và invalid-input contracts.
+- Actor B64/M4 được đối chiếu gradient/update oracle; replay dropout hai lượt
+  được kiểm tra. Trên B200, tiny Gemma2 thật dùng BF16, softcap 30 và một optimizer
+  update cho cả TRUST-B control và TRUST-P: max gradient/parameter error đều 0.
+  Fixture ngẫu nhiên TRUST-P có `strict_scale=1`; case opposing được kiểm tra riêng,
+  không diễn giải fixture này thành kiểm chứng projection đang kích hoạt trên Gemma2-2B.
+- ALIGN-NEW tiled geometry tại vocab 256000, hidden width 2304, 32 token tổng hợp
+  dùng thêm 0.3489723205566406 GiB. Đây chỉ là probe head ở kích thước production,
+  không phải full-model train batch64/context4096.
+- Bộ CPU offline liên quan có 243 pass, 3 skip; Transformers/PEFT thiếu ở interpreter
+  CPU local nên chưa collect được toàn bộ repo. B200 audit trên runtime hiện có
+  không có test skip.
+
+Chưa chạy train dài Gemma2-2B, chưa đo accuracy, chưa chứng minh head guarantee
+chuyển sang full Transformer/Adam, và chưa chứng minh memory capacity tại context4096.
+Hai app kiểm tra đã dừng; chi phí thực chờ Modal billing cập nhật.
