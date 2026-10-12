@@ -29,14 +29,20 @@ Two separate experimental modes, `align_new` (ALIGN-NEW) and `trust_p`
 surgery using the full-response head update, including cross-chunk terms;
 TRUST-P retains orthogonal mismatch signal using one projection decision over
 the complete optimizer batch. They require pure OPD and exact head geometry,
-preserve the old modes, and need fresh runs from SFT. No accuracy improvement
-or production B200 capacity has been established for these new modes.
+preserve the old modes, and need fresh runs from SFT. Both modes passed bounded
+real-SFT B200 canaries for Qwen/Gemma and Phi/Gemma, with batch64/micro4 and two
+updates each. Accuracy improvement and capacity at 4096 generated tokens remain
+unverified; see the draft's production-canary results and the
+[node-agent handoff](docs/ALIGN_NEW_TRUST_P_NODE.md).
 
 The bounded production canary in `experiments/modal/guarded_production_modal.py`
 uses a committed source bundle, real warmup checkpoints, cached teachers and the
 node shell launcher. It keeps batch64/micro4 and the 4096 context contract while
 setting diagnostic-only `MP_GENERATE_MAX_LEN=128`. That override is rejected for
-long runs; remove it before a campaign. Canary completion is not accuracy evidence.
+long runs; remove it and any diagnostic `MP_MAX_LEN` before a campaign. Canary
+completion is not accuracy evidence. Commit and bundle identity are checked
+before submitting; Windows checkouts launched from WSL must explicitly set
+`GUARDED_CANARY_WINDOWS_CHECKOUT=1` to match their CRLF checkout policy.
 
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in

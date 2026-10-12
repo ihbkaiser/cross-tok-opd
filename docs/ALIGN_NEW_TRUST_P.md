@@ -99,8 +99,9 @@ rescale. Ở phản ví dụ trên beta xấp xỉ 0.72 và dot mới xấp xỉ
 Hình học local vẫn dùng Gram của từng chunk. Guard global chỉ cần ba scalar
 a, b=||g_1||^2, d. Code dựng hai update qua từng vocabulary tile 4096, rồi cộng
 norm/dot; không giữ global atom Gram hay hai tensor [vocab,hidden] giữa các tile.
-Phải trả thêm chi phí matmul full vocabulary mỗi response. Không cam kết tốc độ
-hay VRAM của batch64 trên B200 trước khi chạy canary.
+Phải trả thêm chi phí matmul full vocabulary mỗi response. Canary B64/M4 với
+generation cap128 đã pass trên B200 (mục 6); chưa cam kết tốc độ hay VRAM cho
+response4096 token trên production node.
 
 Metric ứng viên cũ đổi namespace thành `mp_opd_align_new_local_*`. Các metric
 global chính: `beta`, `guard_active_fraction`, `no_anchor_fraction`,
@@ -272,3 +273,55 @@ chuyển sang full Transformer/Adam, và chưa chứng minh memory capacity tạ
 Hai app kiểm tra đã dừng, không còn task. Billing refresh sau test ghi
 0.04631946 USD (lượt đầu) + 0.04273889 USD (lượt cuối) = **0.08905835 USD**;
 đây là usage do Modal CLI báo tại thời điểm refresh, không phải hóa đơn cuối kỳ.
+
+## 6. Canary production launcher — 2026-10-12
+
+Source đã chạy: `b71017624544c578d111d29f81d777ffb7e09d02`. Dùng **shell launcher
+thật**, Ray/FSDP/SGLang, weights SFT Gemma2-2B và teacher Qwen2.5-7B-Instruct hoặc
+Phi-4-mini-instruct đã xác minh hash. Không đổi image digest hay dependency.
+Mỗi run batch64/micro4, eager, scheduler horizon312, context4096, **generation
+cap128**, hai optimizer updates. Cả bốn run exit0 và run-summary completed.
+
+| Cặp / mode | Chunk source | p99 diagnostic update 2 | Trainer peak allocated tối đa (GiB) |
+|---|---|---:|---:|
+| Qwen / align_new | xtoken | 0.1068090945 | 44.92377090 |
+| Qwen / trust_p | không áp dụng | 0.1138979048 | 44.91791153 |
+| Phi / align_new | xtoken | 0.1149547026 | 45.05218887 |
+| Phi / trust_p | không áp dụng | 0.1214310303 | 45.04665756 |
+
+Số lấy từ TensorBoard scalar fp32. p99 là metric trainer đã aggregate, không phải
+quantile toàn bộ token gộp lại; peak là telemetry trainer, không phải capacity
+cho response4096. Peak reserved lớn nhất 55.482421875 GiB. Cả 8 updates có parity
+failure=0, numeric fallback=0, invalid sample=0, fail-closed sample ratio=0,
+64 trajectory samples và 4 valid samples/microbatch. Không có OOM trong các run.
+
+TRUST-P ghi nhận full_batch=1, exact_geometry=1, calibration_response_count=64,
+calibration_microbatch_count=16, mismatch_scale=1. **Nhánh projection đã chạy với
+weights thật** ở Phi update2: cosine S–M=-0.1209474653, dot=-1515573.75,
+||S||²=47471360, strict_scale=1.0319261551, strict_descent_ratio=1.0000001192,
+mismatch_retained_norm_ratio=0.9926589131. Các scalar phù hợp công thức trong sai
+số fp32. Qwen có dot dương ở cả hai updates nên strict_scale=1, projected=0.
+
+ALIGN-NEW native có beta=1 và guard_active_fraction=0 ở cả hai cặp: canary này
+**không tạo case kích hoạt guard mới**. Qwen có chunk nhiều atom khoảng 1.164–1.482%;
+Phi chỉ khoảng 0.035–0.057%, với credit_relative_l2_change=0 ở cả hai updates Phi.
+Đây là biểu hiện phương pháp native gần Atomic trên fixture này, không phải bằng
+chứng guard cải thiện accuracy. Guard conflict đã được kiểm tra bởi phản ví dụ và
+independent autograd ở mục 5. Đối chứng Qwen ALIGN-NEW/run2 riêng cũng hoàn thành
+hai updates, exit0; không thay native partition bằng run2 âm thầm.
+
+Raw receipts, train logs, launch-config, summaries, TensorBoard, hash manifest và
+metric audit persistent tại `remote_artifacts/guarded_production_20261012/`.
+Canary dùng 128 prompt rows lặp từ 16 diagnostic cases, **không phải dataset
+training gốc**; target updates của fixture là4 do hai epochs, trong khi LR horizon
+vẫn312. Chưa chạy dài, chưa chấm accuracy, chưa chứng minh capacity tại trần4096
+hoặc guarantee trên full Transformer/Adam. Agent chạy node dùng
+[bản bàn giao](ALIGN_NEW_TRUST_P_NODE.md) và release receipt cuối.
+
+Lượt này bổ sung generation cap chỉ dành cho diagnostics và guard nhận diện source
+trước khi trả phí. Một invocation CPU ghi nhầm SHA bị chặn; khác biệt CRLF của Git
+Windows/WSL được sửa bằng EOL policy **theo từng lệnh**, không sửa Git config toàn
+cục. Regression CPU cho launcher/source: 8 pass, 2 skip (thiếu Transformers local);
+prepare trên runtime Modal có 19 pass. Không tìm thấy lỗi implementation mới trong
+hai thuật toán qua các canary trên. Finite loss hoặc canary pass không chứng minh
+nguyên nhân collapse lịch sử đã được giải quyết.
