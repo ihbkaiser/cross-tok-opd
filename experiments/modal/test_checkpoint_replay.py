@@ -15,9 +15,22 @@ from checkpoint_replay_assets import safe_target, sha, download_stored_member
 from checkpoint_replay_worker import repeat_fraction, code_block
 from checkpoint_replay_code import extract_code
 from degen_checkpoint_assets import checkpoint_groups, REQUIRED
+from checkpoint_replay_zeros import zero_windows
 
 
 class ReplayTests(unittest.TestCase):
+    def test_zero_audit_retains_exact_prefix_and_excludes_terminal(self):
+        sample={'case':{'id':'loop'},'tokens':4096,'prompt_ids':[2,9],
+                'output_ids':list(range(2000,3100)),'decode_logprobs':[-1.]*1100}
+        sample['decode_logprobs'][1028]=0.
+        row=zero_windows([sample])[0]
+        self.assertEqual(row['position'],1020)
+        self.assertEqual(row['prefix_ids'],[2,9]+sample['output_ids'][:1020])
+        self.assertEqual(row['target_ids'],sample['output_ids'][1020:1084])
+        self.assertEqual(row['recorded_decode_logprob'][8],0.)
+        with self.assertRaises(ValueError):zero_windows([{'case':{'id':'ended'},'tokens':1,
+            'prompt_ids':[2],'output_ids':[107],'decode_logprobs':[0.]}])
+
     def test_shared_prefix_source_does_not_replace_evaluated_policy(self):
         fake_tf=types.ModuleType('transformers')
         fake_tf.AutoModelForCausalLM=mock.Mock();fake_tf.AutoTokenizer=mock.Mock()

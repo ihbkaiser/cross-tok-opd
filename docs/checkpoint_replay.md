@@ -105,3 +105,10 @@ are admitted; terminal control tokens are removed from their copied prefixes.
 Each policy's raw EOS/EOT mass is recorded at the identical completed answer.
 These endpoint probabilities are HF/SDPA-only conditional probes, not a matched
 two-backend generation result or the policy's own stopping frequency.
+
+`--stage audit-zero --arm trust-r-step312,trust-b-step200,align-step312,warmup`
+checks up to three recorded-zero windows per policy at their full original
+contexts. It prefers capped cases and zero positions beyond1024 where available,
+excludes terminal controls, and matches the recorded decode temperature in an
+independent HF SDPA forward. Only the last causal target logits are materialized;
+this is a selected-window parity audit, not a proof over every generated token.

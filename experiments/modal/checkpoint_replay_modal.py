@@ -26,7 +26,7 @@ for name in ['checkpoint_replay_assets.py', 'warmup_zip_access.py']:
     image = image.add_local_file(str(HERE/name), '/opt/replay/'+name)
 if PREPARE_SCRIPT != 'checkpoint_replay_assets.py':
     image = image.add_local_file(str(HERE/PREPARE_SCRIPT), '/opt/replay/'+PREPARE_SCRIPT)
-for name in ['checkpoint_replay_worker.py', 'checkpoint_replay_inputs.json', 'mp_opd_parity_worker.py', 'checkpoint_replay_deep.py']:
+for name in ['checkpoint_replay_worker.py', 'checkpoint_replay_inputs.json', 'mp_opd_parity_worker.py', 'checkpoint_replay_deep.py', 'checkpoint_replay_zeros.py']:
     if (HERE/name).exists():
         image = image.add_local_file(str(HERE/name), '/opt/replay/'+name)
 assets = modal.Volume.from_name(ASSETS, create_if_missing=True)
@@ -51,7 +51,7 @@ def execute(stage, seconds, arm='', attempt='', probe_arm=''):
     libs = ['/usr/local/cuda/lib64','/usr/local/nvidia/lib64']
     libs += [str(p) for p in Path('/opt/venvs/simct-b200/lib/python3.12/site-packages/nvidia').glob('*/lib')]
     env['LD_LIBRARY_PATH'] = ':'.join(libs)
-    script = PREPARE_SCRIPT if stage=='prepare' else 'checkpoint_replay_deep.py' if stage.startswith('deep') else 'checkpoint_replay_worker.py'
+    script = PREPARE_SCRIPT if stage=='prepare' else 'checkpoint_replay_zeros.py' if stage=='audit-zero' else 'checkpoint_replay_deep.py' if stage.startswith('deep') else 'checkpoint_replay_worker.py'
     command = [PY, '-u', '/opt/replay/'+script] + ([] if stage=='prepare' else [stage, arm])
     if stage=='deep-prefix':command.append(probe_arm)
     started = time.monotonic(); pos = 0
@@ -113,7 +113,7 @@ def main(stage:str='prepare', arm:str='', attempt:str='', probe_arm:str=''):
     if stage=='readiness':
         print('CHECKPOINT_READY='+json.dumps(wait_ready.remote(arm or 'all')))
         return
-    if stage in ('batch','deep-prefix'):
+    if stage in ('batch','deep-prefix','audit-zero'):
         selected=arm.split(',')
         if not arm or any(not a or '/' in a or '\\' in a for a in selected):
             raise ValueError('Provide explicit checkpoint arms')
@@ -121,7 +121,7 @@ def main(stage:str='prepare', arm:str='', attempt:str='', probe_arm:str=''):
             raise ValueError('Provide a source-policy probe arm')
         for chosen in selected:
             if chosen!='warmup':wait_ready.remote(chosen)
-            receipt=deep.remote(chosen,stage,attempt,probe_arm) if stage=='deep-prefix' else replay.remote(chosen,attempt)
+            receipt=deep.remote(chosen,stage,attempt,probe_arm) if stage in ('deep-prefix','audit-zero') else replay.remote(chosen,attempt)
             print('CHECKPOINT_REPLAY_RECEIPT='+json.dumps(receipt),flush=True)
             if receipt['exit_code']:raise RuntimeError('Read persisted worker failure before retrying')
         return
