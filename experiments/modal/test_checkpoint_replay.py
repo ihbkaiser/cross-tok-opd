@@ -14,9 +14,24 @@ import unittest
 from checkpoint_replay_assets import safe_target, sha, download_stored_member
 from checkpoint_replay_worker import repeat_fraction, code_block
 from checkpoint_replay_code import extract_code
+from degen_checkpoint_assets import checkpoint_groups, REQUIRED
 
 
 class ReplayTests(unittest.TestCase):
+    def test_flat_checkpoint_group_has_one_complete_run(self):
+        base='simct-runs/qwen-gemma-mp_opd-trust_r-gpu7-run/checkpoint/step160/'
+        infos=[zipfile.ZipInfo(base+name) for name in REQUIRED]
+        group=checkpoint_groups(infos)['trust-r-step160']
+        self.assertEqual(group['source_directory'],base.rstrip('/'))
+        with self.assertRaises(ValueError):checkpoint_groups(infos[:-1])
+        with self.assertRaises(ValueError):checkpoint_groups(infos+[infos[0]])
+        with self.assertRaises(ValueError):checkpoint_groups(infos+[zipfile.ZipInfo('../secret.json')])
+
+    def test_flat_checkpoint_alias_cannot_mix_two_runs(self):
+        bases=['simct-runs/qwen-gemma-mp_opd-align-gpu4-run1/checkpoint/step80/',
+               'simct-runs/qwen-gemma-mp_opd-align-gpu4-run2/checkpoint/step80/']
+        with self.assertRaises(ValueError):checkpoint_groups([zipfile.ZipInfo(b+'config.json') for b in bases])
+
     def test_deep_worker_can_be_imported_by_spawn_without_starting_models(self):
         fake_sg=types.ModuleType('sglang');fake_sg.Engine=mock.Mock()
         fake_tf=types.ModuleType('transformers')

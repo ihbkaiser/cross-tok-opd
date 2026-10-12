@@ -15,10 +15,11 @@ def main():
     arm=sys.argv[-1]
     if arm=='warmup':path=json.loads(Path('/warmup/ready.json').read_text())['models']['qwen']
     else:path=json.loads(Path('/checkpoints/ready.json').read_text())['models'][arm]['model_path']
-    probe_arm='temporal-rl2-s44-step160' if sys.argv[1]=='deep-temporal' else 'grass-rl3-s42-step312'
+    probe_arm=sys.argv[3] if sys.argv[1]=='deep-prefix' else 'temporal-rl2-s44-step160' if sys.argv[1]=='deep-temporal' else 'grass-rl3-s42-step312'
     source=OUT/(probe_arm+'-responses.json')
     samples=json.loads(source.read_text())
     targets=[s for s in samples if s['tokens']==4096][:3]
+    if not targets:raise ValueError('Source-policy screen has no capped cases to probe')
     records=[]
     for sample in targets:
         for position in (128,768):

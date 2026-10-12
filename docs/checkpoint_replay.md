@@ -80,3 +80,21 @@ Download only the result Volume for local analysis. Keep model assets on
 Modal. A failure reproduced in both inference backends supports a learned
 policy defect; it does not identify which training update caused it.
 Inference parity and fixture tests do not qualify a full training run.
+
+## Flat TRUST/ALIGN archive
+
+For `degen-round1-all-20261011.zip`, select importer
+`CHECKPOINT_REPLAY_PREPARE=degen_checkpoint_assets.py`, a fresh
+`CHECKPOINT_REPLAY_ASSETS` Volume and `CHECKPOINT_REPLAY_RUN` result Volume.
+The importer pins HF revision `010c9a418f167c4bae6fb7ee07fa838fc7583bb8`,
+validates complete per-checkpoint member sets and transfer CRC, and records
+SHA256 for every member. This flat archive has no member SHA sidecars, and
+selective import does not recompute its outer LFS hash. It lacks launch config
+and optimizer state; names do not alone verify training provenance.
+
+Use `--stage batch --arm trust-r-step160,trust-r-step240,trust-r-step312`
+(and the corresponding TRUST-B/ALIGN aliases) to screen explicit checkpoints.
+`--stage deep-prefix --arm trust-r-step160,trust-r-step312,warmup
+--probe-arm trust-r-step312` compares policies on the same source-policy loop
+prefixes. Choose the probe only after confirming capped outputs exist.
+No production algorithm, evaluator or runtime dependency changes are needed.

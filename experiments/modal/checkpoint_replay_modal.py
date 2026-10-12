@@ -9,7 +9,10 @@ import time
 import modal
 
 RUN = os.environ.get('CHECKPOINT_REPLAY_RUN', 'checkpoint-replay-20261012-r1')
-ASSETS = 'checkpoint-replay-assets-20261012-v1'
+ASSETS = os.environ.get('CHECKPOINT_REPLAY_ASSETS', 'checkpoint-replay-assets-20261012-v1')
+PREPARE_SCRIPT = os.environ.get('CHECKPOINT_REPLAY_PREPARE', 'checkpoint_replay_assets.py')
+if PREPARE_SCRIPT not in ('checkpoint_replay_assets.py','degen_checkpoint_assets.py'):
+    raise ValueError('Unknown checkpoint importer')
 IMAGE = 'docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f'
 PY = '/opt/venvs/simct-b200/bin/python'
 HERE = Path(__file__).parent
@@ -17,6 +20,8 @@ app = modal.App(RUN)
 image = modal.Image.from_registry(IMAGE).entrypoint([])
 for name in ['checkpoint_replay_assets.py', 'warmup_zip_access.py']:
     image = image.add_local_file(str(HERE/name), '/opt/replay/'+name)
+if PREPARE_SCRIPT != 'checkpoint_replay_assets.py':
+    image = image.add_local_file(str(HERE/PREPARE_SCRIPT), '/opt/replay/'+PREPARE_SCRIPT)
 for name in ['checkpoint_replay_worker.py', 'checkpoint_replay_inputs.json', 'mp_opd_parity_worker.py', 'checkpoint_replay_deep.py']:
     if (HERE/name).exists():
         image = image.add_local_file(str(HERE/name), '/opt/replay/'+name)
@@ -27,10 +32,10 @@ scorers = modal.Volume.from_name('llama-qwen-screen-assets-20261011-v1')
 volumes = {'/checkpoints':assets, '/results':results, '/warmup':warmup, '/assets':scorers}
 
 
-def execute(stage, seconds, arm='', attempt=''):
+def execute(stage, seconds, arm='', attempt='', probe_arm=''):
     # Reused containers otherwise retain the Volume snapshot from their first call.
     assets.reload();results.reload()
-    label = stage + ('-'+arm if arm else '') + ('-'+attempt if attempt else '')
+    label = stage + ('-'+arm if arm else '') + ('-from-'+probe_arm if probe_arm else '') + ('-'+attempt if attempt else '')
     log = Path('/results')/(label+'.log')
     if log.exists():
         raise RuntimeError('Refuse to overwrite an earlier attempt; choose a new run ID')
@@ -42,8 +47,9 @@ def execute(stage, seconds, arm='', attempt=''):
     libs = ['/usr/local/cuda/lib64','/usr/local/nvidia/lib64']
     libs += [str(p) for p in Path('/opt/venvs/simct-b200/lib/python3.12/site-packages/nvidia').glob('*/lib')]
     env['LD_LIBRARY_PATH'] = ':'.join(libs)
-    script = 'checkpoint_replay_assets.py' if stage=='prepare' else 'checkpoint_replay_deep.py' if stage.startswith('deep') else 'checkpoint_replay_worker.py'
+    script = PREPARE_SCRIPT if stage=='prepare' else 'checkpoint_replay_deep.py' if stage.startswith('deep') else 'checkpoint_replay_worker.py'
     command = [PY, '-u', '/opt/replay/'+script] + ([] if stage=='prepare' else [stage, arm])
+    if stage=='deep-prefix':command.append(probe_arm)
     started = time.monotonic(); pos = 0
     with log.open('x') as writer:
         proc = subprocess.Popen(command, env=env, stdout=writer, stderr=subprocess.STDOUT, start_new_session=True)
@@ -70,8 +76,8 @@ def execute(stage, seconds, arm='', attempt=''):
     return receipt
 
 
-@app.function(image=image,cpu=4,memory=16384,timeout=1860,retries=0,volumes=volumes)
-def prepare(attempt=''): return execute('prepare',1800,attempt=attempt)
+@app.function(image=image,cpu=4,memory=16384,timeout=3660,retries=0,volumes=volumes)
+def prepare(attempt=''): return execute('prepare',3600,attempt=attempt)
 
 
 @app.function(image=image,gpu='B200',cpu=8,memory=65536,timeout=660,retries=0,max_containers=1,volumes=volumes)
@@ -79,7 +85,7 @@ def replay(arm,attempt=''): return execute('replay',600,arm,attempt)
 
 
 @app.function(image=image,gpu='B200',cpu=8,memory=65536,timeout=660,retries=0,max_containers=1,volumes=volumes)
-def deep(arm,stage='deep',attempt=''):return execute(stage,600,arm,attempt)
+def deep(arm,stage='deep',attempt='',probe_arm=''):return execute(stage,600,arm,attempt,probe_arm)
 
 
 @app.function(image=image,cpu=4,memory=8192,timeout=660,retries=0,volumes=volumes)
@@ -99,9 +105,21 @@ def wait_ready(arm):
 
 
 @app.local_entrypoint()
-def main(stage:str='prepare', arm:str='', attempt:str=''):
+def main(stage:str='prepare', arm:str='', attempt:str='', probe_arm:str=''):
     if stage=='readiness':
         print('CHECKPOINT_READY='+json.dumps(wait_ready.remote(arm or 'all')))
+        return
+    if stage in ('batch','deep-prefix'):
+        selected=arm.split(',')
+        if not arm or any(not a or '/' in a or '\\' in a for a in selected):
+            raise ValueError('Provide explicit checkpoint arms')
+        if stage=='deep-prefix' and (not probe_arm or '/' in probe_arm or '\\' in probe_arm):
+            raise ValueError('Provide a source-policy probe arm')
+        for chosen in selected:
+            if chosen!='warmup':wait_ready.remote(chosen)
+            receipt=deep.remote(chosen,stage,attempt,probe_arm) if stage=='deep-prefix' else replay.remote(chosen,attempt)
+            print('CHECKPOINT_REPLAY_RECEIPT='+json.dumps(receipt),flush=True)
+            if receipt['exit_code']:raise RuntimeError('Read persisted worker failure before retrying')
         return
     if stage in ('deep','deep-temporal','deep-all'):
         wait_ready.remote('all')
