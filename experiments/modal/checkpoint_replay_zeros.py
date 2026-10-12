@@ -15,8 +15,13 @@ def zero_windows(samples,limit=3):
         if len(ids)!=len(lp):raise ValueError('Output IDs/logprobs must align')
         zeros=[i for i,x in enumerate(lp) if x==0 and ids[i] not in (1,107)]
         if not zeros:continue
-        anchor=next((i for i in zeros if i>=1024),zeros[0])
-        start=max(0,anchor-8);end=min(len(ids),start+64)
+        tail_start=max(0,len(ids)-64)
+        if sample['tokens']==4096 and any(i>=tail_start for i in zeros):
+            start=tail_start
+        else:
+            anchor=next((i for i in zeros if i>=1024),zeros[0])
+            start=max(0,anchor-8)
+        end=min(len(ids),start+64)
         rows.append({'case_id':sample['case']['id'],'source_capped':sample['tokens']==4096,
             'position':start,'prefix_ids':sample['prompt_ids']+ids[:start],
             'target_ids':ids[start:end],'recorded_decode_logprob':lp[start:end]})

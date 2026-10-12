@@ -28,6 +28,11 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(row['prefix_ids'],[2,9]+sample['output_ids'][:1020])
         self.assertEqual(row['target_ids'],sample['output_ids'][1020:1084])
         self.assertEqual(row['recorded_decode_logprob'][8],0.)
+        sample['decode_logprobs'][1090]=0.
+        tail=zero_windows([sample])[0]
+        self.assertEqual(tail['position'],1036)
+        self.assertEqual(tail['target_ids'],sample['output_ids'][-64:])
+        self.assertEqual(tail['prefix_ids'],[2,9]+sample['output_ids'][:-64])
         with self.assertRaises(ValueError):zero_windows([{'case':{'id':'ended'},'tokens':1,
             'prompt_ids':[2],'output_ids':[107],'decode_logprobs':[0.]}])
 

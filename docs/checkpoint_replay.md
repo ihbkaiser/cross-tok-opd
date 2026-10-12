@@ -108,7 +108,8 @@ two-backend generation result or the policy's own stopping frequency.
 
 `--stage audit-zero --arm trust-r-step312,trust-b-step200,align-step312,warmup`
 checks up to three recorded-zero windows per policy at their full original
-contexts. It prefers capped cases and zero positions beyond1024 where available,
+contexts. It prefers the final64 tokens of capped cases if they contain zeros;
+otherwise it uses zero positions beyond1024 where available. The audit
 excludes terminal controls, and matches the recorded decode temperature in an
 independent HF SDPA forward. Only the last causal target logits are materialized;
 this is a selected-window parity audit, not a proof over every generated token.
