@@ -269,4 +269,6 @@ Python 3.12.12, Torch 2.11.0+cu130, NVIDIA B200. Không đổi Transformers ho�
 
 Chưa chạy train dài Gemma2-2B, chưa đo accuracy, chưa chứng minh head guarantee
 chuyển sang full Transformer/Adam, và chưa chứng minh memory capacity tại context4096.
-Hai app kiểm tra đã dừng; chi phí thực chờ Modal billing cập nhật.
+Hai app kiểm tra đã dừng, không còn task. Billing refresh sau test ghi
+0.04631946 USD (lượt đầu) + 0.04273889 USD (lượt cuối) = **0.08905835 USD**;
+đây là usage do Modal CLI báo tại thời điểm refresh, không phải hóa đơn cuối kỳ.
