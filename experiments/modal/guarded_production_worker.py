@@ -83,13 +83,15 @@ def canary(stage):
                MP_RUNTIME_DIR=str(runtime), MP_RUN_DIR="/results/"+stage+"-run",
                MP_RUN_ROOT="/results", MP_TASK_CACHE_ROOT="/results/task-cache",
                MP_GENERATE_MAX_LEN="128", MP_MAX_LEN="4096", MP_TRUST_SCOPE="batch",
-               MP_MICRO_TRAIN_BATCH_SIZE="4", MP_GRASS_CHUNK_SOURCE="run",
+               MP_MICRO_TRAIN_BATCH_SIZE="4", MP_GRASS_CHUNK_SOURCE="xtoken",
                MP_GRASS_CHUNK_RUN_LENGTH="2", MP_EVAL_ON_CKPT="0",
+               MP_TENSORBOARD="1", MP_TENSORBOARD_DIR="/results/"+stage+"-tensorboard",
                MP_QUALIFICATION_POLICY="implementation-canary", MP_QUALIFICATION_STATUS="in-progress")
     versions = {name: importlib.metadata.version(name) for name in ("torch", "transformers", "sglang", "ray")}
     print("GUARDED_CANARY_ENV_JSON="+json.dumps({"arm":arm,"mode":mode,"source_commit":EXPECTED,
         "versions":versions,"train_batch_size":64,"micro_train_batch_size":4,
         "generate_max_len":128,"max_len":4096,"expected_updates":2,
+        "align_chunk_source":"xtoken" if mode == "align_new" else None,
         "scope":"Production launcher/FSDP/Ray/SGLang, real SFT, short responses; not accuracy"}), flush=True)
     command = ["bash", str(ROOT/"experiments/runai/run_single_gpu.sh"), "0", mode, "2"]
     process = subprocess.run(command, cwd=ROOT, env=env)
