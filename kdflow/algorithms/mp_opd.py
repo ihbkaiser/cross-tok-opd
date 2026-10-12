@@ -8,6 +8,7 @@ scalar realized-path credits to contiguous atom partitions.
 from __future__ import annotations
 
 import hashlib
+import contextlib
 import math
 import os
 import random
@@ -80,6 +81,13 @@ from ._mp_opd_align import (
     align_chunks,
     align_metrics,
 )
+from ._mp_opd_align_new import align_new_guard
+from ._mp_opd_head_pair import head_pair_geometry
+from ._mp_opd_trust_p import (
+    trust_p_calibrate_scalars,
+    trust_p_response_loss,
+    trust_p_batch_metrics,
+)
 from ._mp_opd_trust import (
     TRUST_EPS_G,
     gram_affordable,
@@ -103,13 +111,13 @@ from ._mp_opd_training_diagnostics import (
 # same logits, the same head-input hidden states and the same noise-scale state.
 # ALIGN joins them: it reuses GRASS-Chunk's chunks and its exact head Gram verbatim,
 # and differs only in what it does with the credit afterwards.
-_GRASS_MODES = frozenset({"grass", "grass_chunk", "grass_chunk_temporal", "align"})
+_GRASS_MODES = frozenset({"grass", "grass_chunk", "grass_chunk_temporal", "align", "align_new"})
 
 # The modes whose partitions come from the upstream alignment, and therefore the ones
 # that need the aligner built when mp_opd_grass_chunk_source is 'xtoken'. GRASS-DP
 # builds its own partition and never reads this source, so including it here would
 # rebuild the earlier bug for every grass run.
-_CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "grass_chunk_temporal", "align"})
+_CHUNK_SOURCE_MODES = frozenset({"grass_chunk", "grass_chunk_temporal", "align", "align_new"})
 
 # AIRS needs none of the GRASS machinery: no logits, no hidden states, no Gram. It
 # shares only the noise estimator, because the method note fixes the same MAD-of-
@@ -121,7 +129,7 @@ _AIRS_MODES = frozenset({"airs"})
 # same exact Gram. It needs neither the SURE noise state (no shrinkage) nor
 # the upstream alignment (the partition is the atomizer's own strict/mismatch
 # split), so it stays out of both sets above.
-_TRUST_MODES = frozenset({"trust_r", "trust_b"})
+_TRUST_MODES = frozenset({"trust_r", "trust_b", "trust_p"})
 
 
 def fixed_partition(n: int, length: int) -> tuple[tuple[int, int], ...]:
@@ -329,6 +337,13 @@ class MetaPartitionedOPD:
         self.teacher_tokenizer = teacher_tokenizer
         self.atomizer = SimCTAtomizer(student_tokenizer, teacher_tokenizer)
         self.mode = self.args.kd.mp_opd_mode
+        if self.mode in {"align_new", "trust_p"}:
+            if self.args.kd.kd_ratio != 1.:
+                raise ValueError("ALIGN-NEW/TRUST-P guards require kd_ratio=1 (pure OPD loss)")
+            if os.environ.get("MP_OPD_GRASS_EXACT_FP32", "1").strip().lower() in {"0", "false", "no", "off"}:
+                raise ValueError("ALIGN-NEW/TRUST-P require exact fp32 geometry")
+            if getattr(self.strategy, "sp_size", 1) != 1:
+                raise ValueError("ALIGN-NEW/TRUST-P currently require sequence parallel size 1")
         self.max_span_length = int(self.args.kd.mp_opd_max_span_length)
         self.min_span_length = int(getattr(self.args.kd, "mp_opd_min_span_length", 1))
         self.fixed_span_length = int(self.args.kd.mp_opd_fixed_span_length)
@@ -403,7 +418,7 @@ class MetaPartitionedOPD:
                 rho=float(getattr(self.args.kd, "mp_opd_grass_sigma_rho", 0.99)),
                 min_adjacent_pairs=int(getattr(self.args.kd, "mp_opd_grass_sigma_min_pairs", 8)),
             )
-            if self.mode in _GRASS_MODES
+            if self.mode in _GRASS_MODES and self.mode != "align_new"
             else None
         )
         self.grass_softcap = self._detect_final_logit_softcap()
@@ -414,6 +429,16 @@ class MetaPartitionedOPD:
             raise ValueError(
                 f"mp_opd_align_eps_h must be non-negative, got {self.align_eps_h}"
             )
+        self.align_new_min_descent_fraction = float(
+            getattr(self.args.kd, "mp_opd_align_new_min_descent_fraction", .1)
+        )
+        if self.mode == "align_new":
+            if self.grass_geometry != "exact_head":
+                raise ValueError("ALIGN-NEW requires exact_head geometry")
+            if not math.isfinite(self.align_eps_h):
+                raise ValueError("ALIGN-NEW eps_h must be finite")
+            if not 0 <= self.align_new_min_descent_fraction <= 1:
+                raise ValueError("ALIGN-NEW minimum descent fraction must be in [0,1]")
         # TRUST reads cross-atom dot products, which the diag ablation zeroes by
         # construction: every dot would vanish and every lambda with it. A mode
         # that can never act must not run silently.
@@ -426,6 +451,8 @@ class MetaPartitionedOPD:
         self.trust_scope = getattr(self.args.kd, "mp_opd_trust_scope", "batch")
         if self.trust_scope not in {"batch", "microbatch"}:
             raise ValueError("TRUST scope must be batch or microbatch")
+        if self.mode == "trust_p" and self.trust_scope != "batch":
+            raise ValueError("TRUST-P requires full optimizer batch scope")
         self._trust_batch_collector = None
         self._trust_batch_result = None
         self._trust_batch_metrics = {}
@@ -434,6 +461,8 @@ class MetaPartitionedOPD:
             raise ValueError(
                 f"mp_opd_trust_eps_g must be non-negative, got {self.trust_eps_g}"
             )
+        if self.mode in {"align_new", "trust_p"} and not math.isfinite(self.trust_eps_g):
+            raise ValueError("new geometry modes require finite eps_g")
         self.airs_noise = (
             GrassNoiseEstimator(
                 rho=float(getattr(self.args.kd, "mp_opd_airs_sigma_rho", 0.99)),
@@ -447,6 +476,10 @@ class MetaPartitionedOPD:
         # Cross-atom credit operator. Atomic *is* the identity operator here, so
         # mode 'atomic' and mode 'kernel' with transform 'identity' share one path.
         self.credit_spec: CreditTransformSpec = credit_transform_from_args(self.args.kd)
+        if self.mode in {"align_new", "trust_p"} and getattr(
+            self.args.kd, "mp_opd_credit_transform", "identity"
+        ) != "identity":
+            raise ValueError("ALIGN-NEW/TRUST-P require identity atom credits")
         # Fail-closed regression probe: recompute the historical Atomic pooled loss
         # next to the identity-operator loss and raise on any drift.
         self.credit_identity_check = _env_flag("MP_OPD_CREDIT_IDENTITY_CHECK", False)
@@ -580,6 +613,10 @@ class MetaPartitionedOPD:
 
     def training_state_dict(self):
         state = {"student_updates": self.student_updates, "energy_updates": self.energy_updates}
+        if self.mode in {"align_new", "trust_p"}:
+            if self._trust_batch_result is not None or self._trust_batch_collector is not None:
+                raise RuntimeError("new geometry modes checkpoint only at optimizer boundaries")
+            state["mp_opd_guarded_mode"] = self._guarded_mode_contract()
         # The GRASS noise scale is a running estimate, not a parameter, but losing
         # it on resume silently restarts GRASS from a deflated sigma and makes the
         # early steps of a resumed run look like the atomic failure signature.
@@ -598,6 +635,10 @@ class MetaPartitionedOPD:
         return state
 
     def load_training_state_dict(self, state):
+        if self.mode in {"align_new", "trust_p"}:
+            if state.get("mp_opd_guarded_mode") != self._guarded_mode_contract():
+                raise ValueError("new geometry mode resume contract differs or is missing")
+            self.finish_optimizer_batch()
         if self.mode == "grass_chunk_temporal":
             if state.get("mp_opd_grass_chunk_temporal") != self._grass_temporal_contract():
                 raise ValueError("temporal pooling resume contract differs or is missing")
@@ -618,8 +659,21 @@ class MetaPartitionedOPD:
                     chunk_source=self.grass_chunk_source, run_length=self.grass_chunk_run_length,
                     straddle=self.grass_chunk_straddle, step_convention="one_based_optimizer_update")
 
+    def _guarded_mode_contract(self):
+        contract = dict(version=1, mode=self.mode, geometry=self.grass_geometry,
+                        eps_g=self.trust_eps_g, softcap=self.grass_softcap,
+                        head_bias=self.grass_head_bias)
+        if self.mode == "align_new":
+            contract.update(min_descent_fraction=self.align_new_min_descent_fraction,
+                            eps_h=self.align_eps_h, chunk_source=self.grass_chunk_source,
+                            run_length=self.grass_chunk_run_length,
+                            straddle=self.grass_chunk_straddle, scope="response")
+        else:
+            contract.update(scope=self.trust_scope)
+        return contract
+
     def prepare_optimizer_batch(self, batches, *, batch_loader=lambda x: x):
-        """Calibrate TRUST-B once before replaying the accumulation window.
+        """Calibrate TRUST-B/P once before replaying the accumulation window.
 
         Parameters stay fixed in both passes. Restoring each microbatch's RNG
         makes its train-mode dropout identical, with one logical RNG advance.
@@ -629,18 +683,19 @@ class MetaPartitionedOPD:
             if len(batches) != expected or getattr(self.strategy, "step", 0) != 0:
                 raise ValueError("temporal pooling requires one complete optimizer accumulation window")
             return None
-        if self.mode != "trust_b" or self.trust_scope != "batch":
+        if self.mode not in {"trust_b", "trust_p"} or self.trust_scope != "batch":
             return None
         if getattr(self.strategy, "sp_size", 1) != 1:
-            raise ValueError("full-batch TRUST-B currently requires sequence parallel size 1")
+            raise ValueError("full-batch TRUST-B/P currently requires sequence parallel size 1")
         expected = getattr(self.strategy, "accumulated_gradient", len(batches))
         if len(batches) != expected:
-            raise ValueError("TRUST-B requires one complete optimizer accumulation window")
+            raise ValueError("TRUST-B/P requires one complete optimizer accumulation window")
         if getattr(self.strategy, "step", 0) != 0:
-            raise ValueError("TRUST-B calibration must start at an optimizer boundary")
+            raise ValueError("TRUST-B/P calibration must start at an optimizer boundary")
         from kdflow.training_checkpoint import capture_rng
         collector = TrustHeadAccumulator(softcap=self.grass_softcap,
-                                         head_bias=self.grass_head_bias)
+                                         head_bias=self.grass_head_bias,
+                                         force_fp32=self.mode == "trust_p")
         self._trust_batch_collector = collector
         self._trust_batch_result = None
         before_diag = self._diagnostic_step
@@ -653,7 +708,15 @@ class MetaPartitionedOPD:
             after_rng = capture_rng()
             distributed = (torch.distributed.is_initialized()
                            and torch.distributed.get_world_size() > 1)
-            result = collector.finalize(eps_g=self.trust_eps_g, distributed=distributed)
+            if self.mode == "trust_p" and distributed:
+                normalizers = [None] * torch.distributed.get_world_size()
+                torch.distributed.all_gather_object(normalizers, getattr(collector, "loss_normalizer", None))
+                present = [v for v in normalizers if v is not None]
+                if any(v != present[0] for v in present):
+                    raise ValueError("TRUST-P requires one common loss normalizer across ranks")
+            calibration = {"calibrate": trust_p_calibrate_scalars} if self.mode == "trust_p" else {}
+            result = collector.finalize(eps_g=self.trust_eps_g, distributed=distributed,
+                                        **calibration)
             records = collector.responses
             ns = sum(r["strict_atoms"] for r in records)
             nm = sum(r["mismatch_atoms"] for r in records)
@@ -665,14 +728,16 @@ class MetaPartitionedOPD:
                 "strict_span_fraction": ns / max(ns+nm, 1),
                 "mismatch_span_fraction": nm / max(ns+nm, 1),
             }
-            raw = trust_batch_metrics(result, totals)
-            self._trust_batch_metrics = {"mp_opd_trust_"+k: v for k, v in raw.items()}
+            metric_fn = trust_p_batch_metrics if self.mode == "trust_p" else trust_batch_metrics
+            prefix = "mp_opd_trust_p_" if self.mode == "trust_p" else "mp_opd_trust_"
+            raw = metric_fn(result, totals)
+            self._trust_batch_metrics = {prefix+k: v for k, v in raw.items()}
             self._trust_batch_metrics.update({
-                "mp_opd_trust_full_batch": 1.0,
-                "mp_opd_trust_calibration_response_count": float(len(records)),
-                "mp_opd_trust_calibration_microbatch_count": float(len(batches)) * (
+                prefix+"full_batch": 1.0,
+                prefix+"calibration_response_count": float(len(records)),
+                prefix+"calibration_microbatch_count": float(len(batches)) * (
                     torch.distributed.get_world_size() if distributed else 1),
-                "mp_opd_trust_exact_geometry": 1.0,
+                prefix+"exact_geometry": 1.0,
                 "mp_opd_numeric_fallback_fraction": 0.0,
             })
             self._trust_batch_result = result
@@ -1031,23 +1096,26 @@ class MetaPartitionedOPD:
         covered = atom_ranges[-1][1]
         assignment = self._grass_chunk_assignment(atoms, student_ids, teacher_ids)
         partition, _noncontiguous = chunk_partition(assignment)
-        head = chunk_head_gram(
-            student_logits[:covered],
-            student_hidden[:covered],
-            student_labels[:covered],
-            atom_ranges,
-            partition,
-            selected_log_prob=-credits.student_token_nll[:covered],
-            softcap=self.grass_softcap,
-            head_bias=self.grass_head_bias,
-            diagonal_only=self.grass_geometry == "diag",
-        )
-        stats = align_chunks(
-            credits.rate,
-            head.gram,
-            partition,
-            eps_h=self.align_eps_h,
-        )
+        local_precision = (torch.autocast(device_type=student_logits.device.type, enabled=False)
+                           if self.mode == "align_new" else contextlib.nullcontext())
+        with local_precision:
+            head = chunk_head_gram(
+                student_logits[:covered],
+                student_hidden[:covered],
+                student_labels[:covered],
+                atom_ranges,
+                partition,
+                selected_log_prob=-credits.student_token_nll[:covered],
+                softcap=self.grass_softcap,
+                head_bias=self.grass_head_bias,
+                diagonal_only=self.grass_geometry == "diag",
+            )
+            stats = align_chunks(
+                credits.rate,
+                head.gram,
+                partition,
+                eps_h=self.align_eps_h,
+            )
         effective = stats["rate"].to(credits.rate.dtype)
         metrics = align_metrics(credits.rate, effective, head.gram, stats)
         metrics.update(
@@ -1072,6 +1140,26 @@ class MetaPartitionedOPD:
                 ),
             }
         )
+        if self.mode == "align_new":
+            # The block Gram above is valid for LOCAL surgery only. These two
+            # explicit summed head updates include ALL cross-chunk terms.
+            pair = head_pair_geometry(
+                student_logits[:covered], student_hidden[:covered],
+                student_labels[:covered], atom_ranges, credits.rate, effective,
+                selected_log_prob=-credits.student_token_nll[:covered],
+                softcap=self.grass_softcap, head_bias=self.grass_head_bias,
+            )
+            effective, global_metrics = align_new_guard(
+                credits.rate, effective, pair.first_norm2, pair.second_norm2, pair.dot,
+                min_descent_fraction=self.align_new_min_descent_fraction,
+                eps_g=self.trust_eps_g,
+            )
+            # Old metric names imply a total update. For the new mode explicitly
+            # tag every old diagnostic as the LOCAL candidate, then add the true
+            # full-response geometry under its own namespace.
+            metrics = {k.replace("mp_opd_align_", "mp_opd_align_new_local_"): v
+                       for k, v in metrics.items()}
+            metrics.update(global_metrics)
         return soft_partition_loss(credits.current_nll, effective), metrics
 
     # Per-response TRUST values below; the training loop averages them over the
@@ -2049,7 +2137,7 @@ class MetaPartitionedOPD:
                 credits, atoms, sample_index=sample_index
             )
 
-        if self.mode in {"grass", "grass_chunk", "grass_chunk_temporal", "align", "trust_r"}:
+        if self.mode in {"grass", "grass_chunk", "grass_chunk_temporal", "align", "align_new", "trust_r"}:
             # Numeric guardrails are warnings here, not run killers. A geometry
             # failure on finite inputs falls back to the atomic credits the
             # atomic mode trains on -- a well-defined update, never a zeroed or
@@ -2089,7 +2177,7 @@ class MetaPartitionedOPD:
                         student_ids=student_ids,
                         teacher_ids=teacher_ids,
                     )
-                elif self.mode == "align":
+                elif self.mode in {"align", "align_new"}:
                     loss, metrics = self._align_loss(
                         credits,
                         atoms,
@@ -2108,6 +2196,10 @@ class MetaPartitionedOPD:
                         student_hidden=student_hidden,
                     )
             except (ValueError, RuntimeError, FloatingPointError) as error:
+                if self.mode == "align_new":
+                    # An unmeasured guard is not a qualified ALIGN-NEW update.
+                    # Fail closed instead of quietly turning the run into Atomic.
+                    raise
                 if type(error).__name__ == "OutOfMemoryError" or (
                     isinstance(error, RuntimeError)
                     and "out of memory" in str(error).lower()
@@ -2322,7 +2414,7 @@ class MetaPartitionedOPD:
                 tea_logits,
                 torch.tensor(tea_ids, device=tea_logits.device),
             )
-            if self.mode == "trust_b":
+            if self.mode in {"trust_b", "trust_p"}:
                 # Batch scope collects head updates in the no-grad first pass
                 # and replays one lambda across the entire optimizer window.
                 # Only the explicit legacy microbatch scope stashes pair-Grams.
@@ -2331,6 +2423,14 @@ class MetaPartitionedOPD:
                 if self.trust_scope == "batch":
                     is_strict = strict_mask([a.boundary_type for a in atoms]).to(credits.rate.device)
                     if self._trust_batch_collector is not None:
+                        if self.mode == "trust_p":
+                            normalizer = float(avg_token_num)
+                            if not (math.isfinite(normalizer) and normalizer > 0):
+                                raise ValueError("TRUST-P loss normalizer must be finite and positive")
+                            previous = getattr(self._trust_batch_collector, "loss_normalizer", normalizer)
+                            if previous != normalizer:
+                                raise ValueError("TRUST-P requires one common loss normalizer across microbatches")
+                            self._trust_batch_collector.loss_normalizer = normalizer
                         self._trust_batch_collector.add_response(
                             stu_logits, hidden_here, stu_label_tensor,
                             [(a.student_start, a.student_end) for a in atoms],
@@ -2338,12 +2438,13 @@ class MetaPartitionedOPD:
                         )
                         sample_loss = student_logits_flat.sum() * 0.0
                     elif self._trust_batch_result is not None:
-                        sample_loss = trust_response_loss(
+                        loss_fn = trust_p_response_loss if self.mode == "trust_p" else trust_response_loss
+                        sample_loss = loss_fn(
                             credits.current_nll, credits.rate, is_strict, ~is_strict,
                             self._trust_batch_result,
                         )
                     else:
-                        raise RuntimeError("full-batch TRUST-B requires prepare_optimizer_batch before backward")
+                        raise RuntimeError("full-batch TRUST-B/P requires prepare_optimizer_batch before backward")
                     sample_metrics = {}
                 else:
                     trust_b_stash.append(
@@ -2461,7 +2562,7 @@ class MetaPartitionedOPD:
         metrics.update(trust_b_metrics)
         if self.mode == "trust_b" and self.trust_scope == "microbatch":
             metrics["mp_opd_trust_full_batch"] = kd_loss.new_tensor(0.)
-        if self.mode == "trust_b" and self.trust_scope == "batch":
+        if self.mode in {"trust_b", "trust_p"} and self.trust_scope == "batch":
             metrics.update({k: kd_loss.new_tensor(v)
                             for k, v in self._trust_batch_metrics.items()})
         if self.args.kd.kd_ratio < 1:

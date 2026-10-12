@@ -196,8 +196,8 @@ class DistillationArguments:
     mp_opd_mode: str = field(
         default="atomic",
         metadata={"choices": ["atomic", "fixed", "random", "oracle", "soft", "gbv",
-                              "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align",
-                              "trust_r", "trust_b", "dpca"]},
+                              "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "align_new",
+                              "trust_r", "trust_b", "trust_p", "dpca"]},
     )
     mp_opd_max_span_length: int = field(default=4)
     mp_opd_min_span_length: int = field(default=1)
@@ -360,7 +360,7 @@ class DistillationArguments:
     mp_opd_trust_scope: str = field(
         default="batch",
         metadata={"choices": ["batch", "microbatch"], "help":
-                  "TRUST-B calibration over the full optimizer accumulation batch; "
+                  "TRUST-B/P calibration over the full optimizer accumulation batch; "
                   "microbatch selects the explicitly named legacy ablation."},
     )
     mp_opd_align_eps_h: float = field(
@@ -368,6 +368,12 @@ class DistillationArguments:
         metadata={"help": "Gram diagonal at or below which a candidate ALIGN projection "
                           "is skipped rather than dividing by a vanishing norm. Fixed by "
                           "the method note; exposed so the skip is auditable, not tuned."},
+    )
+    mp_opd_align_new_min_descent_fraction: float = field(
+        default=0.1,
+        metadata={"help": "ALIGN-NEW full-response head guard: retain at least this "
+                          "fraction of Atomic first-order descent (0..1). A fixed "
+                          "recipe parameter, not an accuracy-selected optimum."},
     )
     mp_opd_energy_hidden_dim: int = field(default=32)
     mp_opd_energy_layers: int = field(default=2)
@@ -472,7 +478,7 @@ class DistillationArguments:
             if self.xtoken_max_comb_len <= 0:
                 raise ValueError("xtoken_max_comb_len must be positive.")
         if self.kd_algorithm == "mp_opd":
-            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "trust_r", "trust_b", "dpca"}:
+            if self.mp_opd_mode not in {"atomic", "fixed", "random", "oracle", "soft", "gbv", "kernel", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "align_new", "trust_r", "trust_b", "trust_p", "dpca"}:
                 raise ValueError(f"unsupported mp_opd_mode: {self.mp_opd_mode}")
             if self.mp_opd_max_span_length <= 0 or self.mp_opd_fixed_span_length <= 0:
                 raise ValueError("MP-OPD span lengths must be positive")
@@ -545,7 +551,7 @@ class DistillationArguments:
             ):
                 raise ValueError("temporal pooling requires 0 <= start_step < end_step")
             if (
-                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align"}
+                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align", "align_new"}
                 and self.mp_opd_grass_chunk_source == "xtoken"
             ):
                 # TokenAligner.align is tokenizer/string alignment; vocabulary
@@ -596,7 +602,7 @@ class DistillationArguments:
                     "operator, and no such composition is defined"
                 )
             if (
-                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align", "trust_r", "trust_b"}
+                self.mp_opd_mode in {"grass_chunk", "grass_chunk_temporal", "align", "align_new", "trust_r", "trust_b", "trust_p"}
                 and self.mp_opd_credit_transform != "identity"
             ):
                 # Same reasoning as GRASS-DP, applied to chunk-local shrinkage.
@@ -617,6 +623,16 @@ class DistillationArguments:
                     "mp_opd_mode='airs' requires mp_opd_credit_transform='identity'; "
                     "the per-atom shrinkage is not composed with a cross-atom operator"
                 )
+            if self.mp_opd_mode in {"align_new", "trust_p"} and self.mp_opd_grass_geometry != "exact_head":
+                raise ValueError("ALIGN-NEW/TRUST-P require exact_head geometry")
+            if self.mp_opd_mode in {"align_new", "trust_p"} and self.kd_ratio != 1.:
+                raise ValueError("ALIGN-NEW/TRUST-P require kd_ratio=1 (pure OPD loss)")
+            if self.mp_opd_mode == "trust_p" and self.mp_opd_trust_scope != "batch":
+                raise ValueError("TRUST-P requires full optimizer batch scope")
+            if self.mp_opd_mode == "align_new" and not (
+                0 <= self.mp_opd_align_new_min_descent_fraction <= 1
+            ):
+                raise ValueError("ALIGN-NEW minimum descent fraction must be in [0,1]")
             if not 0.0 <= float(self.mp_opd_airs_sigma_rho) < 1.0:
                 raise ValueError(
                     "mp_opd_airs_sigma_rho must lie in [0, 1); AIRS reuses the GRASS "

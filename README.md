@@ -23,6 +23,15 @@ For existing checkpoint failures, use the
 generation, independent fixed-prefix logprobs and isolated code/math checks.
 This diagnostic does not replace the original full evaluation contract.
 
+Two separate experimental modes, `align_new` (ALIGN-NEW) and `trust_p`
+(Projected Mismatch Trust), are specified in
+[the algorithm draft](docs/ALIGN_NEW_TRUST_P.md). ALIGN-NEW guards the local
+surgery using the full-response head update, including cross-chunk terms;
+TRUST-P retains orthogonal mismatch signal using one projection decision over
+the complete optimizer batch. They require pure OPD and exact head geometry,
+preserve the old modes, and need fresh runs from SFT. No accuracy improvement
+or production B200 capacity has been established for these new modes.
+
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in
 [Full alternating and pipeline resume](docs/full_alternating_resume.md).

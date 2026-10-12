@@ -1,6 +1,7 @@
 """Exact full-batch TRUST head updates, streamed without retaining forward graphs."""
 from __future__ import annotations
 
+import contextlib
 import torch
 
 from ._mp_opd_grass_span import _exact_fp32, _log_partition_from_selected
@@ -16,10 +17,12 @@ class TrustHeadAccumulator:
     factor for the entire accumulation window and cancels from lambda.
     """
 
-    def __init__(self, *, softcap=None, head_bias=False, vocab_chunk=4096):
+    def __init__(self, *, softcap=None, head_bias=False, vocab_chunk=4096,
+                 force_fp32=False):
         self.softcap = softcap
         self.head_bias = head_bias
         self.vocab_chunk = int(vocab_chunk)
+        self.force_fp32 = bool(force_fp32)
         if self.vocab_chunk < 1:
             raise ValueError("TRUST vocabulary tile must be positive")
         self.gs = self.gm = self.bs = self.bm = None
@@ -59,7 +62,9 @@ class TrustHeadAccumulator:
         hs = hidden.detach().float() * qs.unsqueeze(1)
         hm = hidden.detach().float() * qm.unsqueeze(1)
         logz = _log_partition_from_selected(logits, labels, selected_log_prob[:covered]).float()
-        with _exact_fp32():
+        autocast_guard = (torch.autocast(device_type=logits.device.type, enabled=False)
+                          if self.force_fp32 else contextlib.nullcontext())
+        with _exact_fp32(), autocast_guard:
             for low in range(0, vocab, self.vocab_chunk):
                 high = min(low + self.vocab_chunk, vocab)
                 z = logits[:, low:high].detach().float()
@@ -83,7 +88,8 @@ class TrustHeadAccumulator:
         })
 
     @torch.no_grad()
-    def finalize(self, *, eps_g=1e-12, distributed=False):
+    def finalize(self, *, eps_g=1e-12, distributed=False,
+                 calibrate=trust_calibrate_scalars):
         if distributed:
             import torch.distributed as dist
             # Every rank uses the same pinned student head shape. Empty ranks
@@ -121,6 +127,6 @@ class TrustHeadAccumulator:
                 dot += float((self.bs.double()*self.bm.double()).sum())
         n_s = sum(r["strict_atoms"] for r in self.responses)
         n_m = sum(r["mismatch_atoms"] for r in self.responses)
-        result = trust_calibrate_scalars(gs2, gm2, dot, n_s, n_m, eps_g=eps_g)
+        result = calibrate(gs2, gm2, dot, n_s, n_m, eps_g=eps_g)
         self.gs = self.gm = self.bs = self.bm = None
         return result

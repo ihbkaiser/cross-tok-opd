@@ -17,7 +17,8 @@ pytestmark = pytest.mark.skipif(os.environ.get("AUDIT_TEST_DEVICE") != "cuda",
                                 reason="bounded target-runtime CUDA qualification")
 
 
-def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd():
+@pytest.mark.parametrize("mode", ["trust_b", "trust_p"])
+def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd(mode):
     from transformers import Gemma2Config, Gemma2ForCausalLM
     torch.manual_seed(942)
     config = Gemma2Config(vocab_size=256, hidden_size=64, intermediate_size=128,
@@ -43,7 +44,7 @@ def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd():
 
     model = Student().train()
     reference = copy.deepcopy(model)
-    algo = _make_algo("trust_b")
+    algo = _make_algo(mode)
     algo.student = model
     algo.grass_softcap = 30.
     algo.grass_head_bias = False
@@ -78,7 +79,8 @@ def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd():
                             scheduler=scheduler, strategy=Strategy(), args=algo.args, _world_size=1)
     status = _fit_body()(actor, batches)
     assert status["optimizer_updates"] == 1
-    assert status["mp_opd_trust_calibration_response_count"] == 64
+    prefix = "mp_opd_trust_p_" if mode == "trust_p" else "mp_opd_trust_"
+    assert status[prefix+"calibration_response_count"] == 64
     assert status["mp_opd_numeric_fallback_fraction"] == 0
     assert len(model.frames) == 32
     for first, second in zip(model.frames[:16], model.frames[16:]):
@@ -87,7 +89,9 @@ def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd():
     for batch in batches:
         logits = reference(batch["stu_input_ids"], attention_mask=batch["stu_attn_mask"])["logits"]
         credits = _reference_coefficients(algo, batch, logits)
-        loss = sum(c.rate[0]*c.current_nll[0] + status["mp_opd_trust_lambda"]*c.rate[1]*c.current_nll[1]
+        strict_scale = status[prefix+"strict_scale"] if mode == "trust_p" else 1.
+        mismatch_scale = 1. if mode == "trust_p" else status[prefix+"lambda"]
+        loss = sum(strict_scale*c.rate[0]*c.current_nll[0] + mismatch_scale*c.rate[1]*c.current_nll[1]
                    for c in credits)
         (loss/(12*16)).backward()
     maximum_error = 0.
@@ -104,11 +108,35 @@ def test_gemma2_bf16_b64_m4_full_batch_update_matches_autograd():
             assert torch.equal(actual, ref), "BF16 transformer optimizer update differs"
     print("GEMMA2_B64_M4_JSON="+json.dumps({
         "dtype": "bfloat16", "softcap": 30., "optimizer_updates": 1,
-        "responses": 64, "lambda": status["mp_opd_trust_lambda"],
+        "responses": 64, "mode": mode, "strict_scale": strict_scale,
+        "mismatch_scale": mismatch_scale,
         "max_parameter_error": maximum_error, "max_gradient_error": maximum_gradient_error,
         "dropout_replay": "exact",
         "torch": torch.__version__, "gpu": torch.cuda.get_device_name(),
     }))
+
+
+def test_align_new_full_response_geometry_at_gemma2_2b_head_shape_is_bounded():
+    from kdflow.algorithms._mp_opd_head_pair import head_pair_geometry
+    vocab, width, tokens = 256000, 2304, 32
+    torch.cuda.empty_cache()
+    before = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    logits = torch.zeros(tokens, vocab, device="cuda")
+    hidden = torch.ones(tokens, width, device="cuda")
+    labels = torch.ones(tokens, device="cuda", dtype=torch.long)
+    selected = torch.full((tokens,), -torch.log(torch.tensor(float(vocab))).item(), device="cuda")
+    r, e = torch.tensor([1., 1.], device="cuda"), torch.tensor([2., .25], device="cuda")
+    result = head_pair_geometry(logits, hidden, labels, [(0, 1), (1, tokens)], r, e,
+                                selected_log_prob=selected)
+    base = width*(1-1/vocab)
+    assert result.first_norm2 == pytest.approx(base*32**2, rel=3e-6)
+    assert result.second_norm2 == pytest.approx(base*9.75**2, rel=3e-6)
+    assert result.dot == pytest.approx(base*32*9.75, rel=3e-6)
+    peak = (torch.cuda.max_memory_allocated()-before)/2**30
+    assert peak < 1., "full-response guard retained complete vocabulary head updates"
+    print("ALIGN_NEW_HEAD_SHAPE_JSON="+json.dumps(dict(peak_gib=peak, vocab=vocab,
+          width=width, tokens=tokens, full_response_cosine=result.dot/(result.first_norm2*result.second_norm2)**.5)))
 
 
 def test_gemma2_2b_head_shape_accumulator_has_bounded_memory_and_correct_lambda():

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 mode, limit, output = sys.argv[1:]
-assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "trust_r", "trust_b"}
+assert mode in {"atomic", "fixed", "random", "soft", "gbv", "dpca", "grass", "grass_chunk", "grass_chunk_temporal", "airs", "align", "align_new", "trust_r", "trust_b", "trust_p"}
 limit = int(limit)
 assert 0 <= limit <= 312
 
@@ -60,6 +60,7 @@ opts.update(
     teacher_dp_size=1,
     mp_opd_mode=mode,
     mp_opd_trust_scope=os.environ.get("MP_TRUST_SCOPE", "batch"),
+    mp_opd_align_new_min_descent_fraction=float(os.environ.get("MP_ALIGN_NEW_MIN_DESCENT_FRACTION", "0.1")),
     kd_algorithm=os.environ.get("MP_ALGORITHM", "mp_opd"),
     seed=int(os.environ.get("MP_SEED", "42")),
     lr_scheduler_horizon_steps=312,
@@ -103,7 +104,7 @@ opts.update(
 # because switching it changes the algorithm even if the mode name is unchanged.
 # ALIGN reads the chunk from the same source as GRASS-Chunk and applies its own
 # projection afterwards, so it inherits that choice rather than duplicating it.
-if mode in {"grass_chunk", "grass_chunk_temporal", "align"}:
+if mode in {"grass_chunk", "grass_chunk_temporal", "align", "align_new"}:
     opts.update(
         mp_opd_grass_chunk_source=os.environ.get("MP_GRASS_CHUNK_SOURCE", "run" if mode == "grass_chunk_temporal" else "xtoken"),
         mp_opd_grass_chunk_run_length=int(os.environ.get("MP_GRASS_CHUNK_RUN_LENGTH", "2")),
@@ -142,6 +143,11 @@ if mode in {"grass_chunk", "grass_chunk_temporal", "align"}:
         + str(opts["mp_opd_grass_chunk_shadow"]),
         flush=True,
     )
+
+if mode in {"align_new", "trust_p"} and opts["kd_algorithm"] != "mp_opd":
+    raise ValueError("ALIGN-NEW/TRUST-P require MP_ALGORITHM=mp_opd")
+if mode == "trust_p" and opts["mp_opd_trust_scope"] != "batch":
+    raise ValueError("TRUST-P requires MP_TRUST_SCOPE=batch")
 
 if os.environ.get("MP_OFFLOAD_ADAM_MOMENTS", "0") not in {"0", "1"}:
     raise ValueError("MP_OFFLOAD_ADAM_MOMENTS must be 0 or 1")

@@ -18,11 +18,17 @@ GPU = os.environ.get("AUDIT_GPU", "0") == "1"
 GPU_REQUEST = os.environ.get("AUDIT_GPU_TYPE", "B200,H100").split(",")
 RUNTIME = "docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f"
 PYTHON = "/opt/venvs/simct-b200/bin/python" if GPU else None
+TIMEOUT = int(os.environ.get("AUDIT_TIMEOUT_SECONDS", "900" if GPU else "1800"))
+if not 60 <= TIMEOUT <= 1800:
+    raise ValueError("Audit timeout must be between 60 and 1800 seconds")
 
 MODULES = (
     "_mp_opd_trust.py",
     "_mp_opd_trust_batch.py",
     "_mp_opd_align.py",
+    "_mp_opd_align_new.py",
+    "_mp_opd_head_pair.py",
+    "_mp_opd_trust_p.py",
     "_mp_opd_grass_chunk.py",
     "_mp_opd_grass_span.py",
     "_mp_opd_credit.py",
@@ -61,6 +67,8 @@ TESTS = (
     "test_grass_chunk.py",
     "test_grass_chunk_temporal.py",
     "test_align.py",
+    "test_guarded_modes.py",
+    "test_guarded_launch.py",
     "test_trust.py",
     "test_numeric_fallback.py",
     "test_algorithm_audit_cuda.py",
@@ -77,7 +85,7 @@ image = (
 image = (
     image
     .env({"AUDIT_GPU": "1" if GPU else "0", "AUDIT_GPU_TYPE": ",".join(GPU_REQUEST),
-          "AUDIT_RUN_LABEL": RUN})
+          "AUDIT_RUN_LABEL": RUN, "AUDIT_SOURCE_COMMIT": os.environ.get("AUDIT_SOURCE_COMMIT", "unrecorded")})
     .add_local_file(ROOT / "kdflow" / "__init__.py", "/work/kdflow/__init__.py")
     .add_local_file(
         ROOT / "kdflow" / "algorithms" / "__init__.py",
@@ -125,12 +133,16 @@ image = image.add_local_file(ROOT / "experiments/runai/run_single_gpu.py",
                              "/work/experiments/runai/run_single_gpu.py")
 image = image.add_local_file(ROOT / "experiments/runai/launch_algorithm_audit_fix.py",
                              "/work/experiments/runai/launch_algorithm_audit_fix.py")
+image = image.add_local_file(ROOT / "experiments/modal/mp_opd_phi_gemma_50.py",
+                             "/work/experiments/modal/mp_opd_phi_gemma_50.py")
+image = image.add_local_file(ROOT / "kdflow/rollout_serving.py", "/work/kdflow/rollout_serving.py")
 
 app = modal.App(RUN, image=image)
 
 
 @app.function(image=image, cpu=2.0, memory=8192 if GPU else 4096,
-              gpu=GPU_REQUEST if GPU else None, timeout=900 if GPU else 1800)
+              gpu=GPU_REQUEST if GPU else None, timeout=TIMEOUT, retries=0,
+              max_containers=1)
 def run_guardrail_tests():
     import hashlib
 
@@ -155,6 +167,7 @@ def run_guardrail_tests():
                 "python": sys.version.split()[0],
                 "runtime_digest": RUNTIME if GPU else "torch-cpu",
                 "device": "cuda" if GPU else "cpu",
+                "source_commit": os.environ.get("AUDIT_SOURCE_COMMIT", "unrecorded"),
                 "source_sha256": digests,
             }
         ),
@@ -163,7 +176,8 @@ def run_guardrail_tests():
 
     environment = {**os.environ, "PYTHONPATH": "/work/experiments/modal/vendor:/work",
                    "AUDIT_TEST_DEVICE": "cuda" if GPU else "cpu",
-                   "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+                   "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                   "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
     if GPU:
         environment["LD_LIBRARY_PATH"] = ":".join([
             "/usr/local/cuda/lib64", "/usr/local/nvidia/lib64",
