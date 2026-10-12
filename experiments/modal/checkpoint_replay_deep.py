@@ -10,6 +10,22 @@ from transformers import AutoModelForCausalLM,AutoTokenizer
 import sglang
 from mp_opd_parity_worker import _stats,_engine_kwargs
 
+
+def healthy_terminal_prefixes(root):
+    """Common completed SFT answers, selected only after successful math grading."""
+    samples=json.loads((root/'warmup-responses.json').read_text())
+    grades={r['id']:r for r in json.loads((root/'warmup-mathverify.json').read_text())}
+    rows=[]
+    for sample in samples:
+        case_id=sample['case']['id']
+        if case_id not in ('math-apples','math-speed','math-age'):continue
+        if grades.get(case_id,{}).get('passed') is not True:continue
+        output=list(sample['output_ids'])
+        if not output or output[-1] not in (1,107):continue
+        while output and output[-1] in (1,107):output.pop()
+        if output:rows.append({'case_id':case_id,'prefix_ids':sample['prompt_ids']+output})
+    return rows
+
 def main():
     OUT=Path('/results')
     arm=sys.argv[-1]
@@ -50,6 +66,7 @@ def main():
         dtype=torch.bfloat16,attn_implementation='sdpa').to('cuda').eval()
     tok=AutoTokenizer.from_pretrained(path,local_files_only=True)
     sg_all=[];hf_all=[]
+    healthy=[]
     with torch.inference_mode():
         for row in records:
             prefix=row['prefix_ids'];labels=row['target_ids']
@@ -73,8 +90,19 @@ def main():
             row['greedy_equal_ids']=new==row['sg_continuation_ids']
             row['greedy_common_prefix']=next((i for i,(a,b) in enumerate(zip(new,row['sg_continuation_ids'])) if a!=b),
                                            min(len(new),len(row['sg_continuation_ids'])))
+        # Matched healthy answer endpoints distinguish entry/stopping drift from
+        # persistence inside already repetitive prefixes. These are HF-only probes.
+        for probe in healthy_terminal_prefixes(OUT):
+            logits=model(torch.tensor([probe['prefix_ids']],device='cuda'),use_cache=False).logits[0,-1].float()
+            lp=logits.log_softmax(-1);top=lp.topk(8).indices.tolist()
+            healthy.append({**probe,'raw_stop_mass':float(lp.exp()[[1,107]].sum()),
+                            'eos_logprob':float(lp[1]),'eot_logprob':float(lp[107]),
+                            'top_ids':top,'top_text':[tok.decode([x]) for x in top],
+                            'top_logprobs':[float(lp[x]) for x in top],
+                            'scope':'HF SDPA only; identical correctly graded SFT endpoint; not own-policy termination frequency'})
     del model;gc.collect();torch.cuda.empty_cache()
     result={'arm':arm,'probe_arm':probe_arm,'model_path':path,'records':records,'summary':_stats(sg_all,hf_all),
+            'healthy_terminal_probes':healthy,
             'greedy_equal':sum(r['greedy_equal_ids'] for r in records),'n':len(records),
             'elapsed_seconds':time.monotonic()-started,
             'scope':'Same source-policy prefix and targets forced into all policies; not training credit or full benchmark'}

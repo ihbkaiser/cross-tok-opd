@@ -98,3 +98,10 @@ Use `--stage batch --arm trust-r-step160,trust-r-step240,trust-r-step312`
 --probe-arm trust-r-step312` compares policies on the same source-policy loop
 prefixes. Choose the probe only after confirming capped outputs exist.
 No production algorithm, evaluator or runtime dependency changes are needed.
+
+After CPU math grading, deep probes also score three common healthy SFT answer
+endpoints (apples/speed/age). Only correctly graded, EOS-terminated warmup outputs
+are admitted; terminal control tokens are removed from their copied prefixes.
+Each policy's raw EOS/EOT mass is recorded at the identical completed answer.
+These endpoint probabilities are HF/SDPA-only conditional probes, not a matched
+two-backend generation result or the policy's own stopping frequency.

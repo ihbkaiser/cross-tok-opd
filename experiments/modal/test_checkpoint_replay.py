@@ -18,6 +18,21 @@ from degen_checkpoint_assets import checkpoint_groups, REQUIRED
 
 
 class ReplayTests(unittest.TestCase):
+    def test_healthy_terminal_probe_requires_correct_completed_answer(self):
+        import json
+        fake_sg=types.ModuleType('sglang');fake_tf=types.ModuleType('transformers')
+        fake_tf.AutoModelForCausalLM=mock.Mock();fake_tf.AutoTokenizer=mock.Mock()
+        with mock.patch.dict('sys.modules',{'torch':types.ModuleType('torch'),'sglang':fake_sg,'transformers':fake_tf}):
+            namespace=runpy.run_path(str(Path(__file__).parent/'checkpoint_replay_deep.py'),run_name='spawned_worker')
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            cases=[{'case':{'id':name},'prompt_ids':[2,3],'output_ids':ids}
+                   for name,ids in [('math-apples',[8,9,107]),('math-speed',[8,107]),('math-age',[8,9])]]
+            (root/'warmup-responses.json').write_text(json.dumps(cases))
+            (root/'warmup-mathverify.json').write_text(json.dumps([{'id':'math-apples','passed':True},
+                {'id':'math-speed','passed':False},{'id':'math-age','passed':True}]))
+            self.assertEqual(namespace['healthy_terminal_prefixes'](root),[{'case_id':'math-apples','prefix_ids':[2,3,8,9]}])
+
     def test_cloud_overlay_forwards_importer_and_volume_selection(self):
         # Modal imports the module again inside its worker; client-only env is lost.
         path=Path(__file__).parent/'checkpoint_replay_modal.py'
