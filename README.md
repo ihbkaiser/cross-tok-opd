@@ -32,6 +32,12 @@ the complete optimizer batch. They require pure OPD and exact head geometry,
 preserve the old modes, and need fresh runs from SFT. No accuracy improvement
 or production B200 capacity has been established for these new modes.
 
+The bounded production canary in `experiments/modal/guarded_production_modal.py`
+uses a committed source bundle, real warmup checkpoints, cached teachers and the
+node shell launcher. It keeps batch64/micro4 and the 4096 context contract while
+setting diagnostic-only `MP_GENERATE_MAX_LEN=128`. That override is rejected for
+long runs; remove it before a campaign. Canary completion is not accuracy evidence.
+
 The experimental full-student alternating campaign and shared on-policy
 training-state resume contract are documented in
 [Full alternating and pipeline resume](docs/full_alternating_resume.md).

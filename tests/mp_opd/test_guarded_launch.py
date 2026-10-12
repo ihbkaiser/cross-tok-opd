@@ -61,7 +61,7 @@ def test_actual_python_launcher_preflight_records_new_mode_without_loading_model
     env["MP_DATASET_PATH"] = str(dataset)
     env.update(MP_PREFLIGHT_ONLY="1", MP_GRASS_CHUNK_SOURCE="run", MP_GRASS_CHUNK_RUN_LENGTH="2",
                MP_TRUST_SCOPE="batch", MP_ALIGN_NEW_MIN_DESCENT_FRACTION="0.25",
-               CUDA_VISIBLE_DEVICES="")
+               CUDA_VISIBLE_DEVICES="", MP_GENERATE_MAX_LEN="128")
     result = subprocess.run([sys.executable, str(ROOT/"experiments/runai/run_single_gpu.py"), mode, "2", str(output)],
                             env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stdout+result.stderr
@@ -71,8 +71,21 @@ def test_actual_python_launcher_preflight_records_new_mode_without_loading_model
     assert config["train_batch_size"] == 64 and config["micro_train_batch_size"] == 4
     assert config["mp_opd_align_new_min_descent_fraction"] == .25
     assert config["kd_ratio"] == 1.
+    assert config["generate_max_len"] == 128 and config["max_len"] == 4096
     if mode == "align_new":
         assert config["mp_opd_grass_chunk_source"] == "run"
         assert config["mp_opd_grass_chunk_run_length"] == 2
     else:
         assert config["mp_opd_trust_scope"] == "batch"
+    # The diagnostic must fail closed when accidentally copied to a long run.
+    env["MP_GENERATE_MAX_LEN"] = "128"
+    long_run = subprocess.run([sys.executable, str(ROOT/"experiments/runai/run_single_gpu.py"),
+                               mode, "312", str(tmp_path/(mode+"-long"))],
+                              env=env, text=True, capture_output=True)
+    assert long_run.returncode != 0 and "diagnostic-only" in long_run.stderr
+    for cap in ("0", "4097"):
+        env["MP_GENERATE_MAX_LEN"] = cap
+        invalid = subprocess.run([sys.executable, str(ROOT/"experiments/runai/run_single_gpu.py"),
+                                  mode, "2", str(tmp_path/(mode+"-cap-"+cap))],
+                                 env=env, text=True, capture_output=True)
+        assert invalid.returncode != 0 and "positive and <= max_len" in invalid.stderr

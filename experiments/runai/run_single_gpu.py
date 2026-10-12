@@ -187,6 +187,16 @@ if os.environ.get('MP_MAX_LEN'):
         raise ValueError('MP_MAX_LEN is a diagnostic-only knob (limit 1-30)')
     opts['max_len'] = int(os.environ['MP_MAX_LEN'])
 
+if os.environ.get('MP_GENERATE_MAX_LEN'):
+    # A bounded end-to-end canary may cap generation without changing the
+    # campaign's context/padding contract. Never silently alter a long run.
+    if not (0 < limit <= 30):
+        raise ValueError('MP_GENERATE_MAX_LEN is a diagnostic-only knob (limit 1-30)')
+    generated = int(os.environ['MP_GENERATE_MAX_LEN'])
+    if not 0 < generated <= opts['max_len']:
+        raise ValueError('MP_GENERATE_MAX_LEN must be positive and <= max_len')
+    opts['generate_max_len'] = generated
+
 if opts['micro_train_batch_size'] not in (1,2,4,8,16,32,64):
     raise ValueError('Student microbatch must be a positive divisor of B64')
 if opts.get('mp_opd_meta_microbatch_size', 4) not in (1,2,4,8,16):
