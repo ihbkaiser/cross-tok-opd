@@ -20,6 +20,22 @@ BUNDLE = Path(os.environ.get("GUARDED_CANARY_BUNDLE", "/tmp/unused"))
 ROOT = Path(__file__).resolve().parents[2] if modal.is_local() else Path("/work")
 IMAGE = "docker.io/codemaivanngu/simct-b200@sha256:33b2b55874b34447a1395328987b64c63d824a05fa6b737fe5978b22d497b24f"
 PY = "/opt/venvs/simct-b200/bin/python"
+
+
+def validate_local_source(root, bundle, expected):
+    """Reject stale/mistyped source references before creating any paid app."""
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+    if git("rev-parse", "HEAD") != expected:
+        raise ValueError("GUARDED_CANARY_SOURCE_COMMIT differs from local HEAD")
+    if git("status", "--porcelain", "--untracked-files=no"):
+        raise ValueError("Commit tracked source changes before submitting")
+    if git("bundle", "list-heads", str(bundle)) != expected+" refs/heads/vdt/ops/b200-portable":
+        raise ValueError("Canary bundle ref differs from requested source commit")
+
+
+if modal.is_local():
+    validate_local_source(ROOT, BUNDLE, COMMIT)
 app = modal.App(RUN)
 image = (modal.Image.from_registry(IMAGE).entrypoint([])
          .env({"GUARDED_CANARY_SOURCE_COMMIT": COMMIT})
