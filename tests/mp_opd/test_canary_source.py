@@ -22,7 +22,7 @@ def source(tmp_path):
     repo = tmp_path/"repo"; repo.mkdir()
     git(repo, "init", "-b", "vdt/ops/b200-portable")
     (repo/"source.py").write_text("pass\n")
-    git(repo, "add", "source.py")
+    git(repo, "-c", "core.autocrlf=true", "add", "source.py")
     git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
         "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
     bundle = tmp_path/"source.bundle"
@@ -48,3 +48,14 @@ def test_clean_head_with_an_older_bundle_is_rejected(source):
         "-c", "commit.gpgsign=false", "commit", "-m", "new fixture")
     with pytest.raises(ValueError, match="bundle ref"):
         validate(repo, bundle, git(repo, "rev-parse", "HEAD"))
+
+
+def test_windows_checkout_eol_policy_preserves_real_edit_detection(source):
+    repo, bundle, commit = source
+    (repo/"source.py").write_bytes(b"pass\r\n")
+    with pytest.raises(ValueError, match="tracked source"):
+        validate(repo, bundle, commit)
+    validate(repo, bundle, commit, windows_checkout=True)
+    (repo/"source.py").write_bytes(b"print(2)\r\n")
+    with pytest.raises(ValueError, match="tracked source"):
+        validate(repo, bundle, commit, windows_checkout=True)
